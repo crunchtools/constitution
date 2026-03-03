@@ -1,0 +1,47 @@
+name: Validate Constitutions
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Validate test constitutions (should pass)
+        run: |
+          echo "=== Valid MCP Server ==="
+          python validate-constitution.py tests/valid-mcp-server.md --verbose
+
+          echo ""
+          echo "=== Valid Container Image ==="
+          python validate-constitution.py tests/valid-container-image.md --verbose
+
+      - name: Validate invalid constitution (should fail)
+        run: |
+          echo "=== Invalid (missing Inherits) — expecting failure ==="
+          if python validate-constitution.py tests/invalid-missing-inherits.md; then
+            echo "ERROR: Validator should have failed but passed!"
+            exit 1
+          else
+            echo "PASS: Validator correctly caught violations"
+          fi
+
+      - name: Validate profile documents reference themselves
+        run: |
+          echo "Checking profile documents exist and are non-empty..."
+          test -s constitution.md || { echo "FAIL: constitution.md missing or empty"; exit 1; }
+          test -s profiles/mcp-server.md || { echo "FAIL: profiles/mcp-server.md missing or empty"; exit 1; }
+          test -s profiles/container-image.md || { echo "FAIL: profiles/container-image.md missing or empty"; exit 1; }
+          test -s profiles/claude-skill.md || { echo "FAIL: profiles/claude-skill.md missing or empty"; exit 1; }
+          echo "All profile documents present"
