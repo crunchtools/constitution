@@ -1,0 +1,7 @@
+- id: validate-constitution
+  name: Validate Constitution
+  description: Check per-repo constitution against crunchtools org-level requirements
+  entry: validate-constitution.py
+  language: script
+  files: '(\.specify/memory/constitution\.md|CONSTITUTION\.md)$'
+  pass_filenames: true
