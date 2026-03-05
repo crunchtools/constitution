@@ -21,7 +21,7 @@ import re
 import sys
 from pathlib import Path
 
-VALID_PROFILES = {"MCP Server", "Container Image", "Claude Skill"}
+VALID_PROFILES = {"MCP Server", "Container Image", "Claude Skill", "Autonomous Agent"}
 
 # ---------------------------------------------------------------------------
 # Header parsing
@@ -294,6 +294,80 @@ def check_claude_skill(text: str, skill_dir: Path | None = None) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
+# Autonomous Agent profile checks
+# ---------------------------------------------------------------------------
+
+
+AUTONOMOUS_AGENT_SECURITY_LAYERS = [
+    (r"Layer\s+1", "Layer 1 (Trust Boundary Architecture)"),
+    (r"Layer\s+2", "Layer 2 (MCP Server Governance)"),
+    (r"Layer\s+3", "Layer 3 (Container & Supply Chain Security)"),
+    (r"Layer\s+4", "Layer 4 (Runtime Security & Behavioral Controls)"),
+    (r"Layer\s+5", "Layer 5 (Credential & Identity Management)"),
+    (r"Layer\s+6", "Layer 6 (Monitoring, Detection & Response)"),
+]
+
+
+def check_autonomous_agent(text: str) -> list[str]:
+    """Run Autonomous Agent profile checks."""
+    violations: list[str] = []
+
+    # Six security layers
+    for pattern, label in AUTONOMOUS_AGENT_SECURITY_LAYERS:
+        if not re.search(pattern, text):
+            violations.append(f"AUTONOMOUS_AGENT: Missing {label}")
+
+    # Trust boundary keywords
+    trust_keywords = [
+        (r"P-Agent", "P-Agent"),
+        (r"Q-Agent", "Q-Agent"),
+        (r"[Tt]rust\s+[Bb]oundary", "trust boundary"),
+        (r"[Dd]eterministic", "deterministic boundary enforcement"),
+    ]
+    for pattern, label in trust_keywords:
+        if not re.search(pattern, text):
+            violations.append(
+                f"AUTONOMOUS_AGENT: Trust boundary keyword missing: {label}"
+            )
+
+    # Circuit breaker / rate limiting
+    if not re.search(r"[Cc]ircuit\s+[Bb]reak", text):
+        violations.append("AUTONOMOUS_AGENT: Circuit breaker controls not described")
+    if not re.search(r"[Rr]ate\s+[Ll]imit", text):
+        violations.append("AUTONOMOUS_AGENT: Rate limiting not described")
+
+    # Credential management
+    credential_patterns = [r"SecretStr", r"[Ee]nv\w*\s+var", r"LoadCredential"]
+    if not any(re.search(p, text) for p in credential_patterns):
+        violations.append(
+            "AUTONOMOUS_AGENT: Credential management not described "
+            "(SecretStr, env var, or LoadCredential)"
+        )
+
+    # Container security
+    container_keywords = [
+        (r"[Rr]ootless", "rootless"),
+        (r"[Rr]ead.only", "read-only filesystem"),
+        (r"SELinux", "SELinux"),
+    ]
+    for pattern, label in container_keywords:
+        if not re.search(pattern, text):
+            violations.append(
+                f"AUTONOMOUS_AGENT: Container security keyword missing: {label}"
+            )
+
+    # Monitoring / kill switch
+    if not re.search(r"[Kk]ill\s+[Ss]witch", text):
+        violations.append("AUTONOMOUS_AGENT: Kill switch not described")
+
+    # Quality gates section
+    if not re.search(r"[Qq]uality\s+[Gg]ate", text):
+        violations.append("AUTONOMOUS_AGENT: Quality gates section missing")
+
+    return violations
+
+
+# ---------------------------------------------------------------------------
 # Main validator
 # ---------------------------------------------------------------------------
 
@@ -334,6 +408,8 @@ def validate(
         all_violations.extend(check_container_image(text))
     elif profile == "Claude Skill":
         all_violations.extend(check_claude_skill(text, skill_dir))
+    elif profile == "Autonomous Agent":
+        all_violations.extend(check_autonomous_agent(text))
     elif profile and profile not in VALID_PROFILES:
         pass  # Already flagged by universal checks
 

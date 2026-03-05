@@ -1,6 +1,6 @@
 # CrunchTools Constitution
 
-> **Version:** 1.0.0
+> **Version:** 1.1.0
 > **Ratified:** 2026-03-03
 > **Status:** Active
 
@@ -127,6 +127,7 @@ Valid profiles:
 - **MCP Server** — see `profiles/mcp-server.md`
 - **Container Image** — see `profiles/container-image.md`
 - **Claude Skill** — see `profiles/claude-skill.md`
+- **Autonomous Agent** — see `profiles/autonomous-agent.md`
 
 A project MAY declare multiple profiles if it spans subsystems.
 
@@ -147,3 +148,4 @@ A project MAY declare multiple profiles if it spans subsystems.
 | Version | Date | Changes |
 |---------|------|---------|
 | 1.0.0 | 2026-03-03 | Initial constitution — universal core + 3 profiles |
+| 1.1.0 | 2026-03-05 | Added Autonomous Agent profile for AI agent deployments |
