@@ -42,7 +42,26 @@ All projects follow [Semantic Versioning 2.0.0](https://semver.org/) strictly.
 
 **Version bump happens at release time, not per-commit.** Multiple commits can accumulate between releases.
 
+### Git Workflow
+
+All projects follow trunk-based development with short-lived branches:
+
+1. **Branch** — Create a feature or fix branch from `main`. Branch names should be descriptive (e.g., `fix-html-sanitizer-crash`, `add-scan-tool`).
+2. **Commit** — Make focused commits on the branch. Follow commit message conventions from Section V.
+3. **Push & PR** — Push the branch and open a Pull Request against `main`. All CI gates must pass before merge.
+4. **Merge** — Squash-merge or merge commit into `main`. Delete the branch after merge.
+5. **Release** — When ready to release, create a git tag (`vX.Y.Z`) on `main`. The tag triggers release workflows (PyPI publish, container push, GitHub Release).
+
+Direct pushes to `main` are acceptable for single-commit fixes but SHOULD use a PR when the change touches multiple files or affects behavior.
+
+### GitHub Releases
+
 **A GitHub Release MUST be created for every version bump.** The release tag is the trigger for all downstream distribution (PyPI publishing, container image pushes). Without a GitHub Release, merged code is not distributed.
+
+- **Tag format:** `vX.Y.Z` (e.g., `v0.2.0`, `v1.0.0`)
+- **Release title:** `vX.Y.Z`
+- **Release notes:** Summary of changes since the previous release. Use `gh release create` or the GitHub UI.
+- **Automation:** Release-triggered CI workflows handle PyPI publishing, container builds, and registry pushes. Manual artifact uploads are not required.
 
 ---
 
@@ -63,6 +82,17 @@ Container CI workflows MUST use **two separate jobs** (not steps within one job)
 2. **`build-and-push-ghcr`** — Builds and pushes to GHCR. Uses `needs: build-and-push-quay` dependency. Has `permissions: contents: read, packages: write`. Gated with `if: github.event_name != 'pull_request'`.
 
 This ensures Quay.io succeeds independently if GHCR has permission issues.
+
+### Build Caching (MANDATORY)
+
+All container build workflows MUST use Docker layer caching to minimize build times:
+
+```yaml
+cache-from: type=gha
+cache-to: type=gha,mode=max
+```
+
+The `no-cache: true` flag MUST NOT be used in container build workflows. If a full rebuild is needed (e.g., base image update), use `workflow_dispatch` with a manual trigger or the weekly cron schedule — not by disabling caching for every build.
 
 ### OCI Labels
 
@@ -151,4 +181,4 @@ A project MAY declare multiple profiles if it spans subsystems.
 |---------|------|---------|
 | 1.0.0 | 2026-03-03 | Initial constitution — universal core + 3 profiles |
 | 1.1.0 | 2026-03-05 | Added Autonomous Agent profile for AI agent deployments |
-| 1.2.0 | 2026-03-10 | Added mandatory GitHub Release requirement for distribution |
+| 1.2.0 | 2026-03-10 | Added mandatory build caching, git workflow, GitHub Releases, gourmand container |

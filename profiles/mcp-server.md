@@ -1,6 +1,6 @@
 # MCP Server Profile
 
-> **Profile Version:** 1.0.0
+> **Profile Version:** 1.1.0
 > **Applies to:** All `mcp-*-crunchtools` projects
 
 This profile extends the [universal constitution](../constitution.md) with requirements specific to MCP (Model Context Protocol) servers in the crunchtools organization.
@@ -130,6 +130,24 @@ Every Pydantic model MUST have tests covering:
 ## IV. Gourmand (AI Slop Detection)
 
 All code MUST pass `gourmand --full .` with **zero violations** before merge. Gourmand is a CI gate in GitHub Actions.
+
+### CI Execution (MANDATORY)
+
+Gourmand MUST run via the pre-built container image in CI — never installed from source:
+
+```yaml
+gourmand:
+  name: Code Quality (Gourmand)
+  runs-on: ubuntu-latest
+  container:
+    image: quay.io/crunchtools/gourmand:latest
+  steps:
+    - uses: actions/checkout@v4
+    - name: Run Gourmand
+      run: gourmand --full .
+```
+
+**Do not** use `cargo install` from Codeberg. The container provides a consistent, pre-built binary that avoids Rust toolchain installation and compilation in every CI run.
 
 ### Configuration Files
 
