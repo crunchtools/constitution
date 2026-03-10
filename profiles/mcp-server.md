@@ -241,3 +241,22 @@ Each MCP server repo includes:
 - `.specify/memory/constitution.md` — Project-specific constitution
 - `.specify/specs/000-baseline/spec.md` — Tool inventory and architecture spec
 - `.specify/templates/` — `plan-template.md` and `spec-template.md`
+
+### Specification-Driven Development
+
+Every new feature MUST have a spec file (`.specify/specs/NNN-slug/spec.md`) before implementation begins. Specs are numbered sequentially (001, 002, ...) and describe the feature's purpose, requirements, acceptance criteria, and architectural impact.
+
+**Requires a spec:**
+- New tools or tool groups
+- New architectural layers or subsystems
+- Changes to the defense/security model
+- New external service integrations
+- Changes that affect multiple modules
+
+**Exempt from spec requirement:**
+- Bug fixes
+- Dependency updates
+- CI/CD and infrastructure changes
+- Documentation-only changes
+- Constitution amendments (governed by ratification process)
+- Single-tool additions that follow an existing, documented pattern (Section VII "Adding a New Tool")
