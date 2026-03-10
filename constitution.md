@@ -1,7 +1,7 @@
 # CrunchTools Constitution
 
-> **Version:** 1.1.0
-> **Ratified:** 2026-03-03
+> **Version:** 1.2.0
+> **Ratified:** 2026-03-10
 > **Status:** Active
 
 This constitution establishes the universal principles that govern all software projects in the [crunchtools](https://github.com/crunchtools) organization. Every repo inherits these rules. Subsystem-specific requirements are defined in profiles.
@@ -41,6 +41,8 @@ All projects follow [Semantic Versioning 2.0.0](https://semver.org/) strictly.
 - Governance files (.specify/)
 
 **Version bump happens at release time, not per-commit.** Multiple commits can accumulate between releases.
+
+**A GitHub Release MUST be created for every version bump.** The release tag is the trigger for all downstream distribution (PyPI publishing, container image pushes). Without a GitHub Release, merged code is not distributed.
 
 ---
 
@@ -149,3 +151,4 @@ A project MAY declare multiple profiles if it spans subsystems.
 |---------|------|---------|
 | 1.0.0 | 2026-03-03 | Initial constitution — universal core + 3 profiles |
 | 1.1.0 | 2026-03-05 | Added Autonomous Agent profile for AI agent deployments |
+| 1.2.0 | 2026-03-10 | Added mandatory GitHub Release requirement for distribution |
