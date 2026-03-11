@@ -27,6 +27,14 @@ jobs:
           echo "=== Valid Container Image ==="
           python validate-constitution.py tests/valid-container-image.md --verbose
 
+          echo ""
+          echo "=== Valid Autonomous Agent ==="
+          python validate-constitution.py tests/valid-autonomous-agent.md --verbose
+
+          echo ""
+          echo "=== Valid Web Application ==="
+          python validate-constitution.py tests/valid-web-application.md --verbose
+
       - name: Validate invalid constitution (should fail)
         run: |
           echo "=== Invalid (missing Inherits) — expecting failure ==="
@@ -44,4 +52,6 @@ jobs:
           test -s profiles/mcp-server.md || { echo "FAIL: profiles/mcp-server.md missing or empty"; exit 1; }
           test -s profiles/container-image.md || { echo "FAIL: profiles/container-image.md missing or empty"; exit 1; }
           test -s profiles/claude-skill.md || { echo "FAIL: profiles/claude-skill.md missing or empty"; exit 1; }
+          test -s profiles/autonomous-agent.md || { echo "FAIL: profiles/autonomous-agent.md missing or empty"; exit 1; }
+          test -s profiles/web-application.md || { echo "FAIL: profiles/web-application.md missing or empty"; exit 1; }
           echo "All profile documents present"

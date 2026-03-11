@@ -21,7 +21,7 @@ import re
 import sys
 from pathlib import Path
 
-VALID_PROFILES = {"MCP Server", "Container Image", "Claude Skill", "Autonomous Agent"}
+VALID_PROFILES = {"MCP Server", "Container Image", "Claude Skill", "Autonomous Agent", "Web Application"}
 
 # ---------------------------------------------------------------------------
 # Header parsing
@@ -368,6 +368,114 @@ def check_autonomous_agent(text: str) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
+# Web Application profile checks
+# ---------------------------------------------------------------------------
+
+
+def check_web_application(text: str) -> list[str]:
+    """Run Web Application profile checks."""
+    violations: list[str] = []
+
+    # Base image references Hummingbird or crunchtools tree
+    base_image_patterns = [
+        r"quay\.io/hummingbird/",
+        r"quay\.io/crunchtools/",
+        r"ubi\d+",
+        r"UBI",
+    ]
+    if not any(re.search(p, text) for p in base_image_patterns):
+        violations.append(
+            "WEB_APPLICATION: No base image declared "
+            "(Hummingbird or crunchtools tree)"
+        )
+
+    # Registry declared
+    if not re.search(r"quay\.io/crunchtools/", text):
+        violations.append(
+            "WEB_APPLICATION: Registry not declared (quay.io/crunchtools/*)"
+        )
+
+    # Application runtime mentioned
+    runtime_patterns = [
+        r"[Pp]ython",
+        r"[Nn]ode",
+        r"[Pp]erl",
+        r"[Pp]hp",
+        r"[Ff]lask",
+        r"[Ee]xpress",
+        r"[Gg]unicorn",
+    ]
+    if not any(re.search(p, text) for p in runtime_patterns):
+        violations.append(
+            "WEB_APPLICATION: Application runtime not mentioned "
+            "(Python, Node, Perl, PHP, or similar)"
+        )
+
+    # Host directory convention
+    host_dir_patterns = [
+        r"/srv/",
+        r"code.*config.*data",
+        r"bind.mount",
+    ]
+    if not any(re.search(p, text) for p in host_dir_patterns):
+        violations.append(
+            "WEB_APPLICATION: Host directory convention not documented "
+            "(/srv/<name>/ with code/config/data)"
+        )
+
+    # Data persistence section
+    data_patterns = [
+        r"[Dd]atabase",
+        r"[Vv]olume",
+        r"[Ss]tateful",
+        r"[Pp]ersist",
+    ]
+    if not any(re.search(p, text) for p in data_patterns):
+        violations.append(
+            "WEB_APPLICATION: Data persistence not documented"
+        )
+
+    # Monitoring section
+    monitoring_patterns = [
+        r"[Zz]abbix",
+        r"[Mm]onitoring",
+    ]
+    if not any(re.search(p, text) for p in monitoring_patterns):
+        violations.append(
+            "WEB_APPLICATION: Monitoring section missing (Zabbix or monitoring keyword)"
+        )
+
+    # Testing section
+    test_patterns = [
+        r"[Hh]ealth\s+check",
+        r"[Ss]moke\s+test",
+        r"[Bb]uild\s+test",
+    ]
+    if not any(re.search(p, text) for p in test_patterns):
+        violations.append(
+            "WEB_APPLICATION: Testing section missing (health check or smoke test)"
+        )
+
+    # Quality gates section
+    if not re.search(r"[Qq]uality\s+[Gg]ate", text):
+        violations.append("WEB_APPLICATION: Quality gates section missing")
+
+    # Cascade rebuild (repository_dispatch or cascade)
+    cascade_patterns = [
+        r"repository_dispatch",
+        r"[Cc]ascade",
+        r"parent.image.updated",
+    ]
+    if not any(re.search(p, text) for p in cascade_patterns):
+        violations.append(
+            "WEB_APPLICATION: Cascade rebuild not documented "
+            "(repository_dispatch or cascade mention)"
+        )
+
+    return violations
+
+
+# ---------------------------------------------------------------------------
 # Main validator
 # ---------------------------------------------------------------------------
 
@@ -410,6 +518,8 @@ def validate(
         all_violations.extend(check_claude_skill(text, skill_dir))
     elif profile == "Autonomous Agent":
         all_violations.extend(check_autonomous_agent(text))
+    elif profile == "Web Application":
+        all_violations.extend(check_web_application(text))
     elif profile and profile not in VALID_PROFILES:
         pass  # Already flagged by universal checks
 

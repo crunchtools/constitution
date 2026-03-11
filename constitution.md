@@ -1,6 +1,6 @@
 # CrunchTools Constitution
 
-> **Version:** 1.2.0
+> **Version:** 1.3.0
 > **Ratified:** 2026-03-10
 > **Status:** Active
 
@@ -160,6 +160,7 @@ Valid profiles:
 - **Container Image** — see `profiles/container-image.md`
 - **Claude Skill** — see `profiles/claude-skill.md`
 - **Autonomous Agent** — see `profiles/autonomous-agent.md`
+- **Web Application** — see `profiles/web-application.md`
 
 A project MAY declare multiple profiles if it spans subsystems.
 
@@ -182,3 +183,4 @@ A project MAY declare multiple profiles if it spans subsystems.
 | 1.0.0 | 2026-03-03 | Initial constitution — universal core + 3 profiles |
 | 1.1.0 | 2026-03-05 | Added Autonomous Agent profile for AI agent deployments |
 | 1.2.0 | 2026-03-10 | Added mandatory build caching, git workflow, GitHub Releases, gourmand container |
+| 1.3.0 | 2026-03-10 | Added Web Application profile for stateful web apps (acquacotta, rotv, immich) |
