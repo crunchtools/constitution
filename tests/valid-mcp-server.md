@@ -72,13 +72,19 @@ Follow Semantic Versioning 2.0.0. MAJOR/MINOR/PATCH.
 
 ---
 
-## III. Testing Standards
+## III. Containerfile Conventions
+
+Multi-stage build using Hummingbird Python runtime with libstdc++ from builder variant.
+
+---
+
+## IV. Testing Standards
 
 Every tool MUST have a corresponding mocked test.
 
 ---
 
-## IV. Gourmand (AI Slop Detection)
+## V. Gourmand (AI Slop Detection)
 
 All code MUST pass `gourmand --full .` with zero violations.
 
@@ -88,7 +94,7 @@ Exceptions MUST have documented justifications.
 
 ---
 
-## V. Code Quality Gates
+## VI. Code Quality Gates
 
 1. **Lint** — `uv run ruff check src tests`
 2. **Type Check** — `uv run mypy src`
@@ -98,7 +104,7 @@ Exceptions MUST have documented justifications.
 
 ---
 
-## VI. Naming Conventions
+## VII. Naming Conventions
 
 | Context | Name |
 |---------|------|
@@ -109,7 +115,7 @@ Exceptions MUST have documented justifications.
 
 ---
 
-## VII. Development Workflow
+## VIII. Development Workflow
 
 ### Adding a New Tool
 
@@ -119,7 +125,7 @@ Exceptions MUST have documented justifications.
 
 ---
 
-## VIII. Governance
+## IX. Governance
 
 ### Amendment Process
 

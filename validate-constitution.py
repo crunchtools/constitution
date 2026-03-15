@@ -107,6 +107,7 @@ MCP_REQUIRED_SECTIONS = [
     (r"##\s+VI\.", "Section VI"),
     (r"##\s+VII\.", "Section VII"),
     (r"##\s+VIII\.", "Section VIII"),
+    (r"##\s+IX\.", "Section IX"),
 ]
 
 MCP_SECURITY_LAYERS = [
@@ -132,7 +133,7 @@ def check_mcp_server(text: str) -> list[str]:
     """Run MCP Server profile checks."""
     violations: list[str] = []
 
-    # All 8 top-level sections
+    # All 9 top-level sections
     for pattern, label in MCP_REQUIRED_SECTIONS:
         if not re.search(pattern, text):
             violations.append(f"MCP_SERVER: Missing {label}")

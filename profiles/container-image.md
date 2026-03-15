@@ -1,21 +1,25 @@
 # Container Image Profile
 
-> **Profile Version:** 1.0.0
+> **Profile Version:** 1.1.0
 > **Applies to:** All `ubi10-*` and standalone container image projects
 
-This profile extends the [universal constitution](../constitution.md) with requirements specific to container image projects in the crunchtools organization.
+This profile extends the [universal constitution](../constitution.md) with requirements specific to **UBI-based** container image projects in the crunchtools organization.
+
+> **Note:** MCP servers use **Hummingbird** base images, not UBI. See the [MCP Server profile](mcp-server.md) Section III (Containerfile Conventions) for Hummingbird container standards.
 
 ---
 
 ## I. Base Images
 
-Container image projects use **UBI (Universal Base Image)** from Red Hat:
+UBI-based container image projects use **UBI (Universal Base Image)** from Red Hat:
 
 | Base Image | Use Case |
 |------------|----------|
 | `registry.access.redhat.com/ubi10/ubi-init` | System services (httpd, MariaDB, cron) requiring systemd |
 | `registry.access.redhat.com/ubi10/ubi-minimal` | Lightweight application containers |
 | `registry.access.redhat.com/ubi10/ubi` | General-purpose containers needing full dnf |
+
+For application containers (MCP servers, web apps), prefer **Hummingbird** images (`quay.io/hummingbird/*`) for minimal CVE surface. See the relevant application profile for details.
 
 ---
 

@@ -1,6 +1,6 @@
 # MCP Server Profile
 
-> **Profile Version:** 1.1.0
+> **Profile Version:** 1.2.0
 > **Applies to:** All `mcp-*-crunchtools` projects
 
 This profile extends the [universal constitution](../constitution.md) with requirements specific to MCP (Model Context Protocol) servers in the crunchtools organization.
@@ -72,7 +72,7 @@ Every MCP server MUST support all three MCP transports:
 
 | Layer | Technology | Version |
 |-------|------------|---------|
-| Language | Python | 3.10+ |
+| Language | Python | 3.11+ |
 | MCP Framework | FastMCP | Latest |
 | HTTP Client | httpx | Latest |
 | Validation | Pydantic | v2 |
@@ -86,7 +86,77 @@ Every MCP server MUST support all three MCP transports:
 
 ---
 
-## III. Testing Standards
+## III. Containerfile Conventions
+
+MCP servers use **Hummingbird** base images (not UBI). Hummingbird images are minimal, CVE-hardened, and purpose-built for application workloads.
+
+### Base Images
+
+| Image | Use Case |
+|-------|----------|
+| `quay.io/hummingbird/python:latest` | Python runtime (no build tools, no DNF) |
+| `quay.io/hummingbird/python:latest-builder` | Python with build toolchain (gcc, libstdc++, DNF) |
+| `quay.io/hummingbird/nodejs:latest` | Node.js runtime |
+| `quay.io/hummingbird/core-runtime:latest` | Minimal runtime with libstdc++, glibc, ca-certificates |
+
+### Multi-Stage Build Pattern
+
+MCP servers MUST use a multi-stage Containerfile:
+
+1. **Builder stage** — compile native wheels using a full build environment (Fedora or Hummingbird builder)
+2. **Runtime stage** — copy wheels into Hummingbird runtime, install with `pip --no-index`
+
+```dockerfile
+# Stage 1: Build wheels
+FROM registry.fedoraproject.org/fedora:44 AS builder
+RUN dnf install -y python3 python3-pip gcc && dnf clean all
+WORKDIR /build
+COPY pyproject.toml README.md ./
+COPY src/ ./src/
+RUN pip wheel --no-cache-dir --wheel-dir=/wheels .
+
+# Stage 2: Runtime
+FROM quay.io/hummingbird/python:latest
+COPY --from=builder /wheels /wheels
+RUN pip install --no-cache-dir --no-index --find-links=/wheels <package-name>
+```
+
+### Native Library Gap (libstdc++)
+
+The Hummingbird Python runtime image **does not include libstdc++.so.6**. Any pip package with C++ extensions (numpy, onnxruntime, scikit-learn) will install successfully but crash at import time.
+
+**Fix:** Copy `libstdc++` from the Hummingbird builder variant:
+
+```dockerfile
+COPY --from=quay.io/hummingbird/python:latest-builder /usr/lib64/libstdc++.so.6* /usr/lib64/
+```
+
+**CRITICAL:** Never source native libraries from non-Hummingbird images (UBI, Fedora, Alpine). Different base images use different glibc versions, and mixing them causes segfaults or silent ABI incompatibilities. Always source from within the Hummingbird ecosystem.
+
+### Required Labels
+
+```dockerfile
+LABEL name="mcp-<name>-crunchtools" \
+      version="X.Y.Z" \
+      summary="<one-line description>" \
+      maintainer="crunchtools.com" \
+      org.opencontainers.image.source="https://github.com/crunchtools/mcp-<name>" \
+      org.opencontainers.image.licenses="AGPL-3.0-or-later"
+```
+
+### Runtime Configuration
+
+- `ENV TROVE_DB=...` or equivalent for persistent state
+- `ENTRYPOINT ["python", "-m", "<module>"]`
+- `EXPOSE <port>` for HTTP transport
+
+### User Namespace Mapping
+
+When the container needs to read host-user-owned files (e.g., bind-mounted home directories), use `--userns=keep-id --user $(id -u):$(id -g)` at runtime. This maps the host UID into the container, bypassing permission issues with 700-mode directories.
+
+---
+
+## IV. Testing Standards
 
 ### Mocked API Tests (MANDATORY)
 
@@ -127,7 +197,7 @@ Every Pydantic model MUST have tests covering:
 
 ---
 
-## IV. Gourmand (AI Slop Detection)
+## V. Gourmand (AI Slop Detection)
 
 All code MUST pass `gourmand --full .` with **zero violations** before merge. Gourmand is a CI gate in GitHub Actions.
 
@@ -169,7 +239,7 @@ Unacceptable reasons:
 
 ---
 
-## V. Code Quality Gates
+## VI. Code Quality Gates
 
 Every code change must pass through these five gates in order:
 
@@ -183,7 +253,7 @@ Every code change must pass through these five gates in order:
 
 | Job | What it does | Gates PRs |
 |-----|-------------|-----------|
-| test | Lint + mypy + pytest (Python 3.10-3.12) | Yes |
+| test | Lint + mypy + pytest (Python 3.11-3.12) | Yes |
 | gourmand | AI slop detection | Yes |
 | build-container | Containerfile builds | Yes |
 | security | Weekly CVE scan + CodeQL | Scheduled |
@@ -192,7 +262,7 @@ Every code change must pass through these five gates in order:
 
 ---
 
-## VI. Naming Convention
+## VII. Naming Convention
 
 All MCP servers follow this pattern (replace `<name>` with the service name):
 
@@ -210,7 +280,7 @@ All MCP servers follow this pattern (replace `<name>` with the service name):
 
 ---
 
-## VII. Development Workflow
+## VIII. Development Workflow
 
 ### Adding a New Tool
 
@@ -232,7 +302,7 @@ All MCP servers follow this pattern (replace `<name>` with the service name):
 
 ---
 
-## VIII. Governance
+## IX. Governance
 
 ### Per-Repo Constitution Format
 
@@ -277,4 +347,4 @@ Every new feature MUST have a spec file (`.specify/specs/NNN-slug/spec.md`) befo
 - CI/CD and infrastructure changes
 - Documentation-only changes
 - Constitution amendments (governed by ratification process)
-- Single-tool additions that follow an existing, documented pattern (Section VII "Adding a New Tool")
+- Single-tool additions that follow an existing, documented pattern (Section VIII "Adding a New Tool")
