@@ -101,21 +101,32 @@ MCP servers use **Hummingbird** base images (not UBI). Hummingbird images are mi
 
 ### Multi-Stage Build Pattern
 
-MCP servers MUST use a multi-stage Containerfile:
+MCP servers MUST use a multi-stage Containerfile with **builder and runtime images from the same ecosystem**:
 
-1. **Builder stage** — compile native wheels using a full build environment (Fedora or Hummingbird builder)
+1. **Builder stage** — compile native wheels using the Hummingbird builder variant
 2. **Runtime stage** — copy wheels into Hummingbird runtime, install with `pip --no-index`
 
+**CRITICAL: Builder and runtime images MUST be from the same base image family.** Never use Fedora, Alpine, or UBI as the builder when the runtime is Hummingbird (or vice versa). Different base images use different glibc versions — compiled artifacts and native libraries from one ecosystem are not designed or tested against the other. This creates silent ABI incompatibilities, segfaults, or subtle runtime failures.
+
+Allowed builder/runtime combinations:
+
+| Builder | Runtime | Status |
+|---------|---------|--------|
+| `quay.io/hummingbird/python:latest-builder` | `quay.io/hummingbird/python:latest` | **Allowed** |
+| `registry.access.redhat.com/ubi10/ubi` | `registry.access.redhat.com/ubi10/ubi-minimal` | **Allowed** |
+| `registry.fedoraproject.org/fedora:44` | `quay.io/hummingbird/python:latest` | **Prohibited** |
+| `registry.access.redhat.com/ubi10/ubi` | `quay.io/hummingbird/python:latest` | **Prohibited** |
+
 ```dockerfile
-# Stage 1: Build wheels
-FROM registry.fedoraproject.org/fedora:44 AS builder
-RUN dnf install -y python3 python3-pip gcc && dnf clean all
+# Stage 1: Build wheels (Hummingbird builder — same ecosystem as runtime)
+FROM quay.io/hummingbird/python:latest-builder AS builder
+RUN dnf install -y gcc && dnf clean all
 WORKDIR /build
 COPY pyproject.toml README.md ./
 COPY src/ ./src/
 RUN pip wheel --no-cache-dir --wheel-dir=/wheels .
 
-# Stage 2: Runtime
+# Stage 2: Runtime (Hummingbird runtime — same ecosystem as builder)
 FROM quay.io/hummingbird/python:latest
 COPY --from=builder /wheels /wheels
 RUN pip install --no-cache-dir --no-index --find-links=/wheels <package-name>
@@ -125,13 +136,11 @@ RUN pip install --no-cache-dir --no-index --find-links=/wheels <package-name>
 
 The Hummingbird Python runtime image **does not include libstdc++.so.6**. Any pip package with C++ extensions (numpy, onnxruntime, scikit-learn) will install successfully but crash at import time.
 
-**Fix:** Copy `libstdc++` from the Hummingbird builder variant:
+**Fix:** Copy `libstdc++` from the Hummingbird builder variant (same ecosystem):
 
 ```dockerfile
 COPY --from=quay.io/hummingbird/python:latest-builder /usr/lib64/libstdc++.so.6* /usr/lib64/
 ```
-
-**CRITICAL:** Never source native libraries from non-Hummingbird images (UBI, Fedora, Alpine). Different base images use different glibc versions, and mixing them causes segfaults or silent ABI incompatibilities. Always source from within the Hummingbird ecosystem.
 
 ### Required Labels
 
