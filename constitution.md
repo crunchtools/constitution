@@ -1,7 +1,7 @@
 # CrunchTools Constitution
 
-> **Version:** 1.3.0
-> **Ratified:** 2026-03-10
+> **Version:** 1.4.0
+> **Ratified:** 2026-03-16
 > **Status:** Active
 
 This constitution establishes the universal principles that govern all software projects in the [crunchtools](https://github.com/crunchtools) organization. Every repo inherits these rules. Subsystem-specific requirements are defined in profiles.
@@ -67,7 +67,7 @@ Direct pushes to `main` are acceptable for single-commit fixes but SHOULD use a 
 
 ## III. Container Registry
 
-All container images are dual-pushed to two registries:
+Container images authored by crunchtools are dual-pushed to two registries. Forked projects push to Quay.io only (see `profiles/forked-mcp-server.md`).
 
 | Registry | Image Pattern | Purpose |
 |----------|---------------|---------|
@@ -160,6 +160,7 @@ Valid profiles:
 - **Container Image** — see `profiles/container-image.md`
 - **Claude Skill** — see `profiles/claude-skill.md`
 - **Autonomous Agent** — see `profiles/autonomous-agent.md`
+- **Forked MCP Server** — see `profiles/forked-mcp-server.md`
 - **Web Application** — see `profiles/web-application.md`
 
 A project MAY declare multiple profiles if it spans subsystems.
@@ -184,3 +185,4 @@ A project MAY declare multiple profiles if it spans subsystems.
 | 1.1.0 | 2026-03-05 | Added Autonomous Agent profile for AI agent deployments |
 | 1.2.0 | 2026-03-10 | Added mandatory build caching, git workflow, GitHub Releases, gourmand container |
 | 1.3.0 | 2026-03-10 | Added Web Application profile for stateful web apps (acquacotta, rotv, immich) |
+| 1.4.0 | 2026-03-16 | Added Forked MCP Server profile for containerized third-party MCP servers |
