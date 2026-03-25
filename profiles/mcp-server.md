@@ -1,6 +1,6 @@
 # MCP Server Profile
 
-> **Profile Version:** 1.2.0
+> **Profile Version:** 1.3.0
 > **Applies to:** All `mcp-*-crunchtools` projects
 
 This profile extends the [universal constitution](../constitution.md) with requirements specific to MCP (Model Context Protocol) servers in the crunchtools organization.
@@ -90,21 +90,32 @@ Every MCP server MUST support all three MCP transports:
 
 MCP servers use **Hummingbird** base images (not UBI). Hummingbird images are minimal, CVE-hardened, and purpose-built for application workloads.
 
+### Distroless Runtime
+
+Hummingbird runtime images are **distroless** — they contain no shell (`/bin/sh`), no package manager (`dnf`), and no standard Unix utilities (`ls`, `rm`, `cat`). Only the language runtime binary (e.g., `python3`, `pip`) is present.
+
+This means:
+- **No shell-form `RUN` commands** in the runtime stage. Shell-form `RUN` requires `/bin/sh` to interpret the command, which does not exist.
+- **Use the venv pattern** (preferred): build everything in the builder stage inside a Python venv, then `COPY --from=builder` the venv directory to the runtime stage. This eliminates all `RUN` commands in the runtime stage.
+- **Exec-form `RUN` as fallback**: if you must run a command in the runtime stage, use exec form `RUN ["pip", "install", ...]` to invoke the binary directly without a shell.
+
 ### Base Images
 
 | Image | Use Case |
 |-------|----------|
-| `quay.io/hummingbird/python:latest` | Python runtime (no build tools, no DNF) |
-| `quay.io/hummingbird/python:latest-builder` | Python with build toolchain (gcc, libstdc++, DNF) |
-| `quay.io/hummingbird/nodejs:latest` | Node.js runtime |
+| `quay.io/hummingbird/python:latest` | Python runtime (distroless — no shell, no DNF) |
+| `quay.io/hummingbird/python:latest-builder` | Python with build toolchain (shell, gcc, DNF) |
+| `quay.io/hummingbird/python:latest-fips` | Python FIPS runtime (distroless) |
+| `quay.io/hummingbird/python:latest-fips-builder` | Python FIPS with build toolchain |
+| `quay.io/hummingbird/nodejs:latest` | Node.js runtime (distroless) |
 | `quay.io/hummingbird/core-runtime:latest` | Minimal runtime with libstdc++, glibc, ca-certificates |
 
-### Multi-Stage Build Pattern
+### Multi-Stage Build Pattern (Venv)
 
 MCP servers MUST use a multi-stage Containerfile with **builder and runtime images from the same ecosystem**:
 
-1. **Builder stage** — compile native wheels using the Hummingbird builder variant
-2. **Runtime stage** — copy wheels into Hummingbird runtime, install with `pip --no-index`
+1. **Builder stage** — create a venv, install all dependencies inside it
+2. **Runtime stage** — `COPY` the venv from builder, set `PATH`. No `RUN` commands needed.
 
 **CRITICAL: Builder and runtime images MUST be from the same base image family.** Never use Fedora, Alpine, or UBI as the builder when the runtime is Hummingbird (or vice versa). Different base images use different glibc versions — compiled artifacts and native libraries from one ecosystem are not designed or tested against the other. This creates silent ABI incompatibilities, segfaults, or subtle runtime failures.
 
@@ -112,24 +123,28 @@ Allowed builder/runtime combinations:
 
 | Builder | Runtime | Status |
 |---------|---------|--------|
+| `quay.io/hummingbird/python:latest-fips-builder` | `quay.io/hummingbird/python:latest-fips` | **Allowed** |
 | `quay.io/hummingbird/python:latest-builder` | `quay.io/hummingbird/python:latest` | **Allowed** |
 | `registry.access.redhat.com/ubi10/ubi` | `registry.access.redhat.com/ubi10/ubi-minimal` | **Allowed** |
 | `registry.fedoraproject.org/fedora:44` | `quay.io/hummingbird/python:latest` | **Prohibited** |
 | `registry.access.redhat.com/ubi10/ubi` | `quay.io/hummingbird/python:latest` | **Prohibited** |
 
 ```dockerfile
-# Stage 1: Build wheels (Hummingbird builder — same ecosystem as runtime)
-FROM quay.io/hummingbird/python:latest-builder AS builder
-RUN dnf install -y gcc && dnf clean all
-WORKDIR /build
+# Stage 1: Builder (has shell, dnf, build tools)
+FROM quay.io/hummingbird/python:latest-fips-builder AS builder
+USER 0
+WORKDIR /app
+RUN python3 -m venv /app/venv
+ENV PATH="/app/venv/bin:$PATH"
 COPY pyproject.toml README.md ./
 COPY src/ ./src/
-RUN pip wheel --no-cache-dir --wheel-dir=/wheels .
+RUN pip install --no-cache-dir .
 
-# Stage 2: Runtime (Hummingbird runtime — same ecosystem as builder)
-FROM quay.io/hummingbird/python:latest
-COPY --from=builder /wheels /wheels
-RUN pip install --no-cache-dir --no-index --find-links=/wheels <package-name>
+# Stage 2: Runtime (distroless — no shell, no package manager)
+FROM quay.io/hummingbird/python:latest-fips
+COPY --from=builder /app/venv /app/venv
+ENV PATH="/app/venv/bin:$PATH"
+ENTRYPOINT ["python", "-m", "<module_name>"]
 ```
 
 ### Native Library Gap (libstdc++)
@@ -139,7 +154,7 @@ The Hummingbird Python runtime image **does not include libstdc++.so.6**. Any pi
 **Fix:** Copy `libstdc++` from the Hummingbird builder variant (same ecosystem):
 
 ```dockerfile
-COPY --from=quay.io/hummingbird/python:latest-builder /usr/lib64/libstdc++.so.6* /usr/lib64/
+COPY --from=quay.io/hummingbird/python:latest-fips-builder /usr/lib64/libstdc++.so.6* /usr/lib64/
 ```
 
 ### Required Labels
