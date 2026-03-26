@@ -45,6 +45,8 @@ All forked MCP servers use **Hummingbird** Python images:
 FROM quay.io/hummingbird/python:latest
 ```
 
+**Before building on Hummingbird images**, always check the upstream examples at https://gitlab.com/redhat/hummingbird/containers for current best practices, Containerfile patterns, and supported image variants.
+
 ### Containerfile Requirements
 
 Every forked MCP server Containerfile MUST include:

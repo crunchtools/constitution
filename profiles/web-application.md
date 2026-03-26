@@ -20,6 +20,8 @@ Web applications choose their base image based on service complexity:
 
 Hummingbird images are preferred for single-process apps. For multi-service containers that run a database alongside the application server, use the crunchtools image tree (`ubi10-core` or `ubi10-httpd`) which provides systemd for service orchestration.
 
+**Before building on Hummingbird images**, always check the upstream examples at https://gitlab.com/redhat/hummingbird/containers for current best practices, Containerfile patterns, and supported image variants.
+
 ---
 
 ## II. Application Runtime
