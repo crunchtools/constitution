@@ -90,6 +90,8 @@ Every MCP server MUST support all three MCP transports:
 
 MCP servers use **Hummingbird** base images (not UBI). Hummingbird images are minimal, CVE-hardened, and purpose-built for application workloads.
 
+**Before building on Hummingbird images**, always check the upstream examples at https://gitlab.com/redhat/hummingbird/containers for current best practices, Containerfile patterns, and supported image variants.
+
 ### Distroless Runtime
 
 Hummingbird runtime images are **distroless** — they contain no shell (`/bin/sh`), no package manager (`dnf`), and no standard Unix utilities (`ls`, `rm`, `cat`). Only the language runtime binary (e.g., `python3`, `pip`) is present.
