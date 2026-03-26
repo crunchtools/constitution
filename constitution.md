@@ -112,6 +112,7 @@ The `org.opencontainers.image.source` label auto-links the GHCR package to the G
 
 - Use **Containerfile** (not Dockerfile) as the build file name.
 - Base images: **UBI** (`registry.access.redhat.com/ubi10/*`) for system-level images, **Hummingbird** (`quay.io/hummingbird/*`) for application-level images.
+- **Before building on Hummingbird images**, always check the upstream examples at https://gitlab.com/redhat/hummingbird/containers for current best practices, Containerfile patterns, and supported image variants.
 - Always `dnf clean all` after package installs.
 - Required LABELs: `maintainer`, `description`, plus OCI labels from Section III.
 
