@@ -21,6 +21,8 @@ UBI-based container image projects use **UBI (Universal Base Image)** from Red H
 
 For application containers (MCP servers, web apps), prefer **Hummingbird** images (`quay.io/hummingbird/*`) for minimal CVE surface. See the relevant application profile for details.
 
+**Before building on Hummingbird images**, always check the upstream examples at https://gitlab.com/redhat/hummingbird/containers for current best practices, Containerfile patterns, and supported image variants.
+
 ---
 
 ## II. RHSM Registration
