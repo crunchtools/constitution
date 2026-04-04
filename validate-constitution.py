@@ -28,6 +28,7 @@ VALID_PROFILES = {
     "Autonomous Agent",
     "Forked MCP Server",
     "Web Application",
+    "CLI Tool",
 }
 
 # ---------------------------------------------------------------------------
@@ -520,6 +521,91 @@ def check_web_application(text: str) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
+# CLI Tool profile checks
+# ---------------------------------------------------------------------------
+
+
+def check_cli_tool(text: str) -> list[str]:
+    """Run CLI Tool profile checks."""
+    violations: list[str] = []
+
+    # Exit code contract (0, 1, 2)
+    exit_code_patterns = [
+        r"[Ee]xit\s+[Cc]ode",
+        r"[Ee]xit.*`?0`?",
+        r"[Ee]xit.*`?1`?",
+    ]
+    matches = sum(1 for p in exit_code_patterns if re.search(p, text))
+    if matches < 2:
+        violations.append(
+            "CLI_TOOL: Exit code contract not documented (need exit codes 0 and 1)"
+        )
+
+    # CLI interface section (argparse, flags, or subcommands)
+    cli_patterns = [
+        r"argparse",
+        r"CLI\s+[Ii]nterface",
+        r"[Ff]lags",
+        r"--\w+",
+    ]
+    matches = sum(1 for p in cli_patterns if re.search(p, text))
+    if matches < 2:
+        violations.append(
+            "CLI_TOOL: CLI interface not sufficiently documented "
+            "(argparse, flags, or subcommands)"
+        )
+
+    # Distribution channel (PyPI/uv/pipx)
+    dist_patterns = [r"uv", r"pip", r"PyPI"]
+    if not any(re.search(p, text) for p in dist_patterns):
+        violations.append(
+            "CLI_TOOL: Distribution channel not mentioned (uv, pip, or PyPI)"
+        )
+
+    # Container distribution
+    if not re.search(r"quay\.io/crunchtools/", text):
+        violations.append(
+            "CLI_TOOL: Container registry not declared (quay.io/crunchtools/*)"
+        )
+
+    # Quality gates section
+    if not re.search(r"[Qq]uality\s+[Gg]ate", text):
+        violations.append("CLI_TOOL: Quality gates section missing")
+
+    # Testing (pytest or test)
+    if not re.search(r"pytest", text):
+        violations.append("CLI_TOOL: Testing framework not mentioned (pytest)")
+
+    # Gourmand
+    if not re.search(r"gourmand", text, re.IGNORECASE):
+        violations.append("CLI_TOOL: Gourmand AI slop detection not mentioned")
+
+    # External API / credential management
+    api_patterns = [
+        r"[Aa]PI",
+        r"[Ee]nvironment\s+[Vv]ariable",
+        r"[Cc]redential",
+        r"SecretStr",
+    ]
+    if not any(re.search(p, text) for p in api_patterns):
+        violations.append(
+            "CLI_TOOL: External API or credential management not documented"
+        )
+
+    # Hummingbird or container base image
+    base_image_patterns = [
+        r"[Hh]ummingbird",
+        r"quay\.io/hummingbird/",
+    ]
+    if not any(re.search(p, text) for p in base_image_patterns):
+        violations.append(
+            "CLI_TOOL: Container base image not declared (Hummingbird)"
+        )
+
+    return violations
+
+
+# ---------------------------------------------------------------------------
 # Main validator
 # ---------------------------------------------------------------------------
 
@@ -566,6 +652,8 @@ def validate(
         all_violations.extend(check_forked_mcp_server(text))
     elif profile == "Web Application":
         all_violations.extend(check_web_application(text))
+    elif profile == "CLI Tool":
+        all_violations.extend(check_cli_tool(text))
     elif profile and profile not in VALID_PROFILES:
         pass  # Already flagged by universal checks
 

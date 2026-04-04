@@ -1,7 +1,7 @@
 # CrunchTools Constitution
 
-> **Version:** 1.4.0
-> **Ratified:** 2026-03-16
+> **Version:** 1.5.0
+> **Ratified:** 2026-04-04
 > **Status:** Active
 
 This constitution establishes the universal principles that govern all software projects in the [crunchtools](https://github.com/crunchtools) organization. Every repo inherits these rules. Subsystem-specific requirements are defined in profiles.
@@ -163,6 +163,7 @@ Valid profiles:
 - **Autonomous Agent** — see `profiles/autonomous-agent.md`
 - **Forked MCP Server** — see `profiles/forked-mcp-server.md`
 - **Web Application** — see `profiles/web-application.md`
+- **CLI Tool** — see `profiles/cli-tool.md`
 
 A project MAY declare multiple profiles if it spans subsystems.
 
@@ -187,3 +188,4 @@ A project MAY declare multiple profiles if it spans subsystems.
 | 1.2.0 | 2026-03-10 | Added mandatory build caching, git workflow, GitHub Releases, gourmand container |
 | 1.3.0 | 2026-03-10 | Added Web Application profile for stateful web apps (acquacotta, rotv, immich) |
 | 1.4.0 | 2026-03-16 | Added Forked MCP Server profile for containerized third-party MCP servers |
+| 1.5.0 | 2026-04-04 | Added CLI Tool profile for standalone Python CLI tools (gatehouse, etc.) |
