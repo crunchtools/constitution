@@ -27,7 +27,7 @@ Tools that produce advisory output (warnings, informational findings) MUST exit 
 
 ### 3. Environment Variable Configuration
 
-Runtime configuration MUST come from environment variables, not config files or interactive prompts. API keys, tokens, and credentials follow the same `SecretStr` pattern as MCP servers — never logged, never in `repr()`.
+Runtime configuration comes from environment variables. API keys, tokens, and credentials follow the same `SecretStr` pattern as MCP servers — never logged, never in `repr()`.
 
 | Pattern | Example |
 |---------|---------|
@@ -36,6 +36,17 @@ Runtime configuration MUST come from environment variables, not config files or 
 | Verbosity | `GATEHOUSE_VERBOSE=1` or `--verbose` flag |
 
 CLI flags MAY override environment variables. Flags take precedence.
+
+### 4. Env File Convention
+
+CLI tools MUST load credentials from `~/.config/mcp-env/<name>.env` on startup. This is the same directory used by all crunchtools MCP servers. The env file uses simple `KEY=VALUE` format (no `export`, no quotes). Environment variables already set in the shell take precedence over values in the env file.
+
+```
+~/.config/mcp-env/gatehouse.env
+~/.config/mcp-env/gourmand.env
+```
+
+This convention means users configure credentials once and every crunchtools tool finds them automatically.
 
 ---
 
