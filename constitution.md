@@ -1,7 +1,7 @@
 # CrunchTools Constitution
 
-> **Version:** 1.5.0
-> **Ratified:** 2026-04-04
+> **Version:** 1.6.0
+> **Ratified:** 2026-04-06
 > **Status:** Active
 
 This constitution establishes the universal principles that govern all software projects in the [crunchtools](https://github.com/crunchtools) organization. Every repo inherits these rules. Subsystem-specific requirements are defined in profiles.
@@ -62,6 +62,23 @@ Direct pushes to `main` are acceptable for single-commit fixes but SHOULD use a 
 - **Release title:** `vX.Y.Z`
 - **Release notes:** Summary of changes since the previous release. Use `gh release create` or the GitHub UI.
 - **Automation:** Release-triggered CI workflows handle PyPI publishing, container builds, and registry pushes. Manual artifact uploads are not required.
+
+### Changelog
+
+Every project MUST maintain a `CHANGELOG.md` in the repo root following the [Keep a Changelog](https://keepachangelog.com/) convention.
+
+**Required sections** (use only those that apply per release):
+- `Added` — new features
+- `Changed` — changes to existing functionality
+- `Deprecated` — features marked for future removal
+- `Removed` — features removed in this release
+- `Fixed` — bug fixes
+- `Security` — vulnerability patches
+
+**Rules:**
+- Every version tag MUST have a corresponding entry in `CHANGELOG.md`.
+- The `[Unreleased]` section at the top tracks changes since the last release.
+- GitHub Release notes SHOULD be generated from the `CHANGELOG.md` entry for that version.
 
 ---
 
@@ -179,6 +196,37 @@ A project MAY declare multiple profiles if it spans subsystems.
 
 ---
 
+## IX. Deprecation Policy
+
+Removing features without warning breaks downstream consumers. All deprecations follow a warn-then-remove cycle.
+
+**Rules:**
+
+1. **Warn first.** Deprecated features MUST emit a runtime warning for at least one MINOR release before removal in the next MAJOR release.
+2. **Warning format:** `[DEPRECATED] <thing> will be removed in vX.0.0. Use <replacement> instead.`
+3. **Documentation.** Deprecated features MUST be marked in CLAUDE.md, CHANGELOG.md, and tool descriptions with the `[DEPRECATED]` tag.
+4. **No silent removal.** Removing a feature without a prior deprecation warning is a constitution violation.
+5. **Grace period.** The deprecation warning MUST be present in at least one published release before the feature is removed.
+
+---
+
+## X. Runtime Warnings
+
+Warnings nudge users toward best practices without breaking existing setups.
+
+**When to warn:**
+- Insecure file permissions (e.g., token file not `0600`)
+- Deprecated environment variables or configuration patterns
+- Missing recommended configuration
+
+**Rules:**
+
+1. **Format:** `[WARNING] <description>. <recommendation>.` printed to stderr.
+2. **Never fail on warnings.** Warnings MUST NOT cause the program to exit non-zero. They are advisory.
+3. **Suppressible.** Warnings SHOULD be suppressible via `--quiet` flag or `<TOOL>_QUIET=1` environment variable for CI and automation contexts.
+
+---
+
 ## Ratification History
 
 | Version | Date | Changes |
@@ -189,3 +237,4 @@ A project MAY declare multiple profiles if it spans subsystems.
 | 1.3.0 | 2026-03-10 | Added Web Application profile for stateful web apps (acquacotta, rotv, immich) |
 | 1.4.0 | 2026-03-16 | Added Forked MCP Server profile for containerized third-party MCP servers |
 | 1.5.0 | 2026-04-04 | Added CLI Tool profile for standalone Python CLI tools (gatehouse, etc.) |
+| 1.6.0 | 2026-04-06 | Added Deprecation Policy (IX), Runtime Warnings (X), Changelog requirement (II), file-based credential loading in MCP Server and CLI Tool profiles |

@@ -1,6 +1,6 @@
 # CLI Tool Profile
 
-> **Profile Version:** 1.0.0
+> **Profile Version:** 1.1.0
 > **Applies to:** Standalone Python CLI tools distributed via PyPI and containers (gatehouse, etc.)
 
 This profile extends the [universal constitution](../constitution.md) with requirements specific to standalone command-line tools in the crunchtools organization. CLI tools differ from MCP servers in that they have no transport layer, no tool registration, and no MCP framework dependency. They differ from web applications in that they are stateless, run-to-completion processes invoked by developers.
@@ -32,8 +32,11 @@ Runtime configuration comes from environment variables. API keys, tokens, and cr
 | Pattern | Example |
 |---------|---------|
 | API keys | `GEMINI_API_KEY`, `GITHUB_TOKEN` |
+| File-based secrets | `GEMINI_API_KEY_FILE`, `GITHUB_TOKEN_FILE` |
 | Feature flags | `GATEHOUSE_ADVISORY=1` |
 | Verbosity | `GATEHOUSE_VERBOSE=1` or `--verbose` flag |
+
+**File-based credential loading (`_FILE` suffix):** For any credential environment variable `FOO_TOKEN`, the tool MUST also support `FOO_TOKEN_FILE` pointing to a file path containing the secret value. `_FILE` takes precedence when both are set. File contents are `.strip()`'d on read. On load, warn (do not fail) if the token file has permissions more permissive than `0600` (see constitution Section X — Runtime Warnings).
 
 CLI flags MAY override environment variables. Flags take precedence.
 

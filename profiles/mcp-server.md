@@ -1,6 +1,6 @@
 # MCP Server Profile
 
-> **Profile Version:** 1.3.0
+> **Profile Version:** 1.4.0
 > **Applies to:** All `mcp-*-crunchtools` projects
 
 This profile extends the [universal constitution](../constitution.md) with requirements specific to MCP (Model Context Protocol) servers in the crunchtools organization.
@@ -15,8 +15,19 @@ Every MCP server MUST preserve all five security layers. No exceptions.
 
 **Layer 1 — Credential Protection:**
 - API credentials stored as `SecretStr` (never logged or exposed)
-- Environment-variable-only storage
+- Environment variable or file-based storage (see below)
 - Automatic scrubbing from error messages
+
+**File-based credential loading (`_FILE` suffix):**
+
+For any credential environment variable `FOO_TOKEN`, the server MUST also support `FOO_TOKEN_FILE` pointing to a file path containing the secret value. This is the **preferred** method for container deployments (Docker secrets, Kubernetes secret volumes, systemd `LoadCredential=`).
+
+| Rule | Detail |
+|------|--------|
+| Precedence | `_FILE` takes precedence over the direct env var when both are set |
+| Reading | File contents are `.strip()`'d on read (handles trailing newlines) |
+| Permissions | On load, warn (do not fail) if the token file has permissions more permissive than `0600` (see constitution Section X — Runtime Warnings) |
+| Direct env vars | Supported but not recommended for production — no deprecation yet, preference only |
 
 **Layer 2 — Input Validation:**
 - Pydantic models enforce strict data types with `extra="forbid"`
