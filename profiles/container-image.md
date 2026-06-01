@@ -1,6 +1,6 @@
 # Container Image Profile
 
-> **Profile Version:** 1.1.0
+> **Profile Version:** 1.2.0
 > **Applies to:** All `ubi10-*` and standalone container image projects
 
 This profile extends the [universal constitution](../constitution.md) with requirements specific to **UBI-based** container image projects in the crunchtools organization.
@@ -87,6 +87,31 @@ For images based on `ubi-init` that run systemd:
    ```
 3. Set stop signal: `STOPSIGNAL SIGRTMIN+3`
 4. Use init as entrypoint: `ENTRYPOINT ["/sbin/init"]`
+5. **Self-heal internal services.** Every long-running service inside a systemd
+   container MUST set `Restart=on-failure` (with `RestartSec`) via a drop-in.
+   The host-level Podman unit's `Restart=always` only restarts the *container* —
+   it cannot recover a service that dies *inside* a still-running container.
+   ```dockerfile
+   COPY config/php-fpm-restart.conf /etc/systemd/system/php-fpm.service.d/restart.conf
+   ```
+   ```ini
+   [Service]
+   Restart=on-failure
+   RestartSec=5s
+   ```
+6. **Bound resource consumption to the container limit.** Services that spawn
+   worker pools (php-fpm, httpd) MUST cap concurrency so the stack cannot exceed
+   the container's `--memory` cgroup and trigger the OOM killer. For php-fpm,
+   prefer `pm = ondemand` with an explicit `pm.max_children` sized to
+   `(memory_limit ÷ avg_worker_RSS)`, plus `pm.max_requests` to recycle workers.
+   Stock defaults (`pm = dynamic`, `pm.max_children = 50`) are unsafe in a
+   memory-capped container.
+
+> **Rationale:** On 2026-05-27 crunchtools.com ran the stock php-fpm pool
+> (`pm.max_children = 50`) inside a 2 GB container. A traffic spike stacked
+> workers past the cgroup, the OOM killer shot MariaDB, neither service had
+> `Restart=`, and the blog served 503s silently for ~5 days. Both requirements
+> above exist to make that failure mode self-healing and bounded.
 
 ---
 
