@@ -1,0 +1,34 @@
+name: Validate Cascade
+
+# Read-only check: compares the FROM-graph (Containerfile inheritance) with the
+# dispatch-graph (repository_dispatch wiring in build.yml). Fails if downstream
+# repos won't rebuild when their parent image updates.
+#
+# Triggered on push/PR; also runs weekly via workflow_dispatch from Hermes.
+# Deliberately no schedule: trigger — see chore/strip-schedule-trigger sweep.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  validate-cascade:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Run cascade determinism check
+        env:
+          GH_TOKEN: ${{ secrets.CRUNCHTOOLS_DISPATCH_TOKEN }}
+        run: python validate-cascade.py --verbose
