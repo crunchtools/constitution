@@ -61,6 +61,18 @@ DISPATCH_DIRECT_RE = re.compile(
     r"repos/crunchtools/([A-Za-z0-9._-]+)/dispatches",
 )
 
+# Image-publication signals in workflow YAML — used to detect crunchtools images
+# that are BUILT (and pushed to Quay) by some workflow, even if no GitHub repo of
+# that name exists. acquacotta builds quay.io/crunchtools/acquacotta-base from
+# Containerfile.base inside the acquacotta repo via container-base.yml; rotv does
+# the same with rotv-base. Either of these patterns is sufficient evidence.
+PUBLISHED_IMAGE_RES = [
+    # env declaration: `IMAGE_NAME: crunchtools/foo` (any *_IMAGE name)
+    re.compile(r"^\s*[A-Z_]*IMAGE[A-Z_]*:\s*crunchtools/([A-Za-z0-9._-]+)", re.MULTILINE),
+    # literal reference in tags / image fields: `quay.io/crunchtools/foo[:tag]`
+    re.compile(r"quay\.io/crunchtools/([A-Za-z0-9._-]+?)(?:[:@\s\"',}]|$)"),
+]
+
 
 def gh(path: str, token: str) -> dict | list:
     req = urllib.request.Request(
@@ -115,9 +127,45 @@ def main() -> int:
     repo_set = set(repos)
     print(f"  {len(repos)} non-archived repos", file=sys.stderr)
 
+    # Discover every crunchtools image that is BUILT by some workflow in some
+    # repo (typically pushed to quay.io/crunchtools/<name>). This catches the
+    # "same repo publishes both an app and its base" pattern (acquacotta builds
+    # acquacotta-base via container-base.yml; rotv builds rotv-base via
+    # build-base.yml). A FROM pointing at such an image is NOT broken even
+    # though no separate repo of that name exists.
+    print("Scanning workflows for published images...", file=sys.stderr)
+    published_images: set[str] = set()
+    # also cache workflow files so we don't re-fetch in the dispatch pass
+    workflows_cache: dict[tuple[str, str], str] = {}
+    for r in repos:
+        try:
+            wf_entries = gh(f"/repos/{args.org}/{r}/contents/.github/workflows", token)
+        except urllib.error.HTTPError as e:
+            if e.code == 404:
+                continue
+            raise
+        if not isinstance(wf_entries, list):
+            continue
+        for entry in wf_entries:
+            name = entry.get("name", "")
+            if not name.endswith((".yml", ".yaml")):
+                continue
+            txt = fetch_text(args.org, r, f".github/workflows/{name}", token)
+            if txt is None:
+                continue
+            workflows_cache[(r, name)] = txt
+            for rx in PUBLISHED_IMAGE_RES:
+                for m in rx.finditer(txt):
+                    published_images.add(m.group(1))
+    # A repo also "exists" as a publishable image if it has a Containerfile,
+    # since the standard pattern pushes quay.io/crunchtools/<reponame>.
+    known_images = repo_set | published_images
+    print(f"  {len(published_images)} crunchtools image names found in workflows", file=sys.stderr)
+
     # FROM-graph: parent_image -> {child_repo, ...}
     from_graph: dict[str, set[str]] = defaultdict(set)
-    # Track unresolved FROM targets (broken edges)
+    # Track unresolved FROM targets (broken edges) — a FROM target is broken
+    # only if no repo AND no workflow-published image of that name exists.
     broken_froms: list[tuple[str, str]] = []  # (child_repo, missing_parent)
 
     for r in repos:
@@ -129,14 +177,16 @@ def main() -> int:
         for m in FROM_RE.finditer(cf):
             parent = m.group(1).split(":")[0]  # strip :tag if any
             from_graph[parent].add(r)
-            if parent not in repo_set:
+            if parent not in known_images:
                 broken_froms.append((r, parent))
 
     # dispatch-graph: parent_repo -> {dispatched_child, ...}
     dispatch_graph: dict[str, set[str]] = defaultdict(set)
     for r in repos:
         for wf in ("build.yml", "container.yml"):
-            txt = fetch_text(args.org, r, f".github/workflows/{wf}", token)
+            txt = workflows_cache.get((r, wf))
+            if txt is None:
+                txt = fetch_text(args.org, r, f".github/workflows/{wf}", token)
             if txt is None:
                 continue
             for m in DISPATCH_LOOP_RE.finditer(txt):
