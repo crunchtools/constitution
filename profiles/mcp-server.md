@@ -278,13 +278,14 @@ Unacceptable reasons:
 
 ## VI. Code Quality Gates
 
-Every code change must pass through these five gates in order:
+Every code change must pass through these six gates in order:
 
 1. **Lint** — `uv run ruff check src tests`
 2. **Type Check** — `uv run mypy src`
 3. **Tests** — `uv run pytest -v` (all passing, mocked httpx)
 4. **Gourmand** — `gourmand --full .` (zero violations)
-5. **Container Build** — `podman build -f Containerfile .`
+5. **Code Review** — Gatehouse AI code review on every PR
+6. **Container Build** — `podman build -f Containerfile .`
 
 ### CI Pipeline (GitHub Actions)
 
@@ -292,6 +293,7 @@ Every code change must pass through these five gates in order:
 |-----|-------------|-----------|
 | test | Lint + mypy + pytest (Python 3.11-3.12) | Yes |
 | gourmand | AI slop detection | Yes |
+| gatehouse | AI code review (Gatehouse) | Yes |
 | build-container | Containerfile builds | Yes |
 | security | Weekly CVE scan + CodeQL | Scheduled |
 | publish | PyPI trusted publishing | On release tag |
