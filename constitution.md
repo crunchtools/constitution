@@ -234,7 +234,7 @@ Warnings nudge users toward best practices without breaking existing setups.
 | 1.0.0 | 2026-03-03 | Initial constitution — universal core + 3 profiles |
 | 1.1.0 | 2026-03-05 | Added Autonomous Agent profile for AI agent deployments |
 | 1.2.0 | 2026-03-10 | Added mandatory build caching, git workflow, GitHub Releases, gourmand container |
-| 1.3.0 | 2026-03-10 | Added Web Application profile for stateful web apps (acquacotta, rotv, immich) |
+| 1.3.0 | 2026-03-10 | Added Web Application profile for stateful web apps (acquacotta, rotv) |
 | 1.4.0 | 2026-03-16 | Added Forked MCP Server profile for containerized third-party MCP servers |
 | 1.5.0 | 2026-04-04 | Added CLI Tool profile for standalone Python CLI tools (gatehouse, etc.) |
 | 1.6.0 | 2026-04-06 | Added Deprecation Policy (IX), Runtime Warnings (X), Changelog requirement (II), file-based credential loading in MCP Server and CLI Tool profiles |
