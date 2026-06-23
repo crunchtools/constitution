@@ -1,7 +1,7 @@
 # Web Application Profile
 
 > **Profile Version:** 1.0.0
-> **Applies to:** End-user web applications deployed as containers (acquacotta, rotv, immich)
+> **Applies to:** End-user web applications deployed as containers (acquacotta, rotv)
 
 This profile extends the [universal constitution](../constitution.md) with requirements specific to web application projects in the crunchtools organization. Web applications differ from Container Image projects in that they contain application code, manage stateful data, run multiple services, and require application-level testing.
 
