@@ -1,7 +1,7 @@
 # CrunchTools Constitution
 
-> **Version:** 1.6.0
-> **Ratified:** 2026-04-06
+> **Version:** 1.7.0
+> **Ratified:** 2026-06-24
 > **Status:** Active
 
 This constitution establishes the universal principles that govern all software projects in the [crunchtools](https://github.com/crunchtools) organization. Every repo inherits these rules. Subsystem-specific requirements are defined in profiles.
@@ -227,6 +227,60 @@ Warnings nudge users toward best practices without breaking existing setups.
 
 ---
 
+## XI. Documentation
+
+Every project MUST maintain a capability-indexed documentation set. The README provides a brief overview; dedicated doc pages cover each capability in depth. Documentation MUST be updated alongside the code that changes a capability — not deferred to a separate PR.
+
+### README Structure
+
+The README is a scannable overview, not an exhaustive manual:
+
+1. **Project summary** — one paragraph, what the project does and why
+2. **Capabilities** — numbered list of capabilities, each with a 2-3 sentence summary and a link to its dedicated doc page in `docs/`
+3. **Quick Start** — install commands and minimal configuration
+4. **Documentation table** — full index of `docs/` pages with one-line descriptions
+5. **Development** — build, lint, test, container commands
+6. **License** — AGPL-3.0-or-later
+
+### Dedicated Doc Pages
+
+Each capability gets its own file in `docs/`. Every doc page follows the same template:
+
+| Section | Content |
+|---------|---------|
+| **Title** | Capability name as H1 |
+| **Opening paragraph** | What it does — 2-3 sentences |
+| **Why it matters** | The problem it solves |
+| **How it works** | Technical explanation with real config examples |
+| **Example** | Real config snippet, command output, or deployment pattern |
+| **Related** | Links to other relevant doc pages |
+
+**Rules:**
+
+1. **Real examples, not hypothetical.** Config snippets should be drawn from actual deployments with secrets and personal data replaced by generic placeholders (`user@example.com`, `your-token`).
+2. **Include real data when available.** Performance numbers, benchmark results, reduction percentages — concrete evidence over vague claims.
+3. **Keep pages scannable.** Under 300 lines per doc page. If it's longer, split it.
+4. **Cross-link liberally.** Every doc page should link to related pages. Readers enter from different directions.
+5. **Internal docs go in `docs/internal/`.** Design documents, architecture decision records, and contributor-facing docs live in `docs/internal/` and are linked from user-facing docs as "for contributors."
+
+### Documentation Maintenance
+
+Documentation MUST be updated in the same commit or PR that changes a capability. A feature PR that adds or modifies functionality without updating the corresponding doc page is incomplete.
+
+**Triggers for doc updates:**
+- New capability added → new doc page + README capability entry
+- Existing capability behavior changed → update the corresponding doc page
+- Configuration schema changed → update config examples in all affected docs
+- Capability removed → remove doc page + README entry
+
+**What does NOT require doc updates:**
+- Bug fixes that don't change documented behavior
+- Dependency updates
+- CI/CD changes
+- Test additions
+
+---
+
 ## Ratification History
 
 | Version | Date | Changes |
@@ -238,3 +292,4 @@ Warnings nudge users toward best practices without breaking existing setups.
 | 1.4.0 | 2026-03-16 | Added Forked MCP Server profile for containerized third-party MCP servers |
 | 1.5.0 | 2026-04-04 | Added CLI Tool profile for standalone Python CLI tools (gatehouse, etc.) |
 | 1.6.0 | 2026-04-06 | Added Deprecation Policy (IX), Runtime Warnings (X), Changelog requirement (II), file-based credential loading in MCP Server and CLI Tool profiles |
+| 1.7.0 | 2026-06-24 | Added Documentation standard (XI) — capability-indexed README + dedicated doc pages, docs updated alongside code |
