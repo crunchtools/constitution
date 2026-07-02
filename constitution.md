@@ -285,86 +285,30 @@ Documentation MUST be updated in the same commit or PR that changes a capability
 
 Every project MUST run **Gourmand** (AI slop detection) and **Gatehouse** (AI code review) as CI gates on every pull request. Both tools MUST be run from their official container images — never compiled from source in CI.
 
+Canonical drop-in workflow files are maintained in [`crunchtools/gatehouse/examples/`](https://github.com/crunchtools/gatehouse/tree/master/examples):
+
+| File | Purpose |
+|------|---------|
+| [`gourmand.yml`](https://github.com/crunchtools/gatehouse/blob/master/examples/gourmand.yml) | Gourmand CI job — add to your test/CI workflow |
+| [`gatehouse.yml`](https://github.com/crunchtools/gatehouse/blob/master/examples/gatehouse.yml) | Gatehouse review workflow — add as `.github/workflows/gatehouse.yml` |
+
 ### Gourmand
 
 Gourmand detects AI-generated code quality issues: generic variable names, single-use helpers, magic numbers, verbose comments, and other slop patterns.
 
-**CI job name:** `Code Quality (Gourmand)`
-
-**Container pattern:**
-
-```yaml
-gourmand:
-  name: Code Quality (Gourmand)
-  runs-on: ubuntu-latest
-  container:
-    image: quay.io/crunchtools/gourmand:latest
-  steps:
-    - uses: actions/checkout@v4
-    - name: Run Gourmand
-      run: gourmand --full .
-```
-
 **Rules:**
-- The job MUST use `container: quay.io/crunchtools/gourmand:latest` — never `cargo install` from source.
+- The CI job MUST use `container: quay.io/crunchtools/gourmand:latest` — never `cargo install` from source.
 - The command is `gourmand --full .` (full scan, not incremental).
+- CI job name: `Code Quality (Gourmand)`.
 - Gourmand is a **blocking gate** — PRs MUST NOT be merged with violations unless excepted in `gourmand-exceptions.toml` with justification.
 
 ### Gatehouse
 
 Gatehouse is a multi-agent AI code reviewer that posts findings as PR review comments. It runs under `pull_request_target` for fork safety — the PR diff is piped as data, never checked out or executed.
 
-**CI workflow name:** `Gatehouse`  
-**Job names:** `Protect workflows` (guard) and `Gatehouse review` (review)
-
-**Adopter pattern** — add `.github/workflows/gatehouse.yml`:
-
-```yaml
-name: Gatehouse
-
-on:
-  pull_request_target:
-    types: [opened, synchronize, reopened]
-
-permissions: {}
-
-jobs:
-  guard:
-    name: Protect workflows
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pull-requests: write
-    steps:
-      - name: Reject workflow changes from untrusted PRs
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PR: ${{ github.event.pull_request.number }}
-          AUTHOR_ASSOC: ${{ github.event.pull_request.author_association }}
-        run: |
-          set -euo pipefail
-          case "$AUTHOR_ASSOC" in
-            OWNER|MEMBER|COLLABORATOR)
-              echo "Author is trusted; allowing."; exit 0 ;;
-          esac
-          changed="$(gh pr diff "$PR" --repo "$GITHUB_REPOSITORY" --name-only)"
-          if echo "$changed" | grep -qE '^\.github/workflows/'; then
-            echo "::error::PR modifies .github/workflows/ — not accepted from external contributors."
-            exit 1
-          fi
-
-  review:
-    name: Gatehouse review
-    permissions:
-      contents: read
-      pull-requests: write
-    uses: crunchtools/gatehouse/.github/workflows/review.yml@v0.2.0
-    secrets:
-      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-```
-
 **Rules:**
 - The review job MUST use the `crunchtools/gatehouse` reusable workflow, which runs `quay.io/crunchtools/gatehouse` internally — never a local install.
+- CI workflow name: `Gatehouse`. Job names: `Protect workflows` (guard) and `Gatehouse review` (review).
 - Gatehouse is an **advisory gate** — findings are posted as PR review comments for the maintainer to triage, but do not block merge.
 - The `guard` job is a **blocking gate** — PRs from non-members that modify `.github/workflows/` MUST be rejected.
 - The `GEMINI_API_KEY` secret MUST be scoped to the reusable workflow when possible.
