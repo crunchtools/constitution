@@ -1,7 +1,7 @@
 # CrunchTools Constitution
 
-> **Version:** 1.8.0
-> **Ratified:** 2026-07-02
+> **Version:** 1.9.0
+> **Ratified:** 2026-07-06
 > **Status:** Active
 
 This constitution establishes the universal principles that govern all software projects in the [crunchtools](https://github.com/crunchtools) organization. Every repo inherits these rules. Subsystem-specific requirements are defined in profiles.
@@ -310,7 +310,8 @@ Gatehouse is a multi-agent AI code reviewer that posts findings as PR review com
 - The review job MUST use the `crunchtools/gatehouse` reusable workflow, which runs `quay.io/crunchtools/gatehouse` internally — never a local install.
 - CI workflow name: `Gatehouse`. Job names: `Protect workflows` (guard) and `Gatehouse review` (review).
 - Gatehouse is an **advisory gate** — findings are posted as PR review comments for the maintainer to triage, but do not block merge.
-- The `guard` job is a **blocking gate** — PRs from non-members that modify `.github/workflows/` MUST be rejected.
+- **The review job is advisory by construction and MUST NOT be a required status check.** An LLM reviewer is non-deterministic and hallucinates findings; giving it merge authority forces maintainers to either bypass branch protection or "fix" non-bugs. The reusable workflow exits `0` regardless of findings by default. Blocking behavior is opt-in only (the workflow's `blocking: true` input), and even when enabled the review job MUST NOT be added to branch protection as a required check.
+- The `guard` job is a **blocking gate** — PRs from non-members that modify `.github/workflows/` MUST be rejected. It, not the review job, is the one to mark required.
 - The `GEMINI_API_KEY` secret MUST be scoped to the reusable workflow when possible.
 
 ---
@@ -328,3 +329,4 @@ Gatehouse is a multi-agent AI code reviewer that posts findings as PR review com
 | 1.6.0 | 2026-04-06 | Added Deprecation Policy (IX), Runtime Warnings (X), Changelog requirement (II), file-based credential loading in MCP Server and CLI Tool profiles |
 | 1.7.0 | 2026-06-24 | Added Documentation standard (XI) — capability-indexed README + dedicated doc pages, docs updated alongside code |
 | 1.8.0 | 2026-07-02 | Added Code Quality Gates (XII) — Gourmand and Gatehouse from container images, standard job naming |
+| 1.9.0 | 2026-07-06 | Strengthened XII: Gatehouse review job is advisory by construction and MUST NOT be a required status check; blocking is opt-in and still never required |
