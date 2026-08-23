@@ -1,7 +1,7 @@
 # CrunchTools Constitution
 
-> **Version:** 1.9.0
-> **Ratified:** 2026-07-06
+> **Version:** 1.10.0
+> **Ratified:** 2026-08-23
 > **Status:** Active
 
 This constitution establishes the universal principles that govern all software projects in the [crunchtools](https://github.com/crunchtools) organization. Every repo inherits these rules. Subsystem-specific requirements are defined in profiles.
@@ -316,6 +316,47 @@ Gatehouse is a multi-agent AI code reviewer that posts findings as PR review com
 
 ---
 
+## XIII. Centralized Logging
+
+Container logs are lost when a container restarts or crashes. Every crunchtools
+service MUST emit its logs somewhere the central collector
+(`syslog.crunchtools.com`, `crunchtools/syslog`) can reach, so that logs survive
+the container, live under one retention policy, and can be read by an agent
+diagnosing a failure.
+
+**Log to stdout/stderr, never to a file inside the container.**
+Podman captures the container's console via conmon into the host journal, and the
+collector reads the journal. A log written to a path inside the container is
+invisible to the collector and gone at the next restart.
+
+**Do not override the log driver.** Podman's `journald` driver is the default and
+is what makes the fleet-wide tap work. A unit that sets `--log-driver=none` or
+`k8s-file` removes that service from centralized logging entirely.
+
+> Note for anyone porting Docker habits: podman has **no** `syslog` log driver —
+> only `k8s-file`, `journald`, `none` and `passthrough`. Per-container
+> `--log-opt syslog-address=` does not exist. The journal *is* the tap, which is
+> also why no per-container configuration is required.
+
+**systemd-based containers MUST forward their internal journal.**
+When PID 1 is `/sbin/init`, conmon only sees systemd's own console output — the
+logs of services running *inside* the container never reach the host journal.
+These containers MUST set `ForwardToSyslog=yes` and ship to
+`syslog.crunchtools.com:514`. This is the one case that needs explicit
+configuration.
+
+**Program identifier.** The collector keys each log stream on the container name
+(`CONTAINER_NAME`, set by conmon) and falls back to the syslog program name.
+Network senders MUST use a tag that matches their container or service name.
+
+**Compliance is verified against the running fleet, not the source tree.**
+Whether a service actually reaches the collector depends on its systemd unit and
+its runtime behaviour, neither of which a repo-level grep can see.
+`check_syslog_coverage.sh` in `crunchtools/syslog` audits every running container
+and alerts through Nagios on any that are not reaching the collector.
+
+---
+
 ## Ratification History
 
 | Version | Date | Changes |
@@ -330,3 +371,4 @@ Gatehouse is a multi-agent AI code reviewer that posts findings as PR review com
 | 1.7.0 | 2026-06-24 | Added Documentation standard (XI) — capability-indexed README + dedicated doc pages, docs updated alongside code |
 | 1.8.0 | 2026-07-02 | Added Code Quality Gates (XII) — Gourmand and Gatehouse from container images, standard job naming |
 | 1.9.0 | 2026-07-06 | Strengthened XII: Gatehouse review job is advisory by construction and MUST NOT be a required status check; blocking is opt-in and still never required |
+| 1.10.0 | 2026-08-23 | Added Centralized Logging (XIII) — log to stdout/stderr, do not override the journald log driver, systemd containers forward their internal journal to syslog.crunchtools.com; compliance audited against the running fleet (RT #1460) |
