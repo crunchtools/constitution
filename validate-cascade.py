@@ -4,9 +4,11 @@
 Compares two graphs across the crunchtools GitHub org:
 
   1. The FROM-graph — built by scanning every non-archived repo's
-     Containerfile for `FROM quay.io/crunchtools/<name>` lines. Each match
-     creates an edge parent→child, where parent is the crunchtools image and
-     child is the repo whose Containerfile contains the FROM line.
+     Containerfile *and* Containerfile.base for `FROM quay.io/crunchtools/<name>`
+     lines. Each match creates an edge parent→child, where parent is the
+     crunchtools image and child is the repo whose Containerfile contains the
+     FROM line. Containerfile.base counts because repos that split out a
+     <repo>-base image hold their real parent edge there.
 
   2. The dispatch-graph — built by scanning every repo's primary build
      workflow (.github/workflows/build.yml or .github/workflows/container.yml)
@@ -169,16 +171,31 @@ def main() -> int:
     broken_froms: list[tuple[str, str]] = []  # (child_repo, missing_parent)
 
     for r in repos:
-        cf = fetch_text(args.org, r, "Containerfile", token)
-        if cf is None:
-            cf = fetch_text(args.org, r, "Dockerfile", token)
-        if cf is None:
-            continue
-        for m in FROM_RE.finditer(cf):
-            parent = m.group(1).split(":")[0]  # strip :tag if any
-            from_graph[parent].add(r)
-            if parent not in known_images:
-                broken_froms.append((r, parent))
+        # Containerfile.base is scanned alongside Containerfile because several
+        # repos split a slow-moving infrastructure layer into their own
+        # <repo>-base image (acquacotta-base, rotv-base) built from
+        # Containerfile.base via container-base.yml. That base is what actually
+        # sits on the crunchtools parent, so the FROM edge lives there, not in
+        # the app-layer Containerfile. Scanning only Containerfile made those
+        # parents look like over-dispatch when the wiring was in fact correct.
+        sources = [
+            fetch_text(args.org, r, name, token)
+            for name in ("Containerfile", "Containerfile.base")
+        ]
+        if not any(s is not None for s in sources):
+            sources = [fetch_text(args.org, r, "Dockerfile", token)]
+        seen_parents: set[str] = set()
+        for cf in sources:
+            if cf is None:
+                continue
+            for m in FROM_RE.finditer(cf):
+                parent = m.group(1).split(":")[0]  # strip :tag if any
+                if parent in seen_parents:
+                    continue
+                seen_parents.add(parent)
+                from_graph[parent].add(r)
+                if parent not in known_images:
+                    broken_froms.append((r, parent))
 
     # dispatch-graph: parent_repo -> {dispatched_child, ...}
     dispatch_graph: dict[str, set[str]] = defaultdict(set)
