@@ -1,6 +1,6 @@
 # Autonomous Agent Profile
 
-> **Profile Version:** 1.0.0
+> **Profile Version:** 1.1.0
 > **Applies to:** All autonomous AI agent deployments on crunchtools infrastructure
 
 This profile extends the [universal constitution](../constitution.md) with requirements specific to deploying autonomous AI agents (e.g., OpenClaw) on crunchtools infrastructure. The agent code is third-party — this profile governs the **deployment architecture**, not the agent internals.
@@ -94,6 +94,7 @@ All agent containers MUST run with:
 - **Read-only root filesystem** (`--read-only`)
 - **SELinux enforcing** (`:Z` volume mounts, no `setenforce 0`)
 - **No host network** (`--network` must not be `host`)
+- **No direct egress** — the container MUST NOT reach the internet directly. All external access routes through an audited MCP gateway on a dedicated point-to-point network (`internal=true`, `dns_enabled=false`). Inherited host resolver entries MUST be stripped so a prohibited call fails immediately rather than timing out
 - **Dropped capabilities** — only retain what the agent explicitly needs
 
 ### Dependency Pinning
@@ -177,6 +178,20 @@ Minimum retention: **90 days**. Logs MUST NOT contain credentials, API keys, or 
 
 ## VI. Monitoring, Detection & Response
 
+### Sandbox-Aware Observability
+
+An isolated agent cannot observe the outside world directly. Every check an agent performs MUST run over a path the agent is actually permitted to use.
+
+| Rule | Requirement |
+|------|-------------|
+| **No direct probes** | Agents MUST NOT probe external hostnames directly (HTTP, DNS, ICMP, raw socket). On an isolated network (Section III) every such probe fails by construction. |
+| **Sandbox is not the world** | A failure on a prohibited path is evidence about the sandbox, not about the target. Agents MUST NOT alert, page, or remediate on such a failure. |
+| **Checks are tool calls** | Every health, reachability, or liveness check MUST be expressed as a call to an allowlisted MCP tool (Section II). Where no such tool exists, the check MUST NOT be scheduled. |
+| **Report the path, not the target** | When the monitoring path itself fails, the agent MUST report the path failure (`monitoring unreachable via <gateway>`) and MUST NOT assert the state of the target. |
+| **Declared sources** | Alert-capable scheduled jobs MUST declare their data source at authoring time. A job whose source is not an allowlisted MCP tool fails Quality Gate 6 (Section VII). |
+
+> An agent must never page on the absence of a capability it was deliberately denied.
+
 ### Anomaly Detection
 
 Monitor for behavioral anomalies including:
@@ -224,7 +239,7 @@ Every autonomous agent deployment MUST pass these gates in order before entering
 3. **Allowlist validation** — All MCP servers scored ≥ B/15, listed in config
 4. **Circuit breaker config** — All breakers configured with appropriate limits
 5. **Credential audit** — No hardcoded credentials, all secrets via env/LoadCredential
-6. **Monitoring setup** — Kill switches tested, audit logging confirmed, alerting configured
+6. **Monitoring setup** — Kill switches tested, audit logging confirmed, alerting configured, and every alert-capable scheduled job's data source verified as an allowlisted MCP tool
 
 ---
 
