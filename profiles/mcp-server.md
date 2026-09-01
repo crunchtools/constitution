@@ -162,9 +162,17 @@ ENTRYPOINT ["python", "-m", "<module_name>"]
 
 ### Native Library Gap (libstdc++, libgomp)
 
-`libstdc++.so.6` **now ships in the Hummingbird Python runtime** (verified 2026-08-30 in both `:latest` and `:latest-fips`, version 6.0.36). The old workaround that copied it forward is no longer needed — delete it if you find it in an existing Containerfile.
+`libstdc++.so.6` **now ships in the Hummingbird Python runtime.** The old workaround that copied it forward is no longer needed — delete it if you find it in an existing Containerfile.
 
-`libgomp.so.1` is still absent from **both** the runtime and the builder variants. PyTorch bundles its own copy under `torch/lib`, so torch-based servers are fine. A package that expects the *system* libgomp (some numpy/scipy/scikit-learn builds) will still fail at import.
+**The two registry paths are not identical.** Verified 2026-09-01:
+
+| Runtime image | `libstdc++.so.6` | `libgomp.so.1` |
+|---|---|---|
+| `registry.access.redhat.com/hi/python:3.12` | present | **present** |
+| `quay.io/hummingbird/python:latest` | present | **absent** |
+| `quay.io/hummingbird/python:latest-fips` | present | absent |
+
+So a Containerfile on the `hi/` path that still `dnf install`s `libgomp libstdc++` in the builder and copies them forward is doing redundant work. On the `quay.io/hummingbird` path, `libgomp` genuinely is missing: PyTorch bundles its own under `torch/lib` and is fine, but a package expecting the *system* libgomp (some numpy/scipy/scikit-learn builds) will fail at import.
 
 Re-verify rather than trusting this note — the base images move:
 
