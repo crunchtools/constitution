@@ -160,14 +160,68 @@ ENV PATH="/app/venv/bin:$PATH"
 ENTRYPOINT ["python", "-m", "<module_name>"]
 ```
 
-### Native Library Gap (libstdc++)
+### Native Library Gap (libstdc++, libgomp)
 
-The Hummingbird Python runtime image **does not include libstdc++.so.6**. Any pip package with C++ extensions (numpy, onnxruntime, scikit-learn) will install successfully but crash at import time.
+`libstdc++.so.6` **now ships in the Hummingbird Python runtime.** The old workaround that copied it forward is no longer needed — delete it if you find it in an existing Containerfile.
 
-**Fix:** Copy `libstdc++` from the Hummingbird builder variant (same ecosystem):
+**The two registry paths are not identical.** Verified 2026-09-01:
+
+| Runtime image | `libstdc++.so.6` | `libgomp.so.1` |
+|---|---|---|
+| `registry.access.redhat.com/hi/python:3.12` | present | **present** |
+| `quay.io/hummingbird/python:latest` | present | **absent** |
+| `quay.io/hummingbird/python:latest-fips` | present | absent |
+
+So a Containerfile on the `hi/` path that still `dnf install`s `libgomp libstdc++` in the builder and copies them forward is doing redundant work. On the `quay.io/hummingbird` path, `libgomp` genuinely is missing: PyTorch bundles its own under `torch/lib` and is fine, but a package expecting the *system* libgomp (some numpy/scipy/scikit-learn builds) will fail at import.
+
+Re-verify rather than trusting this note — the base images move:
+
+```bash
+podman run --rm --entrypoint "" quay.io/hummingbird/python:latest python -c \
+  "import glob; print(glob.glob('/usr/lib64/libstdc++.so*'), glob.glob('/usr/lib64/libgomp.so*'))"
+```
+
+### Distroless Gotchas
+
+The runtime image has **no `/bin/sh`**. A shell-form `RUN` fails outright at build time, which is loud and easy to fix. The dangerous cases are third-party native libraries that shell out at *import* time and do not check whether it worked — those fail silently with a SIGSEGV, no traceback, and no stderr.
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| `RUN` fails: `executable file /bin/sh not found` | Shell-form `RUN` against the distroless runtime | Move every `RUN` into the `-builder` stage; `COPY` results forward |
+| Exit 139 / SIGSEGV on `import onnxruntime`, no output | ORT ≥ 1.29 vendors `cpp_client_telemetry`, which falls back to `popen()` for a device ID. `popen()` returns NULL with no shell; the unchecked `pclose(NULL)` crashes. See HUM-6564 / [onnxruntime#32173](https://github.com/microsoft/onnxruntime/issues/32173), fixed by [#32226](https://github.com/microsoft/onnxruntime/pull/32226) but not yet released | `ENV ORT_DISABLE_TELEMETRY=1` **and** a populated `/etc/machine-id` |
+| Package installs but crashes on import with a missing symbol | Native C++ extension, missing runtime library | Copy the library from the matching Hummingbird `-builder` — never from Fedora or UBI |
+| Model / cache re-downloaded on every start | `HOME` is `/tmp` in the base image and is ephemeral | Pin `HF_HOME` (or equivalent) to a `VOLUME` path |
+| Permission denied writing to an app directory | Runtime runs as uid **65532**, gid **0** | Create dirs in the builder, then `chgrp -R 0` and `chmod -R g=u` |
+
+### `/etc/machine-id` Must Be Populated, Not Empty
+
+Libraries that probe for a host identity read `/etc/machine-id` and fall through to a shell-based fallback when the value is unusable. The empty file that systemd documents as the "uninitialized / first boot" state **does not** short-circuit that fallback.
+
+Measured against `onnxruntime` 1.29.0 on `quay.io/hummingbird/python:latest` with telemetry left enabled:
+
+| `/etc/machine-id` | Result |
+|---|---|
+| absent | SIGSEGV (139) |
+| present, empty | SIGSEGV (139) |
+| present, populated | imports cleanly |
+
+Generate it in the builder stage and copy it in:
 
 ```dockerfile
-COPY --from=quay.io/hummingbird/python:latest-fips-builder /usr/lib64/libstdc++.so.6* /usr/lib64/
+# builder stage
+RUN tr -d - < /proc/sys/kernel/random/uuid > /etc/machine-id.seed
+# runtime stage
+COPY --from=builder /etc/machine-id.seed /etc/machine-id
+```
+
+Every container from the image shares this ID. That is acceptable only when telemetry is disabled and nothing uses machine-id for identity — which is the normal case for these servers. Do not use this pattern for anything that needs per-instance identity.
+
+Set the telemetry kill switches too. Either fix alone prevents the crash; keeping both means a regression in one code path does not take the service down:
+
+```dockerfile
+ENV HF_HUB_DISABLE_TELEMETRY=1 \
+    ORT_DISABLE_TELEMETRY=1 \
+    DO_NOT_TRACK=1
 ```
 
 ### Required Labels
