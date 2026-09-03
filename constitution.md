@@ -1,7 +1,7 @@
 # CrunchTools Constitution
 
-> **Version:** 1.10.0
-> **Ratified:** 2026-08-23
+> **Version:** 1.11.0
+> **Ratified:** 2026-09-03
 > **Status:** Active
 
 This constitution establishes the universal principles that govern all software projects in the [crunchtools](https://github.com/crunchtools) organization. Every repo inherits these rules. Subsystem-specific requirements are defined in profiles.
@@ -357,6 +357,42 @@ and alerts through Nagios on any that are not reaching the collector.
 
 ---
 
+## XIV. Configuration Placement
+
+Configuration MUST NOT be baked into an image unless it is genuinely necessary.
+An image is a build artifact, shared across hosts and rebuilt on a slow cycle.
+Configuration is host-specific and changes on an operational cycle. Burying the
+second inside the first means a one-line tuning change needs a full image build
+and a reboot, and it hides the running configuration from anyone reading the
+host to find out why it behaves the way it does.
+
+**bootc hosts: configuration lives in `/etc`.**
+Image mode already performs a three-way merge on `/etc` across upgrades, so
+host config placed there survives `bootc upgrade` while staying readable and
+editable in place. The Containerfile carries packages, unit enablement, and
+anything that must exist before first boot. Everything else — sysctls, systemd
+drop-ins, `*.conf.d/` overrides, tuning of any kind — goes in `/etc`.
+
+**Container images: configuration lives in `/srv/<service>/config/` on the
+host**, bind-mounted into the container read-only:
+
+```
+-v /srv/postiz.crunchtools.com/config/postiz.env:/etc/postiz/env:ro,Z
+```
+
+This keeps the image generic and reusable across deployments, and keeps secrets
+and per-deployment values out of image layers, where they would persist in the
+registry and in every derived image.
+
+**The exception is narrow.** Configuration MAY be baked into an image only when
+the image cannot boot or function without it, or when it is genuinely invariant
+across every deployment of that image — repository definitions, GPG keys, a
+default that is part of the image's identity. Convenience is not a reason, and
+neither is "it is only one file." When in doubt it goes in `/etc` or
+`/srv/<service>/config/`.
+
+---
+
 ## Ratification History
 
 | Version | Date | Changes |
@@ -372,3 +408,4 @@ and alerts through Nagios on any that are not reaching the collector.
 | 1.8.0 | 2026-07-02 | Added Code Quality Gates (XII) — Gourmand and Gatehouse from container images, standard job naming |
 | 1.9.0 | 2026-07-06 | Strengthened XII: Gatehouse review job is advisory by construction and MUST NOT be a required status check; blocking is opt-in and still never required |
 | 1.10.0 | 2026-08-23 | Added Centralized Logging (XIII) — log to stdout/stderr, do not override the journald log driver, systemd containers forward their internal journal to syslog.crunchtools.com; compliance audited against the running fleet (RT #1460) |
+| 1.11.0 | 2026-09-03 | Added Configuration Placement (XIV) — config is not baked into images except when necessary; `/etc` for bootc hosts, `/srv/<service>/config/` bind-mounted for container images |
