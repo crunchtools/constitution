@@ -1,7 +1,7 @@
 # CrunchTools Constitution
 
-> **Version:** 1.11.0
-> **Ratified:** 2026-09-03
+> **Version:** 1.12.0
+> **Ratified:** 2026-09-17
 > **Status:** Active
 
 This constitution establishes the universal principles that govern all software projects in the [crunchtools](https://github.com/crunchtools) organization. Every repo inherits these rules. Subsystem-specific requirements are defined in profiles.
@@ -393,6 +393,44 @@ neither is "it is only one file." When in doubt it goes in `/etc` or
 
 ---
 
+## XV. Dependency Lockfiles
+
+An unpinned build is not reproducible. If CI resolves dependencies fresh on
+every run instead of reading a committed lockfile, the exact set of code
+running in production can change with no commit, no PR, and no diff to
+review — a new linter rule, a breaking minor release, or a compromised
+package can enter the build invisibly. This happened to `mcp-gitlab` on
+2026-09-17: `uv.lock` was gitignored, CI silently resolved a newer `ruff`
+than any developer had locally, a rule graduated from preview to stable,
+and the build broke with zero code changes to point at.
+
+**Rules:**
+
+1. **Lockfiles MUST be committed.** `uv.lock`, `package-lock.json` /
+   `pnpm-lock.yaml`, `Cargo.lock`, `go.sum`, `Gemfile.lock` — whatever the
+   ecosystem produces. Never add a lockfile to `.gitignore`.
+2. **Pinned versions MUST have an automated update path.** A committed
+   lockfile with no update mechanism just trades one failure mode
+   (invisible drift) for another (silent staleness — security patches and
+   bugfixes never arrive). Configure
+   [Dependabot version updates](https://docs.github.com/en/code-security/dependabot/dependabot-version-updates)
+   for every ecosystem present in the repo, including `github-actions` —
+   a `uses: some-action@v1.2.3` pin goes stale exactly like a lockfile
+   entry does, and Dependabot covers both from the same config file.
+3. **Updates land as PRs, gated by the same CI as any other change.**
+   Dependabot MUST run on a schedule (`weekly` is the default cadence
+   used across crunchtools projects, matching the existing weekly CVE
+   scan cadence). Grouping minor/patch updates to reduce PR noise is
+   fine; silently disabling or ignoring an ecosystem is not.
+
+A canonical `dependabot.yml` covering the `uv` and `github-actions`
+ecosystems is maintained at
+[`examples/dependabot-uv.yml`](examples/dependabot-uv.yml) in this repo.
+Other ecosystems follow the same shape — add one `package-ecosystem`
+block per manifest/lockfile present in the repo.
+
+---
+
 ## Ratification History
 
 | Version | Date | Changes |
@@ -409,3 +447,4 @@ neither is "it is only one file." When in doubt it goes in `/etc` or
 | 1.9.0 | 2026-07-06 | Strengthened XII: Gatehouse review job is advisory by construction and MUST NOT be a required status check; blocking is opt-in and still never required |
 | 1.10.0 | 2026-08-23 | Added Centralized Logging (XIII) — log to stdout/stderr, do not override the journald log driver, systemd containers forward their internal journal to syslog.crunchtools.com; compliance audited against the running fleet (RT #1460) |
 | 1.11.0 | 2026-09-03 | Added Configuration Placement (XIV) — config is not baked into images except when necessary; `/etc` for bootc hosts, `/srv/<service>/config/` bind-mounted for container images |
+| 1.12.0 | 2026-09-17 | Added Dependency Lockfiles (XV) — lockfiles MUST be committed, Dependabot MUST be configured for every ecosystem including github-actions; prompted by mcp-gitlab's CI silently breaking due to a gitignored uv.lock |
