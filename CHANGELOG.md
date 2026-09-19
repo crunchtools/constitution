@@ -32,8 +32,37 @@ onward were ratified without a tag or a GitHub Release.
   `gourmand.yml`, so it calls `./.github/workflows/gourmand.yml`; every other
   repo must still point at `crunchtools/gatehouse`.
 
-No constitution version bump: the constitution text is unchanged at 1.14.0, and
-the version number tracks ratified document changes, not repo tooling.
+The entries above carry no version bump of their own: they are repo tooling, and
+the version number tracks ratified document changes.
+
+## [1.15.0] - 2026-09-19
+
+### Changed
+- **Section II — the GitHub Release requirement is now scoped to
+  distribution-bearing repos** (RT #1485). The flat "a GitHub Release MUST be
+  created for every version bump" was unenforceable and, taken literally, harmful.
+  A repo is distribution-bearing when its CI publishes an artifact on a `release`
+  event — a property of its wiring, not of its profile, so the rule does not drift
+  as wiring changes.
+
+  Repos whose tags are deploy markers rather than distribution events are exempt
+  and keep only the `CHANGELOG.md` requirement. The clause applies to tags created
+  on or after ratification: release-triggered workflows check out the release ref,
+  so a release created against an old tag builds and ships *that* code. Backfilling
+  releases to satisfy an audit would deliberately cause the stale-artifact failure
+  the clause exists to prevent (RT #1462).
+
+  Prompted by RT #1485, which audited 178 version tags with no GitHub Release
+  across the fleet and found the number to be four unrelated problems wearing one
+  coat: 166 deploy markers in five repos, 2 genuinely undistributed versions
+  (mcp-trove v0.5.1 and mcp-pcloud v2.1.0, both tagged in March and never shipped),
+  9 superseded historical tags, and 1 release hiding behind a malformed tag name.
+
+### Added
+- **Section II now requires the release's tag name to carry the `v`.** A release
+  created against a bare `0.4.0` tag leaves a malformed tag in the repo and reads
+  as a missing release to any audit that matches on `vX.Y.Z`. Found in
+  mcp-request-tracker.
 
 ## [1.14.0] - 2026-09-19
 

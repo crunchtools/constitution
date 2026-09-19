@@ -1,6 +1,6 @@
 # CrunchTools Constitution
 
-> **Version:** 1.14.0
+> **Version:** 1.15.0
 > **Ratified:** 2026-09-19
 > **Status:** Active
 
@@ -56,12 +56,19 @@ Direct pushes to `main` are acceptable for single-commit fixes but SHOULD use a 
 
 ### GitHub Releases
 
-**A GitHub Release MUST be created for every version bump.** The release tag is the trigger for all downstream distribution (PyPI publishing, container image pushes). Without a GitHub Release, merged code is not distributed.
+**A GitHub Release MUST be created for every version bump in a distribution-bearing repo.** The release tag is the trigger for downstream distribution (PyPI publishing, RPM builds, registry pushes). Without a GitHub Release, merged code in such a repo is not distributed.
+
+**A repo is distribution-bearing when its CI publishes an artifact on a *release* event** — that is, it has a workflow triggered by `on: release:`. This is a property of the repo's wiring, not of its profile, so it stays true as wiring changes.
 
 - **Tag format:** `vX.Y.Z` (e.g., `v0.2.0`, `v1.0.0`)
 - **Release title:** `vX.Y.Z`
-- **Release notes:** Summary of changes since the previous release. Use `gh release create` or the GitHub UI.
-- **Automation:** Release-triggered CI workflows handle PyPI publishing, container builds, and registry pushes. Manual artifact uploads are not required.
+- **The release's tag name MUST carry the `v`.** A release created against a bare `0.4.0` tag does not satisfy this clause, and leaves a malformed tag behind in the repo.
+- **Release notes:** Summary of changes since the previous release, generated from the `CHANGELOG.md` entry for that version. Use `gh release create` or the GitHub UI.
+- **Automation:** Release-triggered CI workflows handle PyPI publishing, RPM builds, container builds, and registry pushes. Manual artifact uploads are not required.
+
+**Repos whose tags are deploy markers rather than distribution events are exempt.** A continuously deployed web application tags to mark what went to production; nothing downstream consumes that tag. Such repos MUST still maintain a `CHANGELOG.md`, and their container builds still fire on `on: push: tags` — the exemption is from the release, not from the record.
+
+**This clause applies to tags created on or after its ratification. Historical tags are not backfilled.** Creating a release against an old tag re-triggers distribution *from that tag*: release-triggered workflows check out the release ref, so a backfilled release builds and ships stale code. That is the failure this clause exists to prevent, and manufacturing releases to satisfy an audit would cause it deliberately. Where an old tag represents code that genuinely never shipped, releasing it is a fix on its own merits — judged per repo, not as a backfill.
 
 ### Changelog
 
@@ -582,3 +589,4 @@ the commit.
 | 1.12.0 | 2026-09-17 | Added Dependency Lockfiles (XV) — lockfiles MUST be committed, Dependabot MUST be configured for every ecosystem including github-actions; prompted by mcp-gitlab's CI silently breaking due to a gitignored uv.lock |
 | 1.13.0 | 2026-09-19 | Added Monitoring Checks (XVI) — scheduling lives in Nagios or Hermes only (no new systemd timers), checks MUST be standalone/reproducible via check_nrpe, avoid tokens (prefer local signals or the podman-exec-socket pattern), and decide OK/WARNING/CRITICAL deterministically, never via an LLM; codifies the pattern established by RT #1470 (mcp-feeds freshness) and the 2026-09-17 backup-freshness check |
 | 1.14.0 | 2026-09-19 | Added Secrets and Identifiable Data in Public Repositories (XVII) — no credentials, mail addresses, usernames or account-scoped identifiers in public repos; real values live in `/srv/<service>/config/` and are committed to a PRIVATE repo, public repos carry `.conf.example` shape only, and consuming code references an opaque key rather than the value; prompted by RT #1459 finding Cloudflare zone IDs and two mail addresses inline in an nrpe.cfg about to be committed to a public repo |
+| 1.15.0 | 2026-09-19 | Scoped the Section II GitHub Release requirement to distribution-bearing repos — those whose CI publishes an artifact on a `release` event. Repos whose tags are deploy markers (continuously deployed web apps, skill repos) are exempt and keep only the `CHANGELOG.md` requirement; the clause applies to tags created on or after ratification, because a release against an old tag re-triggers distribution from that tag and ships stale code. Also requires the release's tag name to carry the `v`. Prompted by RT #1485 auditing 178 tags with no release and finding 166 of them to be deploy markers, 2 to be genuinely undistributed code, and 1 to be a malformed tag name |
