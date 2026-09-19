@@ -19,6 +19,19 @@ onward were ratified without a tag or a GitHub Release.
   validation path cannot raise a false violation.
 - This CHANGELOG.md, back-filled from the Ratification History table.
 
+### Fixed
+- **`check_gourmand_ci_gate()` no longer flags its own documentation.** The
+  check matched the dead `cargo install --git codeberg.org/...` pattern anywhere
+  in a workflow file, including the header comment in gatehouse's
+  `gourmand.yml` that explains why the reusable workflow exists. Whole-line YAML
+  comments are now stripped before matching.
+- **`check_gourmand_ci_gate()` no longer flags the reusable workflow itself.**
+  A file declaring `workflow_call` *is* the gate; it has no gate to call, so it
+  is skipped rather than reported as inlining the job.
+- **The gate reference regex accepts a local self-reference.** gatehouse hosts
+  `gourmand.yml`, so it calls `./.github/workflows/gourmand.yml`; every other
+  repo must still point at `crunchtools/gatehouse`.
+
 No constitution version bump: the constitution text is unchanged at 1.14.0, and
 the version number tracks ratified document changes, not repo tooling.
 

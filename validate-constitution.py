@@ -243,6 +243,19 @@ GOURMAND_DEAD_PATTERNS = [
 ]
 
 
+def strip_yaml_comments(text: str) -> str:
+    """Drop whole-line YAML comments before pattern matching.
+
+    gatehouse/.github/workflows/gourmand.yml documents the dead
+    `cargo install --git codeberg.org/...` pattern in a header comment
+    explaining why the reusable workflow exists. Matching raw text flags that
+    explanation as the very violation it warns against.
+    """
+    return "\n".join(
+        line for line in text.splitlines() if not line.lstrip().startswith("#")
+    )
+
+
 def check_gourmand_ci_gate(repo_root: Path) -> list[str]:
     """Verify the Gourmand CI gate is actually implemented, not just claimed.
 
@@ -263,7 +276,7 @@ def check_gourmand_ci_gate(repo_root: Path) -> list[str]:
     gourmand_files = [
         f
         for f in workflow_files
-        if re.search(r"gourmand", f.read_text(), re.IGNORECASE)
+        if re.search(r"gourmand", strip_yaml_comments(f.read_text()), re.IGNORECASE)
     ]
 
     if not gourmand_files:
@@ -274,7 +287,10 @@ def check_gourmand_ci_gate(repo_root: Path) -> list[str]:
         return violations
 
     for f in gourmand_files:
-        content = f.read_text()
+        content = strip_yaml_comments(f.read_text())
+        # The reusable definition itself IS the gate; it has no gate to call.
+        if re.search(r"^\s*workflow_call:", content, re.MULTILINE):
+            continue
         for pattern in GOURMAND_DEAD_PATTERNS:
             if re.search(pattern, content, re.IGNORECASE):
                 violations.append(
@@ -282,8 +298,10 @@ def check_gourmand_ci_gate(repo_root: Path) -> list[str]:
                     f"('{pattern}')"
                 )
 
+        # gatehouse hosts the reusable workflow, so it references its own copy
+        # with a local path. Everyone else must point at crunchtools/gatehouse.
         if not re.search(
-            r"uses:\s*crunchtools/gatehouse/\.github/workflows/gourmand\.yml",
+            r"uses:\s*(?:crunchtools/gatehouse|\.)/\.github/workflows/gourmand\.yml",
             content,
         ):
             violations.append(
