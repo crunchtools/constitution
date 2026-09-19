@@ -105,6 +105,51 @@ def check_universal(text: str, header: dict[str, str]) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
+# Changelog check (universal, filesystem-based)
+# ---------------------------------------------------------------------------
+
+
+def check_changelog(repo_root: Path | None) -> list[str]:
+    """Verify the repo carries a CHANGELOG.md that satisfies Section II.
+
+    Constitution II has required a changelog since v1.6.0, but nothing enforced
+    it and the fleet went five months with almost none (RT #1484). This checks
+    the real file, not prose in the constitution.
+
+    Returns no violations when repo_root is not an actual repo checkout. The
+    factory watchdog validates constitution text from a tempfile, so repo_root
+    is a meaningless /tmp ancestor there; a filesystem check must not fire a
+    false violation on that path.
+    """
+    violations: list[str] = []
+    if repo_root is None:
+        return violations
+    if not ((repo_root / ".git").exists() or (repo_root / ".specify").is_dir()):
+        return violations
+
+    changelog = repo_root / "CHANGELOG.md"
+    if not changelog.is_file():
+        violations.append(
+            "UNIVERSAL: No CHANGELOG.md in the repo root (Constitution II)"
+        )
+        return violations
+
+    content = changelog.read_text()
+    if not re.search(r"^#+\s*\[Unreleased\]", content, re.MULTILINE):
+        violations.append(
+            "UNIVERSAL: CHANGELOG.md has no '[Unreleased]' section heading "
+            "(Constitution II)"
+        )
+    if not re.search(r"keepachangelog\.com", content, re.IGNORECASE):
+        violations.append(
+            "UNIVERSAL: CHANGELOG.md does not reference the Keep a Changelog "
+            "convention (Constitution II)"
+        )
+
+    return violations
+
+
+# ---------------------------------------------------------------------------
 # MCP Server profile checks
 # ---------------------------------------------------------------------------
 
@@ -697,6 +742,7 @@ def validate(
     # Universal checks
     universal_violations = check_universal(text, header)
     all_violations.extend(universal_violations)
+    all_violations.extend(check_changelog(repo_root))
 
     # Determine profile
     profile = profile_override or extract_profile(header)
