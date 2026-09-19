@@ -50,8 +50,8 @@ Parent image: `quay.io/crunchtools/ubi10-httpd`. Workflow includes `repository_d
 
 ## Monitoring
 
-Zabbix monitoring includes:
-- Web scenario (HTTP check) for Apache on port 80
+Nagios monitoring includes:
+- HTTP check for Apache on port 80
 - Application health endpoint at `/health`
 
 ## Testing

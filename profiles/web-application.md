@@ -133,11 +133,11 @@ When a parent image (e.g., `ubi10-core`, `ubi10-httpd`) is updated, the factory 
 
 ## IX. Monitoring
 
-Every service running inside the container MUST have corresponding Zabbix monitoring:
+Every service running inside the container MUST have corresponding Nagios monitoring:
 
 | Check Type | When Required | Example |
 |------------|--------------|---------|
-| **Web scenario** (HTTP check) | Any HTTP-serving service | Apache on port 80, Node.js on port 8080 |
+| **HTTP check** | Any HTTP-serving service | Apache on port 80, Node.js on port 8080 |
 | **TCP port check** | Database and application ports | PostgreSQL 5432, Valkey 6379 |
 | **Service-specific** | When applicable | `pg_isready`, `mysqladmin ping`, `valkey-cli ping` |
 
