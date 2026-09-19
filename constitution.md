@@ -1,7 +1,7 @@
 # CrunchTools Constitution
 
-> **Version:** 1.12.0
-> **Ratified:** 2026-09-17
+> **Version:** 1.13.0
+> **Ratified:** 2026-09-19
 > **Status:** Active
 
 This constitution establishes the universal principles that govern all software projects in the [crunchtools](https://github.com/crunchtools) organization. Every repo inherits these rules. Subsystem-specific requirements are defined in profiles.
@@ -431,6 +431,74 @@ block per manifest/lockfile present in the repo.
 
 ---
 
+## XVI. Monitoring Checks
+
+Monitoring keeps sprawling across schedulers, and each new check adds a new
+credential, a new dependency, or a new agent turn if nobody pushes back. This
+section makes the pushback a rule instead of a one-off argument, following
+the same 2026-09-17 backup-freshness check (`check_backup_freshness.sh`,
+`crunchtools/nagios`) that first established the pattern below.
+
+### Scheduling
+
+Monitoring checks and their remediations MUST use **Nagios** (interval-based
+detection) or **Hermes** (agent/script jobs) — nothing else. No new systemd
+timers, no host cron, for a monitoring purpose. This is the same rule as
+Section XIII's centralized logging and exists for the same reason: a third
+scheduler is a third place to look during an incident and a third thing that
+silently stops working. See the Autonomous Agent profile for how a Hermes job
+that reacts to a check (rather than polling on its own timer) fits this rule.
+
+### Standalone Checks
+
+Every Nagios check MUST be a self-contained plugin (a shell or Python script)
+that a human can run directly — via `check_nrpe` from the Nagios server, the
+same way it's tested — and get the same result Nagios gets. A check MUST NOT
+depend on an MCP server, an LLM agent, or any other orchestration layer to
+produce its OK/WARNING/CRITICAL verdict. This keeps the failure surface of
+the monitoring system smaller than the failure surface of the thing it
+monitors: if the MCP gateway is down, a check built on top of it goes blind
+at the exact moment it might be needed.
+
+### Avoid Tokens
+
+Prefer a credential-free signal — a local file's mtime, a Unix socket, a
+direct database read — over an API call that needs a token. When a
+credential is genuinely unavoidable (e.g. `rclone`/pCloud for backup
+freshness), it MUST be read-only, scoped to the minimum needed, and never
+echoed into check output or logs.
+
+When the thing being checked lives inside another container and the nrpe
+user has no filesystem access to it (the common case for distroless
+services), reach it over the **podman exec socket** instead of a credential:
+have the check ask the target container to answer for itself, the same way
+`check_postiz_tokens.sh` and `check_google_oauth.sh` do. This is not a
+token — it's the same access the container already has to itself — and it
+avoids bind-mounting another container's SELinux-labeled data into the
+nagios-agent container, which risks relabeling it out from under the
+original service.
+
+### Deterministic Code
+
+A check MUST decide OK/WARNING/CRITICAL with deterministic logic — a stat
+call, a date comparison, a plain conditional. It MUST NOT ask an LLM to make
+that call. Non-determinism belongs in *remediation*, not detection: a Hermes
+job MAY react to a Nagios alert by taking an agentic action, but the alert
+itself must fire the same way every time given the same inputs. A flaky
+detector is worse than no detector — it trains the operator to ignore it.
+
+### Reference Implementations
+
+- `check_backup_freshness.sh` (`crunchtools/nagios`) — live rclone check, no
+  timers or state files.
+- `check_syslog_source_freshness.sh` (`crunchtools/syslog`) — per-source log
+  staleness, deterministic, standalone.
+- `check_postiz_tokens.sh` / `check_google_oauth.sh` (`crunchtools/nagios`) —
+  the podman-exec-socket pattern for reading another container's state
+  without a token or a bind mount.
+
+---
+
 ## Ratification History
 
 | Version | Date | Changes |
@@ -448,3 +516,4 @@ block per manifest/lockfile present in the repo.
 | 1.10.0 | 2026-08-23 | Added Centralized Logging (XIII) — log to stdout/stderr, do not override the journald log driver, systemd containers forward their internal journal to syslog.crunchtools.com; compliance audited against the running fleet (RT #1460) |
 | 1.11.0 | 2026-09-03 | Added Configuration Placement (XIV) — config is not baked into images except when necessary; `/etc` for bootc hosts, `/srv/<service>/config/` bind-mounted for container images |
 | 1.12.0 | 2026-09-17 | Added Dependency Lockfiles (XV) — lockfiles MUST be committed, Dependabot MUST be configured for every ecosystem including github-actions; prompted by mcp-gitlab's CI silently breaking due to a gitignored uv.lock |
+| 1.13.0 | 2026-09-19 | Added Monitoring Checks (XVI) — scheduling lives in Nagios or Hermes only (no new systemd timers), checks MUST be standalone/reproducible via check_nrpe, avoid tokens (prefer local signals or the podman-exec-socket pattern), and decide OK/WARNING/CRITICAL deterministically, never via an LLM; codifies the pattern established by RT #1470 (mcp-feeds freshness) and the 2026-09-17 backup-freshness check |
