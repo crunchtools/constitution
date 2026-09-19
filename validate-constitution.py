@@ -189,6 +189,69 @@ def check_mcp_server(text: str) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
+# Gourmand CI gate implementation check (shared by MCP Server, CLI Tool)
+# ---------------------------------------------------------------------------
+
+GOURMAND_DEAD_PATTERNS = [
+    r"cargo\s+install.*gourmand",
+    r"codeberg\.org/mattdm/gourmand",
+]
+
+
+def check_gourmand_ci_gate(repo_root: Path) -> list[str]:
+    """Verify the Gourmand CI gate is actually implemented, not just claimed.
+
+    Constitution prose can say the gate exists while the real CI job is dead
+    (RT #1468: a `cargo install --git codeberg.org/...` job that 404s) or a
+    frozen copy-paste snapshot instead of gatehouse's reusable workflow. This
+    inspects the real workflow files, not just prose, so a keyword match in
+    constitution.md can no longer mask a broken gate.
+    """
+    violations: list[str] = []
+    workflows_dir = repo_root / ".github" / "workflows"
+    if not workflows_dir.is_dir():
+        return violations
+
+    workflow_files = sorted(workflows_dir.glob("*.yml")) + sorted(
+        workflows_dir.glob("*.yaml")
+    )
+    gourmand_files = [
+        f
+        for f in workflow_files
+        if re.search(r"gourmand", f.read_text(), re.IGNORECASE)
+    ]
+
+    if not gourmand_files:
+        violations.append(
+            "MCP_SERVER: No CI workflow references Gourmand "
+            "(constitution claims the gate exists)"
+        )
+        return violations
+
+    for f in gourmand_files:
+        content = f.read_text()
+        for pattern in GOURMAND_DEAD_PATTERNS:
+            if re.search(pattern, content, re.IGNORECASE):
+                violations.append(
+                    f"MCP_SERVER: {f.name} runs Gourmand via a dead pattern "
+                    f"('{pattern}')"
+                )
+
+        if not re.search(
+            r"uses:\s*crunchtools/gatehouse/\.github/workflows/gourmand\.yml",
+            content,
+        ):
+            violations.append(
+                f"MCP_SERVER: {f.name} inlines the Gourmand job instead of "
+                f"referencing crunchtools/gatehouse/.github/workflows/gourmand.yml "
+                f"(workflow_call) — this is exactly the copy-paste pattern that let "
+                f"the dead gate regenerate fleet-wide"
+            )
+
+    return violations
+
+
+# ---------------------------------------------------------------------------
 # Container Image profile checks
 # ---------------------------------------------------------------------------
 
@@ -623,6 +686,12 @@ def validate(
     text = constitution_path.read_text()
     header = parse_header(text)
 
+    # Convention: constitution.md lives at <repo_root>/.specify/memory/constitution.md
+    try:
+        repo_root = constitution_path.resolve().parents[2]
+    except IndexError:
+        repo_root = None
+
     all_violations: list[str] = []
 
     # Universal checks
@@ -642,6 +711,8 @@ def validate(
     # Profile-specific checks
     if profile == "MCP Server":
         all_violations.extend(check_mcp_server(text))
+        if repo_root is not None:
+            all_violations.extend(check_gourmand_ci_gate(repo_root))
     elif profile == "Container Image":
         all_violations.extend(check_container_image(text))
     elif profile == "Claude Skill":
@@ -654,6 +725,8 @@ def validate(
         all_violations.extend(check_web_application(text))
     elif profile == "CLI Tool":
         all_violations.extend(check_cli_tool(text))
+        if repo_root is not None:
+            all_violations.extend(check_gourmand_ci_gate(repo_root))
     elif profile and profile not in VALID_PROFILES:
         pass  # Already flagged by universal checks
 
