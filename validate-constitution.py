@@ -545,12 +545,12 @@ def check_web_application(text: str) -> list[str]:
 
     # Monitoring section
     monitoring_patterns = [
-        r"[Zz]abbix",
+        r"[Nn]agios",
         r"[Mm]onitoring",
     ]
     if not any(re.search(p, text) for p in monitoring_patterns):
         violations.append(
-            "WEB_APPLICATION: Monitoring section missing (Zabbix or monitoring keyword)"
+            "WEB_APPLICATION: Monitoring section missing (Nagios or monitoring keyword)"
         )
 
     # Testing section
