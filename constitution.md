@@ -1,6 +1,6 @@
 # CrunchTools Constitution
 
-> **Version:** 1.13.0
+> **Version:** 1.14.0
 > **Ratified:** 2026-09-19
 > **Status:** Active
 
@@ -499,6 +499,70 @@ detector is worse than no detector — it trains the operator to ignore it.
 
 ---
 
+## XVII. Secrets and Identifiable Data in Public Repositories
+
+Most crunchtools repositories are public. Operational configuration written
+for one host tends to carry values that are fine on that host and wrong in a
+public repo — account identifiers, mail addresses, usernames, internal paths.
+These leak by accident, in the ordinary act of committing a working config,
+and once pushed they are in the git history and in every clone whether or not
+a later commit removes them.
+
+**Public repositories MUST NOT contain identifiable data, usernames or
+credentials.** Specifically, none of the following belong in a public repo:
+
+- Credentials of any kind — passwords, API tokens, private keys, session
+  cookies, connection strings with embedded auth.
+- Mail addresses and usernames belonging to real people.
+- Account-scoped identifiers — Cloudflare zone IDs, cloud account numbers,
+  project IDs, tenant IDs, billing references. These are not credentials, but
+  they map infrastructure to an owner and there is no benefit to publishing
+  them.
+- Private hostnames, internal IP ranges and credential file paths that embed
+  any of the above.
+
+Public hostnames of public services are **not** covered by this rule. A check
+that monitors `rt.fatherlinux.com` names it, because the name is already in
+public DNS and redacting it would make the config unreadable. The test is
+whether publishing the value tells a reader something they could not already
+learn from the service itself.
+
+### Where the values live
+
+Real values live in host configuration under `/srv/<service>/config/`,
+bind-mounted read-only into the container, exactly as Section XIV requires for
+configuration generally. This section adds where the *repository* copy goes:
+
+1. **The public repo carries the shape, not the values.** Commit a
+   `<name>.conf.example` alongside the consuming code, documenting the file
+   format, its deploy path and its mount point, with placeholder values.
+2. **The real file is committed to a private repository.** Host config is
+   still config: it needs review, history and a copy that survives the host.
+   "It has secrets in it" is a reason to put it in a *private* repo, not a
+   reason to leave it untracked on one machine.
+3. **Code and config reference an opaque key, never the value.** A check takes
+   a domain or an account key and resolves the identifier host-side from its
+   own config file. This keeps the consuming config publishable by
+   construction, rather than by remembering to redact it each time.
+
+### Exception: published maintainer identity
+
+Section IV requires a `maintainer` LABEL on every image, and Section III
+requires OCI source labels. These are deliberate publishing identities, not
+leaked data, and are exempt. Prefer a role address
+(`maintainer@crunchtools.com`) over a personal one where the registry and
+tooling allow it.
+
+### Enforcement
+
+Scan before the first push of any config captured off a host, not after. A
+value removed in a later commit is still in the history, and scrubbing it means
+a force-push and rotating whatever leaked. When a value does reach a public
+repo, treat it as disclosed: rotate the credential, and do not rely on deleting
+the commit.
+
+---
+
 ## Ratification History
 
 | Version | Date | Changes |
@@ -517,3 +581,4 @@ detector is worse than no detector — it trains the operator to ignore it.
 | 1.11.0 | 2026-09-03 | Added Configuration Placement (XIV) — config is not baked into images except when necessary; `/etc` for bootc hosts, `/srv/<service>/config/` bind-mounted for container images |
 | 1.12.0 | 2026-09-17 | Added Dependency Lockfiles (XV) — lockfiles MUST be committed, Dependabot MUST be configured for every ecosystem including github-actions; prompted by mcp-gitlab's CI silently breaking due to a gitignored uv.lock |
 | 1.13.0 | 2026-09-19 | Added Monitoring Checks (XVI) — scheduling lives in Nagios or Hermes only (no new systemd timers), checks MUST be standalone/reproducible via check_nrpe, avoid tokens (prefer local signals or the podman-exec-socket pattern), and decide OK/WARNING/CRITICAL deterministically, never via an LLM; codifies the pattern established by RT #1470 (mcp-feeds freshness) and the 2026-09-17 backup-freshness check |
+| 1.14.0 | 2026-09-19 | Added Secrets and Identifiable Data in Public Repositories (XVII) — no credentials, mail addresses, usernames or account-scoped identifiers in public repos; real values live in `/srv/<service>/config/` and are committed to a PRIVATE repo, public repos carry `.conf.example` shape only, and consuming code references an opaque key rather than the value; prompted by RT #1459 finding Cloudflare zone IDs and two mail addresses inline in an nrpe.cfg about to be committed to a public repo |
