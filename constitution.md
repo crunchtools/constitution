@@ -1,7 +1,7 @@
 # CrunchTools Constitution
 
-> **Version:** 1.15.0
-> **Ratified:** 2026-09-19
+> **Version:** 1.16.0
+> **Ratified:** 2026-09-22
 > **Status:** Active
 
 This constitution establishes the universal principles that govern all software projects in the [crunchtools](https://github.com/crunchtools) organization. Every repo inherits these rules. Subsystem-specific requirements are defined in profiles.
@@ -506,7 +506,7 @@ detector is worse than no detector — it trains the operator to ignore it.
 
 ---
 
-## XVII. Secrets and Identifiable Data in Public Repositories
+## XVII. Secrets, PII and Real-World Names in Public Repositories
 
 Most crunchtools repositories are public. Operational configuration written
 for one host tends to carry values that are fine on that host and wrong in a
@@ -527,12 +527,44 @@ credentials.** Specifically, none of the following belong in a public repo:
   them.
 - Private hostnames, internal IP ranges and credential file paths that embed
   any of the above.
+- Names of real people, other than the published maintainer identity below —
+  in fixtures, examples, docs, comments and test data alike.
+- Personally identifiable information about anyone: phone numbers, home
+  addresses, personal mail addresses, chat handles, dates of birth, government
+  identifiers.
+- Private deployment names — the names of private hosts, agents, profiles and
+  internal services — and the topology that connects them: ports, which agent
+  reaches which backend, which one is isolated from what. A single name is
+  harmless; an example config that lists them all is a map of the fleet.
+- An employer's or a third party's confidential information, including using a
+  real organization as the illustrative "secret" in an example. An example
+  that shows how to withhold a named company's material from a named agent
+  discloses both.
 
 Public hostnames of public services are **not** covered by this rule. A check
 that monitors `rt.fatherlinux.com` names it, because the name is already in
 public DNS and redacting it would make the config unreadable. The test is
 whether publishing the value tells a reader something they could not already
 learn from the service itself.
+
+### Fictional data for examples and tests
+
+Examples and tests need names, and a real one is the easiest to reach for. Use
+this roster instead, so that fictional data is recognizable as fictional:
+
+- **People:** Alice, Bob, Carol, and so on; mail at `example.com`,
+  `example.org` or `example.net` (RFC 2606); chat handles such as
+  `@alice:example.org`.
+- **Organizations:** "Example Corp". Confidential projects get a neutral
+  codename, such as `NIGHTJAR`.
+- **Hosts and addresses:** `host01`, `*.example.net`; IPs from RFC 5737
+  (`192.0.2.0/24`, `198.51.100.0/24`, `203.0.113.0/24`) or RFC 3849 for IPv6.
+- **Phone numbers:** 555-0100 through 555-0199.
+- **Agents and profiles:** `agent1`, `agent2`, `agent3`, never the names of a
+  real deployment.
+
+Test data captured from a real system — log lines, API responses, chat events
+— MUST be rewritten to this roster before it is committed.
 
 ### Where the values live
 
@@ -568,6 +600,11 @@ a force-push and rotating whatever leaked. When a value does reach a public
 repo, treat it as disclosed: rotate the credential, and do not rely on deleting
 the commit.
 
+The list of private terms to scan for is itself private data — it names the
+hosts, agents and people this section protects — so it MUST NOT be committed to
+a public repository. Keep it host-side (for example
+`~/.config/crunchtools/private-terms`) and scan against it before pushing.
+
 ---
 
 ## Ratification History
@@ -590,3 +627,4 @@ the commit.
 | 1.13.0 | 2026-09-19 | Added Monitoring Checks (XVI) — scheduling lives in Nagios or Hermes only (no new systemd timers), checks MUST be standalone/reproducible via check_nrpe, avoid tokens (prefer local signals or the podman-exec-socket pattern), and decide OK/WARNING/CRITICAL deterministically, never via an LLM; codifies the pattern established by RT #1470 (mcp-feeds freshness) and the 2026-09-17 backup-freshness check |
 | 1.14.0 | 2026-09-19 | Added Secrets and Identifiable Data in Public Repositories (XVII) — no credentials, mail addresses, usernames or account-scoped identifiers in public repos; real values live in `/srv/<service>/config/` and are committed to a PRIVATE repo, public repos carry `.conf.example` shape only, and consuming code references an opaque key rather than the value; prompted by RT #1459 finding Cloudflare zone IDs and two mail addresses inline in an nrpe.cfg about to be committed to a public repo |
 | 1.15.0 | 2026-09-19 | Scoped the Section II GitHub Release requirement to distribution-bearing repos — those whose CI publishes an artifact on a `release` event. Repos whose tags are deploy markers (continuously deployed web apps, skill repos) are exempt and keep only the `CHANGELOG.md` requirement; the clause applies to tags created on or after ratification, because a release against an old tag re-triggers distribution from that tag and ships stale code. Also requires the release's tag name to carry the `v`. Prompted by RT #1485 auditing 178 tags with no release and finding 166 of them to be deploy markers, 2 to be genuinely undistributed code, and 1 to be a malformed tag name |
+| 1.16.0 | 2026-09-22 | Extended XVII (retitled Secrets, PII and Real-World Names in Public Repositories) — public repos MUST NOT carry names of real people other than the maintainer identity, PII of anyone, private deployment names or the topology connecting them, or employer/third-party confidential information (including a real organization used as the illustrative secret); adds a fictional roster for examples and tests (Alice/Bob/Carol, RFC 2606 domains, Example Corp, RFC 5737 IPs, 555-01xx, agent1/agent2/agent3) and requires captured test data be rewritten to it; the private-terms scan list is itself private and stays host-side. Prompted by RT #1504 finding real agent names, fleet topology and personal addresses in the public mcp-trentina repo |
