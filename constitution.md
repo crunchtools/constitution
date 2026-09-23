@@ -305,7 +305,7 @@ Gourmand detects AI-generated code quality issues: generic variable names, singl
 
 **Rules:**
 - The CI job MUST use `container: quay.io/crunchtools/gourmand:latest` — never `cargo install` from source.
-- The command is `gourmand --full .` (full scan, not incremental).
+- The command is `gourmand check --full .` (full scan, not incremental).
 - CI job name: `Code Quality (Gourmand)`.
 - Gourmand is a **blocking gate** — PRs MUST NOT be merged with violations unless excepted in `gourmand-exceptions.toml` with justification.
 

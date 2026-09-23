@@ -86,7 +86,7 @@ Every tool MUST have a corresponding mocked test.
 
 ## V. Gourmand (AI Slop Detection)
 
-All code MUST pass `gourmand --full .` with zero violations.
+All code MUST pass `gourmand check --full .` with zero violations.
 
 ### Exception Policy
 
@@ -99,7 +99,7 @@ Exceptions MUST have documented justifications.
 1. **Lint** — `uv run ruff check src tests`
 2. **Type Check** — `uv run mypy src`
 3. **Tests** — `uv run pytest -v`
-4. **Gourmand** — `gourmand --full .`
+4. **Gourmand** — `gourmand check --full .`
 5. **Container Build** — `podman build -f Containerfile .`
 
 ---

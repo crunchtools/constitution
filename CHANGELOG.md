@@ -10,6 +10,12 @@ onward were ratified without a tag or a GitHub Release.
 
 ## [Unreleased]
 
+### Fixed
+- **Gourmand invocation** — `constitution.md`, the `cli-tool` and `mcp-server`
+  profiles, and their test fixtures said `gourmand --full .`. Current gourmand
+  requires the `check` subcommand and rejects the bare flag; the command is
+  `gourmand check --full .`, matching gatehouse's reusable `gourmand.yml`.
+
 ### Added
 - **`check_changelog()` in `validate-constitution.py`** (RT #1484) — a universal
   check, run for every profile, that the repo root carries a `CHANGELOG.md` with
