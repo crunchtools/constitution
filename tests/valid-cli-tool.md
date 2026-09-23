@@ -45,5 +45,5 @@ Zero violations required. Config in `gourmand.toml`, exceptions in `gourmand-exc
 1. Lint — `uv run ruff check src tests`
 2. Type Check — `uv run mypy src`
 3. Tests — `uv run pytest -v`
-4. Gourmand — `gourmand --full .`
+4. Gourmand — `gourmand check --full .`
 5. Container Build — `podman build -f Containerfile .`

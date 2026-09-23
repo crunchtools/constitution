@@ -151,7 +151,7 @@ Every documented exit code MUST have a corresponding test that verifies the tool
 
 ## VI. Gourmand (AI Slop Detection)
 
-All code MUST pass `gourmand --full .` with **zero violations** before merge. Gourmand is a CI gate in GitHub Actions.
+All code MUST pass `gourmand check --full .` with **zero violations** before merge. Gourmand is a CI gate in GitHub Actions.
 
 ### CI Execution (MANDATORY)
 
@@ -166,7 +166,7 @@ gourmand:
   steps:
     - uses: actions/checkout@v4
     - name: Run Gourmand
-      run: gourmand --full .
+      run: gourmand check --full .
 ```
 
 ### Configuration Files
@@ -187,7 +187,7 @@ Every code change must pass through these five gates in order:
 1. **Lint** — `uv run ruff check src tests`
 2. **Type Check** — `uv run mypy src`
 3. **Tests** — `uv run pytest -v` (all passing, mocked APIs)
-4. **Gourmand** — `gourmand --full .` (zero violations)
+4. **Gourmand** — `gourmand check --full .` (zero violations)
 5. **Container Build** — `podman build -f Containerfile .`
 
 ### CI Pipeline (GitHub Actions)

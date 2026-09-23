@@ -290,7 +290,7 @@ Every Pydantic model MUST have tests covering:
 
 ## V. Gourmand (AI Slop Detection)
 
-All code MUST pass `gourmand --full .` with **zero violations** before merge. Gourmand is a CI gate in GitHub Actions.
+All code MUST pass `gourmand check --full .` with **zero violations** before merge. Gourmand is a CI gate in GitHub Actions.
 
 ### CI Execution (MANDATORY)
 
@@ -305,7 +305,7 @@ gourmand:
   steps:
     - uses: actions/checkout@v4
     - name: Run Gourmand
-      run: gourmand --full .
+      run: gourmand check --full .
 ```
 
 **Do not** use `cargo install` from Codeberg. The container provides a consistent, pre-built binary that avoids Rust toolchain installation and compilation in every CI run.
@@ -337,7 +337,7 @@ Every code change must pass through these six gates in order:
 1. **Lint** — `uv run ruff check src tests`
 2. **Type Check** — `uv run mypy src`
 3. **Tests** — `uv run pytest -v` (all passing, mocked httpx)
-4. **Gourmand** — `gourmand --full .` (zero violations)
+4. **Gourmand** — `gourmand check --full .` (zero violations)
 5. **Code Review** — Gatehouse AI code review on every PR
 6. **Container Build** — `podman build -f Containerfile .`
 
