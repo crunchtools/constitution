@@ -35,6 +35,23 @@ onward were ratified without a tag or a GitHub Release.
 The entries above carry no version bump of their own: they are repo tooling, and
 the version number tracks ratified document changes.
 
+## [1.16.0] - 2026-09-22
+
+### Changed
+- **Section XVII extended to PII and real-world names** (RT #1504) and retitled
+  "Secrets, PII and Real-World Names in Public Repositories". Public repos MUST
+  NOT carry the names of real people other than the maintainer identity, PII of
+  anyone, private deployment names or the topology connecting them, or an
+  employer's confidential information — including a real organization used as
+  the illustrative secret in an example.
+
+### Added
+- **"Fictional data for examples and tests"** under XVII: Alice/Bob/Carol,
+  RFC 2606 domains, Example Corp, RFC 5737 addresses, 555-01xx numbers,
+  `agent1`/`agent2`/`agent3`. Test data captured from a real system MUST be
+  rewritten to it before commit.
+- The private-terms scan list is itself private and MUST stay host-side.
+
 ## [1.15.0] - 2026-09-19
 
 ### Changed
