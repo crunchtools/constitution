@@ -1,0 +1,6 @@
+name: Gatehouse
+on: pull_request_target
+jobs:
+  triage:
+    name: Gatehouse triage
+    uses: crunchtools/gatehouse/.github/workflows/triage.yml@v0.8.0

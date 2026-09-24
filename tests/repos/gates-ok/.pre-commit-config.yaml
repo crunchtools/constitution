@@ -1,0 +1,30 @@
+# Mandatory local gates (constitution XII). Merge these into your
+# .pre-commit-config.yaml and run `pre-commit install`.
+#
+# Both run from their container images — never a local install: the PyPI
+# package named `gourmand` is an unrelated recipe manager, and gatehouse's
+# image is what CI runs.
+#
+# The gatehouse hook reviews the STAGED diff, with your repo mounted read-only
+# so the Constitution agent reads your constitution. It blocks the commit on
+# critical/high findings (exit 1), like Gourmand. The key comes from
+# ~/.config/mcp-env/gatehouse.env (GEMINI_API_KEY=...). A false positive is
+# skipped with `SKIP=gatehouse git commit ...` — and must then be answered on
+# the PR, where the same finding will reappear.
+repos:
+  - repo: local
+    hooks:
+      - id: gourmand
+        name: Gourmand (AI slop detection)
+        entry: podman run --rm -v .:/src:Z -w /src quay.io/crunchtools/gourmand:latest check --full
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-commit, pre-merge-commit]
+      - id: gatehouse
+        name: Gatehouse (AI code review, staged diff)
+        entry: bash -c 'git diff --cached | podman run --rm -i --env-file "$HOME/.config/mcp-env/gatehouse.env" -v .:/src:ro,Z -w /src quay.io/crunchtools/gatehouse:latest --stdin'
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-commit, pre-merge-commit]

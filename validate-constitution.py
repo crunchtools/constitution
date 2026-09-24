@@ -314,6 +314,71 @@ def check_gourmand_ci_gate(repo_root: Path) -> list[str]:
     return violations
 
 
+GATES_SINCE = (1, 17, 0)
+"""First constitution version whose XII requires the local hooks and triage.
+
+The validator runs from HEAD in every repo's CI, so a new universal check would
+turn the whole fleet red on the day it merges. Gating it on the version a repo
+declares it inherits makes adoption an explicit act: bump `Inherits`, and the
+checks start applying."""
+
+
+def _version_tuple(version: str | None) -> tuple[int, ...]:
+    return tuple(int(part) for part in version.split(".")) if version else ()
+
+
+def check_quality_gate_wiring(
+    repo_root: Path | None, inherits: str | None
+) -> list[str]:
+    """XII since 1.17.0: both pre-commit hooks, and the Gatehouse triage job.
+
+    Reads the real files, like check_gourmand_ci_gate: prose saying a gate
+    exists is exactly what let the gates rot before.
+    """
+    if repo_root is None or _version_tuple(inherits) < GATES_SINCE:
+        return []
+    if not ((repo_root / ".git").exists() or (repo_root / ".specify").is_dir()):
+        return []
+
+    violations: list[str] = []
+    config = repo_root / ".pre-commit-config.yaml"
+    hooks = strip_yaml_comments(config.read_text()) if config.is_file() else ""
+    required_hooks = (
+        ("gourmand", "quay.io/crunchtools/gourmand", ""),
+        ("gatehouse", "quay.io/crunchtools/gatehouse", r"\S*\s+--stdin"),
+    )
+    for hook_id, image, trailing in required_hooks:
+        block = re.search(
+            rf"-\s*id:\s*{hook_id}\s*\n(.*?)(?=\n\s*-\s*id:|\Z)", hooks, re.S
+        )
+        if block is None:
+            violations.append(
+                f"XII: .pre-commit-config.yaml has no `{hook_id}` hook "
+                f"(copy it from gatehouse examples/pre-commit.yaml)"
+            )
+        elif not re.search(re.escape(image) + trailing, block.group(1)):
+            violations.append(
+                f"XII: the `{hook_id}` pre-commit hook does not run {image}"
+                + (" with --stdin" if trailing else "")
+            )
+
+    workflows_dir = repo_root / ".github" / "workflows"
+    workflows = (
+        sorted(workflows_dir.glob("*.yml")) + sorted(workflows_dir.glob("*.yaml"))
+        if workflows_dir.is_dir()
+        else []
+    )
+    triage = re.compile(
+        r"uses:\s*(?:crunchtools/gatehouse|\.)/\.github/workflows/triage\.yml"
+    )
+    if not any(triage.search(strip_yaml_comments(f.read_text())) for f in workflows):
+        violations.append(
+            "XII: no workflow runs the `Gatehouse triage` job "
+            "(crunchtools/gatehouse/.github/workflows/triage.yml)"
+        )
+    return violations
+
+
 # ---------------------------------------------------------------------------
 # Container Image profile checks
 # ---------------------------------------------------------------------------
@@ -761,6 +826,9 @@ def validate(
     universal_violations = check_universal(text, header)
     all_violations.extend(universal_violations)
     all_violations.extend(check_changelog(repo_root))
+    all_violations.extend(
+        check_quality_gate_wiring(repo_root, extract_inherits_version(header))
+    )
 
     # Determine profile
     profile = profile_override or extract_profile(header)

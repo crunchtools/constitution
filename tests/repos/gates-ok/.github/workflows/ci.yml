@@ -1,0 +1,6 @@
+name: CI
+on: pull_request
+jobs:
+  gourmand:
+    name: Code Quality (Gourmand)
+    uses: crunchtools/gatehouse/.github/workflows/gourmand.yml@v0.8.0

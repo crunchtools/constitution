@@ -10,6 +10,28 @@ onward were ratified without a tag or a GitHub Release.
 
 ## [Unreleased]
 
+## [1.17.0] - 2026-09-24
+
+### Added
+- **XII: pre-commit hooks.** Gourmand and Gatehouse MUST run as pre-commit
+  hooks from their container images; the Gatehouse hook reviews the staged
+  diff and blocks on critical/high findings. Snippet in gatehouse
+  `examples/pre-commit.yaml`.
+- **XII: triage.** Every Gatehouse finding MUST be answered in its thread
+  (`fixed in <sha>` / `not a bug: <reason>`) before merge, enforced by the
+  deterministic `Gatehouse triage` job (gatehouse `triage.yml`, v0.8.0), which
+  SHOULD be a required check. The review itself stays advisory. Prompted by a
+  PR merged five minutes after 40 unanswered findings.
+- **`check_quality_gate_wiring()`** in `validate-constitution.py` checks the
+  real `.pre-commit-config.yaml` and workflows for both. It applies only to
+  repos inheriting v1.17.0 or later, because the validator runs from HEAD in
+  every repo's CI and a new universal check would otherwise fail the fleet
+  the day it merged.
+
+### Fixed
+- `profiles/mcp-server.md` listed the Gatehouse review as gating PRs; it is
+  advisory. Triage is the gate.
+
 ### Fixed
 - **Gourmand invocation** — `constitution.md`, the `cli-tool` and `mcp-server`
   profiles, and their test fixtures said `gourmand --full .`. Current gourmand

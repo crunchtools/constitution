@@ -45,6 +45,18 @@ jobs:
             echo "PASS: Validator correctly caught violations"
           fi
 
+      - name: XII quality-gate wiring (v1.17.0+)
+        run: |
+          echo "=== Hooks + triage present — expecting pass ==="
+          python validate-constitution.py tests/repos/gates-ok/.specify/memory/constitution.md --verbose
+          echo ""
+          echo "=== Bare gatehouse hook, no triage job — expecting failure ==="
+          if python validate-constitution.py tests/repos/gates-missing/.specify/memory/constitution.md; then
+            echo "ERROR: Validator should have failed but passed!"
+            exit 1
+          fi
+          echo "PASS: Validator correctly caught violations"
+
       - name: Validate profile documents reference themselves
         run: |
           echo "Checking profile documents exist and are non-empty..."
