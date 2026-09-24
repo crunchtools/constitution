@@ -1,0 +1,9 @@
+repos:
+  - repo: local
+    hooks:
+      - id: gourmand
+        entry: podman run --rm -v .:/src:Z -w /src quay.io/crunchtools/gourmand:latest check --full
+        language: system
+      - id: gatehouse
+        entry: gatehouse --staged
+        language: system

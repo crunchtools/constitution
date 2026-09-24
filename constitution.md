@@ -1,7 +1,7 @@
 # CrunchTools Constitution
 
-> **Version:** 1.16.0
-> **Ratified:** 2026-09-22
+> **Version:** 1.17.0
+> **Ratified:** 2026-09-24
 > **Status:** Active
 
 This constitution establishes the universal principles that govern all software projects in the [crunchtools](https://github.com/crunchtools) organization. Every repo inherits these rules. Subsystem-specific requirements are defined in profiles.
@@ -290,14 +290,24 @@ Documentation MUST be updated in the same commit or PR that changes a capability
 
 ## XII. Code Quality Gates
 
-Every project MUST run **Gourmand** (AI slop detection) and **Gatehouse** (AI code review) as CI gates on every pull request. Both tools MUST be run from their official container images — never compiled from source in CI.
+Every project MUST run **Gourmand** (AI slop detection) and **Gatehouse** (AI code review) as CI gates on every pull request AND as pre-commit hooks on every commit. Both tools MUST be run from their official container images — never compiled from source in CI, never installed from a package index locally.
 
 Canonical drop-in workflow files are maintained in [`crunchtools/gatehouse/examples/`](https://github.com/crunchtools/gatehouse/tree/master/examples):
 
 | File | Purpose |
 |------|---------|
 | [`gourmand.yml`](https://github.com/crunchtools/gatehouse/blob/master/examples/gourmand.yml) | Gourmand CI job — add to your test/CI workflow |
-| [`gatehouse.yml`](https://github.com/crunchtools/gatehouse/blob/master/examples/gatehouse.yml) | Gatehouse review workflow — add as `.github/workflows/gatehouse.yml` |
+| [`gatehouse.yml`](https://github.com/crunchtools/gatehouse/blob/master/examples/gatehouse.yml) | Gatehouse review + triage workflow — add as `.github/workflows/gatehouse.yml` |
+| [`pre-commit.yaml`](https://github.com/crunchtools/gatehouse/blob/master/examples/pre-commit.yaml) | Gourmand and Gatehouse pre-commit hooks — merge into `.pre-commit-config.yaml` |
+
+### Pre-commit hooks
+
+A CI gate that only fires after the push finds problems once they are already someone else's review burden. Both gates therefore also run locally, before the commit exists.
+
+**Rules:**
+- `.pre-commit-config.yaml` MUST carry a hook with `id: gourmand` running `quay.io/crunchtools/gourmand` and a hook with `id: gatehouse` running `quay.io/crunchtools/gatehouse` with `--stdin` over `git diff --cached`, both from their container images. Copy them from `examples/pre-commit.yaml`.
+- Both hooks block the commit: Gourmand on any violation, Gatehouse on critical/high findings (exit `1`). The Gatehouse hook mounts the repo read-only so its Constitution agent reads the repo's own constitution. Its key comes from `~/.config/mcp-env/gatehouse.env`.
+- `SKIP=gatehouse` is the escape hatch for a false positive. It does not make the finding go away: the same finding reappears on the PR and MUST be answered there (see Triage).
 
 ### Gourmand
 
@@ -316,10 +326,19 @@ Gatehouse is a multi-agent AI code reviewer that posts findings as PR review com
 **Rules:**
 - The review job MUST use the `crunchtools/gatehouse` reusable workflow, which runs `quay.io/crunchtools/gatehouse` internally — never a local install.
 - CI workflow name: `Gatehouse`. Job names: `Protect workflows` (guard) and `Gatehouse review` (review).
-- Gatehouse is an **advisory gate** — findings are posted as PR review comments for the maintainer to triage, but do not block merge.
+- Gatehouse is an **advisory gate** — findings are posted as PR review comments for the maintainer to triage; the reviewer's verdict never blocks merge. What blocks merge is an unanswered finding (see Triage).
 - **The review job is advisory by construction and MUST NOT be a required status check.** An LLM reviewer is non-deterministic and hallucinates findings; giving it merge authority forces maintainers to either bypass branch protection or "fix" non-bugs. The reusable workflow exits `0` regardless of findings by default. Blocking behavior is opt-in only (the workflow's `blocking: true` input), and even when enabled the review job MUST NOT be added to branch protection as a required check.
 - The `guard` job is a **blocking gate** — PRs from non-members that modify `.github/workflows/` MUST be rejected. It, not the review job, is the one to mark required.
 - The `GEMINI_API_KEY` secret MUST be scoped to the reusable workflow when possible.
+
+### Triage
+
+"Advisory" was read as "optional", and findings were merged past unanswered — one PR drew 40 findings (21 high) and merged five minutes later with no reply to any of them. Advisory means the LLM has no vote. It does not mean nobody reads it.
+
+**Rules:**
+- Before merge, every Gatehouse finding on the PR MUST have a reply in its thread: `fixed in <sha>` or `not a bug: <reason>`. A reason is a sentence a reviewer could check, not "false positive".
+- The workflow MUST run the `triage` job from `crunchtools/gatehouse/.github/workflows/triage.yml` (job name `Gatehouse triage`), after the review and again on every `pull_request_review_comment` event.
+- `Gatehouse triage` is deterministic — it never judges code, only whether each finding was answered — so, unlike `Gatehouse review`, it SHOULD be marked a required status check.
 
 ---
 
@@ -628,3 +647,4 @@ a public repository. Keep it host-side (for example
 | 1.14.0 | 2026-09-19 | Added Secrets and Identifiable Data in Public Repositories (XVII) — no credentials, mail addresses, usernames or account-scoped identifiers in public repos; real values live in `/srv/<service>/config/` and are committed to a PRIVATE repo, public repos carry `.conf.example` shape only, and consuming code references an opaque key rather than the value; prompted by RT #1459 finding Cloudflare zone IDs and two mail addresses inline in an nrpe.cfg about to be committed to a public repo |
 | 1.15.0 | 2026-09-19 | Scoped the Section II GitHub Release requirement to distribution-bearing repos — those whose CI publishes an artifact on a `release` event. Repos whose tags are deploy markers (continuously deployed web apps, skill repos) are exempt and keep only the `CHANGELOG.md` requirement; the clause applies to tags created on or after ratification, because a release against an old tag re-triggers distribution from that tag and ships stale code. Also requires the release's tag name to carry the `v`. Prompted by RT #1485 auditing 178 tags with no release and finding 166 of them to be deploy markers, 2 to be genuinely undistributed code, and 1 to be a malformed tag name |
 | 1.16.0 | 2026-09-22 | Extended XVII (retitled Secrets, PII and Real-World Names in Public Repositories) — public repos MUST NOT carry names of real people other than the maintainer identity, PII of anyone, private deployment names or the topology connecting them, or employer/third-party confidential information (including a real organization used as the illustrative secret); adds a fictional roster for examples and tests (Alice/Bob/Carol, RFC 2606 domains, Example Corp, RFC 5737 IPs, 555-01xx, agent1/agent2/agent3) and requires captured test data be rewritten to it; the private-terms scan list is itself private and stays host-side. Prompted by RT #1504 finding real agent names, fleet topology and personal addresses in the public mcp-trentina repo |
+| 1.17.0 | 2026-09-24 | Strengthened XII: Gourmand and Gatehouse MUST also run as pre-commit hooks from their container images (Gatehouse over the staged diff, blocking on critical/high), and every Gatehouse finding MUST be answered in its thread before merge, enforced by the deterministic `Gatehouse triage` job, which SHOULD be a required check while the review stays advisory. The validator enforces both for repos inheriting v1.17.0 or later. Prompted by a PR merged five minutes after 40 unanswered findings |
