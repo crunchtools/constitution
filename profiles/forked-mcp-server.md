@@ -1,6 +1,6 @@
 # Forked MCP Server Profile
 
-> **Profile Version:** 1.1.0
+> **Profile Version:** 1.1.1
 > **Applies to:** Third-party MCP servers forked and containerized for crunchtools infrastructure
 
 This profile extends the [universal constitution](../constitution.md) with requirements specific to forked MCP servers — upstream projects we containerize and run but do not author. The upstream code is governed by its own project; this profile governs the **containerization, deployment, and operational lifecycle**.
@@ -110,7 +110,7 @@ Upstream CI workflows (lint, tests, publish) MAY be left in place or removed. Th
 
 ### systemd Service
 
-Standard containerized MCP server pattern from MCP_ARCHITECTURE.md:
+Standard containerized MCP server pattern (see the MCP Server profile and the `deploy-mcp-server` skill; ports are allocated from, and monitored by, Nagios):
 
 ```ini
 [Unit]
