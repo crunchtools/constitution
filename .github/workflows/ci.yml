@@ -68,6 +68,15 @@ jobs:
             grep -qF "$expected" <<<"$out" || { echo "ERROR: missing '$expected'"; exit 1; }
           done
           echo "PASS: Validator correctly caught SKILL.md violations"
+          echo ""
+          echo "=== Malformed frontmatter — expecting the matching violation ==="
+          for case in "no-frontmatter:SKILL.md missing YAML frontmatter" \
+                      "unclosed-frontmatter:SKILL.md has unclosed YAML frontmatter"; do
+            dir="${case%%:*}"; expected="${case#*:}"
+            out=$(python validate-constitution.py tests/valid-claude-skill.md --skill-dir "tests/skills/$dir") && { echo "ERROR: $dir passed"; exit 1; }
+            grep -qF "$expected" <<<"$out" || { echo "ERROR: $dir missing '$expected'"; echo "$out"; exit 1; }
+          done
+          echo "PASS: Validator correctly caught malformed frontmatter"
 
       - name: XII quality-gate wiring (v1.17.0+)
         run: |

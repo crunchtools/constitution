@@ -357,8 +357,8 @@ def check_quality_gate_wiring(repo_root: Path | None, inherits: str | None) -> l
 
 # Pattern-count profile checks (Container Image, Web Application, CLI Tool)
 
+# (patterns, minimum number that must match, violation message)
 Rule = tuple[list[str], int, str]
-"""(patterns, minimum number that must match, violation message)."""
 
 
 def failed_rules(text: str, rules: list[Rule]) -> list[str]:
