@@ -329,7 +329,7 @@ Gatehouse is a multi-agent AI code reviewer that posts findings as PR review com
 - Gatehouse is an **advisory gate** — findings are posted as PR review comments for the maintainer to triage; the reviewer's verdict never blocks merge. What blocks merge is an unanswered finding (see Triage).
 - **The review job is advisory by construction and MUST NOT be a required status check.** An LLM reviewer is non-deterministic and hallucinates findings; giving it merge authority forces maintainers to either bypass branch protection or "fix" non-bugs. The reusable workflow exits `0` regardless of findings by default. Blocking behavior is opt-in only (the workflow's `blocking: true` input), and even when enabled the review job MUST NOT be added to branch protection as a required check.
 - The `guard` job is a **blocking gate** — PRs from non-members that modify `.github/workflows/` MUST be rejected. It, not the review job, is the one to mark required.
-- The `GEMINI_API_KEY` secret MUST be scoped to the reusable workflow when possible.
+- The `OPENROUTER_API_KEY` secret (Gatehouse 0.9.0+; an org-level secret in crunchtools) MUST be scoped to the reusable workflow when possible.
 
 ### Triage
 
