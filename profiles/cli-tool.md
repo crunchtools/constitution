@@ -1,6 +1,6 @@
 # CLI Tool Profile
 
-> **Profile Version:** 1.1.0
+> **Profile Version:** 1.1.1
 > **Applies to:** Standalone Python CLI tools distributed via PyPI and containers (gatehouse, etc.)
 
 This profile extends the [universal constitution](../constitution.md) with requirements specific to standalone command-line tools in the crunchtools organization. CLI tools differ from MCP servers in that they have no transport layer, no tool registration, and no MCP framework dependency. They differ from web applications in that they are stateless, run-to-completion processes invoked by developers.
@@ -171,7 +171,8 @@ gourmand:
 
 ### Configuration Files
 
-- `gourmand.toml` — Check settings, excluded paths
+- `gourmand.toml` — Check settings. Must exist (exceptions only load when it does), but Gourmand ignores `[global] excluded_paths` here
+- Untracked build/cache artifacts are skipped via `.gitignore`; tracked paths that genuinely need exclusion go in `.gourmand-exceptions.d/globals.toml` as `[global] excluded_paths`
 - `gourmand-exceptions.toml` — Documented exceptions with justifications
 
 ### Exception Policy
