@@ -15,6 +15,9 @@ onward were ratified without a tag or a GitHub Release.
   holds excluded paths. Gourmand ignores `[global] excluded_paths` there; artifacts
   are skipped via `.gitignore`, tracked exclusions go in
   `.gourmand-exceptions.d/globals.toml` (matches the Forked MCP Server profile).
+- **Forked MCP Server profile 1.1.1** — the systemd section cited the retired
+  `MCP_ARCHITECTURE.md`; it now points at the MCP Server profile and the
+  `deploy-mcp-server` skill, with Nagios as the port registry.
 - **Forked MCP Server profile 1.1.0** — section VI said forks run no Gourmand,
   contradicting XII. Forks run Gourmand and Gatehouse like every repo, with
   upstream-owned paths excluded so only the crunchtools delta is gated
