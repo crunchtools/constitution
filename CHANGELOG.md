@@ -11,6 +11,10 @@ onward were ratified without a tag or a GitHub Release.
 ## [Unreleased]
 
 ### Fixed
+- **MCP Server profile 1.4.1, CLI Tool profile 1.1.1** — said `gourmand.toml`
+  holds excluded paths. Gourmand ignores `[global] excluded_paths` there; artifacts
+  are skipped via `.gitignore`, tracked exclusions go in
+  `.gourmand-exceptions.d/globals.toml` (matches the Forked MCP Server profile).
 - **Forked MCP Server profile 1.1.0** — section VI said forks run no Gourmand,
   contradicting XII. Forks run Gourmand and Gatehouse like every repo, with
   upstream-owned paths excluded so only the crunchtools delta is gated

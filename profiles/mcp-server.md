@@ -1,6 +1,6 @@
 # MCP Server Profile
 
-> **Profile Version:** 1.4.0
+> **Profile Version:** 1.4.1
 > **Applies to:** All `mcp-*-crunchtools` projects
 
 This profile extends the [universal constitution](../constitution.md) with requirements specific to MCP (Model Context Protocol) servers in the crunchtools organization.
@@ -312,7 +312,8 @@ gourmand:
 
 ### Configuration Files
 
-- `gourmand.toml` — Check settings, excluded paths
+- `gourmand.toml` — Check settings. Must exist (exceptions only load when it does), but Gourmand ignores `[global] excluded_paths` here
+- Untracked build/cache artifacts are skipped via `.gitignore`; tracked paths that genuinely need exclusion go in `.gourmand-exceptions.d/globals.toml` as `[global] excluded_paths`
 - `gourmand-exceptions.toml` — Documented exceptions with justifications
 - `.gourmand-cache/` — Must be in `.gitignore`
 
