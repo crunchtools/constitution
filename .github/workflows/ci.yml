@@ -18,6 +18,12 @@ jobs:
         with:
           python-version: '3.12'
 
+      - name: Lint (ruff)
+        run: |
+          pip install ruff==0.16.9
+          ruff check .
+          ruff format --check .
+
       - name: Validate test constitutions (should pass)
         run: |
           echo "=== Valid MCP Server ==="
@@ -44,6 +50,33 @@ jobs:
           else
             echo "PASS: Validator correctly caught violations"
           fi
+
+      - name: Claude Skill SKILL.md checks
+        run: |
+          echo "=== Valid SKILL.md — expecting pass ==="
+          python validate-constitution.py tests/valid-claude-skill.md --skill-dir tests/skills/valid --verbose
+          echo ""
+          echo "=== Broken SKILL.md — expecting three specific violations ==="
+          if out=$(python validate-constitution.py tests/valid-claude-skill.md --skill-dir tests/skills/broken); then
+            echo "ERROR: Validator should have failed but passed!"
+            exit 1
+          fi
+          echo "$out"
+          for expected in "Missing frontmatter field 'argument-hint'" \
+                          "Workflow structure missing numbered Phases" \
+                          "Possible hardcoded credentials detected"; do
+            grep -qF "$expected" <<<"$out" || { echo "ERROR: missing '$expected'"; exit 1; }
+          done
+          echo "PASS: Validator correctly caught SKILL.md violations"
+          echo ""
+          echo "=== Malformed frontmatter — expecting the matching violation ==="
+          for case in "no-frontmatter:SKILL.md missing YAML frontmatter" \
+                      "unclosed-frontmatter:SKILL.md has unclosed YAML frontmatter"; do
+            dir="${case%%:*}"; expected="${case#*:}"
+            out=$(python validate-constitution.py tests/valid-claude-skill.md --skill-dir "tests/skills/$dir") && { echo "ERROR: $dir passed"; exit 1; }
+            grep -qF "$expected" <<<"$out" || { echo "ERROR: $dir missing '$expected'"; echo "$out"; exit 1; }
+          done
+          echo "PASS: Validator correctly caught malformed frontmatter"
 
       - name: XII quality-gate wiring (v1.17.0+)
         run: |

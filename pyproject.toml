@@ -1,0 +1,18 @@
+# Lint configuration only: the validators are standalone scripts run by path
+# (CI, and the validate-constitution pre-commit hook with `language: script`),
+# not an installable package.
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF", "C90", "PLR"]
+
+# The profile checks are flat checklists (one `if` per requirement), so their
+# branch count tracks the number of requirements, not nesting.
+[tool.ruff.lint.mccabe]
+max-complexity = 15
+
+[tool.ruff.lint.pylint]
+max-branches = 15
