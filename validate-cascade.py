@@ -39,6 +39,7 @@ Exit codes:
 """
 
 import argparse
+import base64
 import json
 import os
 import re
@@ -47,8 +48,9 @@ import urllib.error
 import urllib.request
 from collections import defaultdict
 
-
 API = "https://api.github.com"
+HTTP_TIMEOUT_SECONDS = 30
+HTTP_NOT_FOUND = 404
 FROM_RE = re.compile(
     r"^\s*FROM\s+(?:--platform=\S+\s+)?quay\.io/crunchtools/([A-Za-z0-9._-]+)",
     re.MULTILINE | re.IGNORECASE,
@@ -85,20 +87,19 @@ def gh(path: str, token: str) -> dict | list:
             "User-Agent": "validate-cascade",
         },
     )
-    with urllib.request.urlopen(req, timeout=30) as resp:
+    with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT_SECONDS) as resp:
         return json.loads(resp.read())
 
 
 def fetch_text(owner: str, repo: str, path: str, token: str) -> str | None:
     """Return file contents or None if missing."""
     try:
-        data = gh(f"/repos/{owner}/{repo}/contents/{path}", token)
+        contents = gh(f"/repos/{owner}/{repo}/contents/{path}", token)
     except urllib.error.HTTPError as e:
-        if e.code == 404:
+        if e.code == HTTP_NOT_FOUND:
             return None
         raise
-    import base64
-    return base64.b64decode(data["content"]).decode("utf-8", errors="replace")
+    return base64.b64decode(contents["content"]).decode("utf-8", errors="replace")
 
 
 def list_repos(org: str, token: str) -> list[str]:
@@ -113,37 +114,24 @@ def list_repos(org: str, token: str) -> list[str]:
     return sorted(repos)
 
 
-def main() -> int:
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--org", default="crunchtools", help="GitHub org (default: crunchtools)")
-    ap.add_argument("--verbose", action="store_true", help="print the full FROM and dispatch graphs")
-    args = ap.parse_args()
+def scan_published_images(
+    org: str, repos: list[str], token: str
+) -> tuple[set[str], dict[tuple[str, str], str]]:
+    """Find every crunchtools image some workflow builds, and cache the workflows.
 
-    token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
-    if not token:
-        print("ERROR: GH_TOKEN or GITHUB_TOKEN must be set", file=sys.stderr)
-        return 2
-
-    print(f"Loading {args.org} repos...", file=sys.stderr)
-    repos = list_repos(args.org, token)
-    repo_set = set(repos)
-    print(f"  {len(repos)} non-archived repos", file=sys.stderr)
-
-    # Discover every crunchtools image that is BUILT by some workflow in some
-    # repo (typically pushed to quay.io/crunchtools/<name>). This catches the
-    # "same repo publishes both an app and its base" pattern (acquacotta builds
-    # acquacotta-base via container-base.yml; rotv builds rotv-base via
-    # build-base.yml). A FROM pointing at such an image is NOT broken even
-    # though no separate repo of that name exists.
-    print("Scanning workflows for published images...", file=sys.stderr)
+    This catches the "same repo publishes both an app and its base" pattern
+    (acquacotta builds acquacotta-base via container-base.yml; rotv builds
+    rotv-base via build-base.yml). A FROM pointing at such an image is NOT
+    broken even though no separate repo of that name exists. The workflow
+    texts are returned so the dispatch pass does not re-fetch them.
+    """
     published_images: set[str] = set()
-    # also cache workflow files so we don't re-fetch in the dispatch pass
     workflows_cache: dict[tuple[str, str], str] = {}
     for r in repos:
         try:
-            wf_entries = gh(f"/repos/{args.org}/{r}/contents/.github/workflows", token)
+            wf_entries = gh(f"/repos/{org}/{r}/contents/.github/workflows", token)
         except urllib.error.HTTPError as e:
-            if e.code == 404:
+            if e.code == HTTP_NOT_FOUND:
                 continue
             raise
         if not isinstance(wf_entries, list):
@@ -152,24 +140,26 @@ def main() -> int:
             name = entry.get("name", "")
             if not name.endswith((".yml", ".yaml")):
                 continue
-            txt = fetch_text(args.org, r, f".github/workflows/{name}", token)
+            txt = fetch_text(org, r, f".github/workflows/{name}", token)
             if txt is None:
                 continue
             workflows_cache[(r, name)] = txt
             for rx in PUBLISHED_IMAGE_RES:
                 for m in rx.finditer(txt):
                     published_images.add(m.group(1))
-    # A repo also "exists" as a publishable image if it has a Containerfile,
-    # since the standard pattern pushes quay.io/crunchtools/<reponame>.
-    known_images = repo_set | published_images
-    print(f"  {len(published_images)} crunchtools image names found in workflows", file=sys.stderr)
+    return published_images, workflows_cache
 
-    # FROM-graph: parent_image -> {child_repo, ...}
+
+def build_from_graph(
+    org: str, repos: list[str], known_images: set[str], token: str
+) -> tuple[dict[str, set[str]], list[tuple[str, str]]]:
+    """Return parent_image -> {child_repo} and the (child, parent) FROMs that resolve nowhere.
+
+    A FROM target is broken only if no repo AND no workflow-published image of
+    that name exists.
+    """
     from_graph: dict[str, set[str]] = defaultdict(set)
-    # Track unresolved FROM targets (broken edges) — a FROM target is broken
-    # only if no repo AND no workflow-published image of that name exists.
-    broken_froms: list[tuple[str, str]] = []  # (child_repo, missing_parent)
-
+    broken_froms: list[tuple[str, str]] = []
     for r in repos:
         # Containerfile.base is scanned alongside Containerfile because several
         # repos split a slow-moving infrastructure layer into their own
@@ -179,11 +169,10 @@ def main() -> int:
         # the app-layer Containerfile. Scanning only Containerfile made those
         # parents look like over-dispatch when the wiring was in fact correct.
         sources = [
-            fetch_text(args.org, r, name, token)
-            for name in ("Containerfile", "Containerfile.base")
+            fetch_text(org, r, name, token) for name in ("Containerfile", "Containerfile.base")
         ]
         if not any(s is not None for s in sources):
-            sources = [fetch_text(args.org, r, "Dockerfile", token)]
+            sources = [fetch_text(org, r, "Dockerfile", token)]
         seen_parents: set[str] = set()
         for cf in sources:
             if cf is None:
@@ -196,14 +185,19 @@ def main() -> int:
                 from_graph[parent].add(r)
                 if parent not in known_images:
                     broken_froms.append((r, parent))
+    return from_graph, broken_froms
 
-    # dispatch-graph: parent_repo -> {dispatched_child, ...}
+
+def build_dispatch_graph(
+    org: str, repos: list[str], workflows_cache: dict[tuple[str, str], str], token: str
+) -> dict[str, set[str]]:
+    """Return parent_repo -> {dispatched_child} from each repo's primary build workflow."""
     dispatch_graph: dict[str, set[str]] = defaultdict(set)
     for r in repos:
         for wf in ("build.yml", "container.yml"):
             txt = workflows_cache.get((r, wf))
             if txt is None:
-                txt = fetch_text(args.org, r, f".github/workflows/{wf}", token)
+                txt = fetch_text(org, r, f".github/workflows/{wf}", token)
             if txt is None:
                 continue
             for m in DISPATCH_LOOP_RE.finditer(txt):
@@ -214,18 +208,15 @@ def main() -> int:
             # Don't count "self dispatches" (a repo mentioning its own name in a comment)
             dispatch_graph[r].discard(r)
             break  # only one primary build workflow per repo
+    return dispatch_graph
 
-    if args.verbose:
-        print("\n=== FROM graph (parent -> children) ===")
-        for parent in sorted(from_graph):
-            print(f"  {parent} -> {sorted(from_graph[parent])}")
-        print("\n=== dispatch graph (repo -> dispatchees) ===")
-        for repo in sorted(dispatch_graph):
-            print(f"  {repo} -> {sorted(dispatch_graph[repo])}")
 
-    # Compare. For each FROM parent, every child must be in its dispatch set.
-    missing: list[tuple[str, str]] = []  # (parent, child)
-    extra: list[tuple[str, str]] = []    # (parent, child)
+def compare_graphs(
+    from_graph: dict[str, set[str]], dispatch_graph: dict[str, set[str]], repo_set: set[str]
+) -> tuple[list[tuple[str, str]], list[tuple[str, str]]]:
+    """Return (missing, extra) (parent, child) edges: every FROM child must be dispatched."""
+    missing: list[tuple[str, str]] = []
+    extra: list[tuple[str, str]] = []
     for parent, children in from_graph.items():
         if parent not in repo_set:
             continue  # already reported as broken FROM
@@ -235,32 +226,91 @@ def main() -> int:
                 missing.append((parent, child))
         for child in dispatched - children:
             extra.append((parent, child))
+    return missing, extra
 
-    fail = False
 
+def print_graphs(from_graph: dict[str, set[str]], dispatch_graph: dict[str, set[str]]) -> None:
+    """Print both graphs, sorted, for --verbose."""
+    print("\n=== FROM graph (parent -> children) ===")
+    for parent in sorted(from_graph):
+        print(f"  {parent} -> {sorted(from_graph[parent])}")
+    print("\n=== dispatch graph (repo -> dispatchees) ===")
+    for repo in sorted(dispatch_graph):
+        print(f"  {repo} -> {sorted(dispatch_graph[repo])}")
+
+
+def report(
+    org: str,
+    broken_froms: list[tuple[str, str]],
+    missing: list[tuple[str, str]],
+    extra: list[tuple[str, str]],
+) -> None:
+    """Print the findings. Only `missing` is a failure; the caller decides the exit code."""
     # Broken FROMs break ONE specific repo's build but do not impair cascade
     # correctness for the rest of the org — surface as WARN, not FAIL.
     if broken_froms:
         print("\nWARN: Containerfiles reference crunchtools images that don't exist as repos:")
         for child, parent in sorted(broken_froms):
-            print(f"  {child}: FROM quay.io/crunchtools/{parent}  (no such repo in {args.org})")
+            print(f"  {child}: FROM quay.io/crunchtools/{parent}  (no such repo in {org})")
 
     if missing:
-        fail = True
-        print("\nFAIL: FROM edges not covered by dispatch (downstream will not rebuild on parent update):")
+        print(
+            "\nFAIL: FROM edges not covered by dispatch "
+            "(downstream will not rebuild on parent update):"
+        )
         for parent, child in sorted(missing):
             print(f"  {parent} should dispatch {child}")
 
     if extra:
         print("\nWARN: dispatch edges with no matching FROM (over-dispatch, usually intentional):")
         for parent, child in sorted(extra):
-            print(f"  {parent} dispatches {child}, but {child} is not FROM quay.io/crunchtools/{parent}")
+            print(
+                f"  {parent} dispatches {child}, "
+                f"but {child} is not FROM quay.io/crunchtools/{parent}"
+            )
 
-    if not fail:
-        edges = sum(len(c) for c in from_graph.values())
-        print(f"\nPASS: {edges} FROM edges, all covered by dispatch. ({len(from_graph)} parent images, {len(repos)} repos checked.)")
-        return 0
-    return 1
+
+def main() -> int:
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    ap.add_argument("--org", default="crunchtools", help="GitHub org (default: crunchtools)")
+    ap.add_argument(
+        "--verbose", action="store_true", help="print the full FROM and dispatch graphs"
+    )
+    args = ap.parse_args()
+
+    token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
+    if not token:
+        print("ERROR: GH_TOKEN or GITHUB_TOKEN must be set", file=sys.stderr)
+        return 2
+
+    print(f"Loading {args.org} repos...", file=sys.stderr)
+    repos = list_repos(args.org, token)
+    repo_set = set(repos)
+    print(f"  {len(repos)} non-archived repos", file=sys.stderr)
+
+    print("Scanning workflows for published images...", file=sys.stderr)
+    published_images, workflows_cache = scan_published_images(args.org, repos, token)
+    print(f"  {len(published_images)} crunchtools image names found in workflows", file=sys.stderr)
+
+    from_graph, broken_froms = build_from_graph(args.org, repos, repo_set | published_images, token)
+    dispatch_graph = build_dispatch_graph(args.org, repos, workflows_cache, token)
+
+    if args.verbose:
+        print_graphs(from_graph, dispatch_graph)
+
+    missing, extra = compare_graphs(from_graph, dispatch_graph, repo_set)
+    report(args.org, broken_froms, missing, extra)
+
+    if missing:
+        return 1
+    edges = sum(len(c) for c in from_graph.values())
+    print(
+        f"\nPASS: {edges} FROM edges, all covered by dispatch. "
+        f"({len(from_graph)} parent images, {len(repos)} repos checked.)"
+    )
+    return 0
 
 
 if __name__ == "__main__":

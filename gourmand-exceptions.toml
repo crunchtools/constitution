@@ -1,0 +1,43 @@
+# Gourmand exceptions: findings that are the repo's design, each with a reason.
+
+[[exceptions]]
+check = "CH008-summary_litter"
+path = "constitution.md"
+justification = "The org-level constitution is this repo's product. Every crunchtools repo and the Gatehouse Constitution agent link to constitution.md at the repo root by that path."
+classification = "by_design"
+
+[[exceptions]]
+check = "CH008-summary_litter"
+path = "profiles/autonomous-agent.md"
+justification = "Profile document for the Autonomous Agent profile. The name is the profile's name, referenced from constitution.md, validate-constitution.py and per-repo constitutions; 'agent' is the subject, not an AI status file."
+classification = "by_design"
+
+[[exceptions]]
+check = "CH008-summary_litter"
+path = "profiles/claude-skill.md"
+justification = "Profile document for the Claude Skill profile. The name is the profile's name, referenced from constitution.md and the CI profile check; 'claude' is the subject, not an AI status file."
+classification = "by_design"
+
+[[exceptions]]
+check = "CH009-random_scripts"
+path = "validate-constitution.py"
+justification = "Published entry point, not a stray script: .pre-commit-hooks.yaml exposes it as the validate-constitution hook (language: script, entry by root path), ci.yml runs it by path, and fleet repos invoke it from a checkout of this repo."
+classification = "by_design"
+
+[[exceptions]]
+check = "CH009-random_scripts"
+path = "validate-cascade.py"
+justification = "Entry point of the Validate Cascade workflow (.github/workflows/validate-cascade.yml runs `python validate-cascade.py --verbose`). The repo has no package; its two validators are the root-level tools."
+classification = "by_design"
+
+[[exceptions]]
+check = "CH001-absolute_paths"
+path = "validate-constitution.py"
+justification = "The flagged host path is not a filesystem access: it is a regex the Web Application check searches for in constitution text (the documented host directory convention), plus the violation message naming it. The validator never reads that directory."
+classification = "by_design"
+
+[[exceptions]]
+check = "EV013-hidden_env_config"
+path = "validate-cascade.py"
+justification = "GH_TOKEN (falling back to GITHUB_TOKEN) is the GitHub API credential, not a behavior toggle. It is required, documented in the module docstring ('Reads GH_TOKEN from the environment'), exits 2 with an explicit error when unset, and is set by validate-cascade.yml from the CRUNCHTOOLS_DISPATCH_TOKEN secret."
+classification = "by_design"

@@ -10,6 +10,21 @@ onward were ratified without a tag or a GitHub Release.
 
 ## [Unreleased]
 
+### Fixed
+- **Forked MCP Server profile 1.1.0** — section VI said forks run no Gourmand,
+  contradicting XII. Forks run Gourmand and Gatehouse like every repo, with
+  upstream-owned paths excluded so only the crunchtools delta is gated
+  (RT #1511, as done in crunchtools/mcp-atlassian#4).
+
+### Changed
+- This repo now runs its own Gourmand CI gate, the gourmand pre-commit hook, and
+  ruff (config in `pyproject.toml`, hook and CI step) (RT #1509).
+- `validate-constitution.py` and `validate-cascade.py` refactored to clear
+  Gourmand findings: the Container Image, Web Application and CLI Tool checks
+  are rule tables, profile dispatch is a `match`, and cascade `main()` is split
+  into phase functions. Output is unchanged, verified against every fleet
+  constitution under every profile.
+
 ## [1.17.0] - 2026-09-24
 
 ### Added

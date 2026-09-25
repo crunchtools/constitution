@@ -31,9 +31,7 @@ VALID_PROFILES = {
     "CLI Tool",
 }
 
-# ---------------------------------------------------------------------------
 # Header parsing
-# ---------------------------------------------------------------------------
 
 
 def parse_header(text: str) -> dict[str, str]:
@@ -60,9 +58,7 @@ def extract_inherits_version(header: dict[str, str]) -> str | None:
     return match.group(1) if match else None
 
 
-# ---------------------------------------------------------------------------
 # Universal checks (all profiles)
-# ---------------------------------------------------------------------------
 
 
 def check_universal(text: str, header: dict[str, str]) -> list[str]:
@@ -104,9 +100,7 @@ def check_universal(text: str, header: dict[str, str]) -> list[str]:
     return violations
 
 
-# ---------------------------------------------------------------------------
 # Changelog check (universal, filesystem-based)
-# ---------------------------------------------------------------------------
 
 
 def check_changelog(repo_root: Path | None) -> list[str]:
@@ -129,16 +123,13 @@ def check_changelog(repo_root: Path | None) -> list[str]:
 
     changelog = repo_root / "CHANGELOG.md"
     if not changelog.is_file():
-        violations.append(
-            "UNIVERSAL: No CHANGELOG.md in the repo root (Constitution II)"
-        )
+        violations.append("UNIVERSAL: No CHANGELOG.md in the repo root (Constitution II)")
         return violations
 
     content = changelog.read_text()
     if not re.search(r"^#+\s*\[Unreleased\]", content, re.MULTILINE):
         violations.append(
-            "UNIVERSAL: CHANGELOG.md has no '[Unreleased]' section heading "
-            "(Constitution II)"
+            "UNIVERSAL: CHANGELOG.md has no '[Unreleased]' section heading (Constitution II)"
         )
     if not re.search(r"keepachangelog\.com", content, re.IGNORECASE):
         violations.append(
@@ -149,9 +140,7 @@ def check_changelog(repo_root: Path | None) -> list[str]:
     return violations
 
 
-# ---------------------------------------------------------------------------
 # MCP Server profile checks
-# ---------------------------------------------------------------------------
 
 MCP_REQUIRED_SECTIONS = [
     (r"##\s+I\.", "Section I"),
@@ -205,9 +194,7 @@ def check_mcp_server(text: str) -> list[str]:
     # Distribution channels (uvx, pip, container)
     for channel in ["uvx", "pip", "Container"]:
         if channel.lower() not in text.lower():
-            violations.append(
-                f"MCP_SERVER: Distribution channel '{channel}' not mentioned"
-            )
+            violations.append(f"MCP_SERVER: Distribution channel '{channel}' not mentioned")
 
     # Quality gates (all 5)
     gate_keywords = ["Lint", "Type Check", "Tests", "Gourmand", "Container Build"]
@@ -233,9 +220,7 @@ def check_mcp_server(text: str) -> list[str]:
     return violations
 
 
-# ---------------------------------------------------------------------------
 # Gourmand CI gate implementation check (shared by MCP Server, CLI Tool)
-# ---------------------------------------------------------------------------
 
 GOURMAND_DEAD_PATTERNS = [
     r"cargo\s+install.*gourmand",
@@ -251,9 +236,16 @@ def strip_yaml_comments(text: str) -> str:
     explaining why the reusable workflow exists. Matching raw text flags that
     explanation as the very violation it warns against.
     """
-    return "\n".join(
-        line for line in text.splitlines() if not line.lstrip().startswith("#")
-    )
+    return "\n".join(line for line in text.splitlines() if not line.lstrip().startswith("#"))
+
+
+def workflow_files(repo_root: Path) -> list[Path]:
+    """Return the repo's GitHub Actions workflow files, .yml before .yaml.
+
+    Globbing a missing directory yields nothing, so no existence check is needed.
+    """
+    workflows_dir = repo_root / ".github" / "workflows"
+    return sorted(workflows_dir.glob("*.yml")) + sorted(workflows_dir.glob("*.yaml"))
 
 
 def check_gourmand_ci_gate(repo_root: Path) -> list[str]:
@@ -266,23 +258,18 @@ def check_gourmand_ci_gate(repo_root: Path) -> list[str]:
     constitution.md can no longer mask a broken gate.
     """
     violations: list[str] = []
-    workflows_dir = repo_root / ".github" / "workflows"
-    if not workflows_dir.is_dir():
+    if not (repo_root / ".github" / "workflows").is_dir():
         return violations
 
-    workflow_files = sorted(workflows_dir.glob("*.yml")) + sorted(
-        workflows_dir.glob("*.yaml")
-    )
     gourmand_files = [
         f
-        for f in workflow_files
+        for f in workflow_files(repo_root)
         if re.search(r"gourmand", strip_yaml_comments(f.read_text()), re.IGNORECASE)
     ]
 
     if not gourmand_files:
         violations.append(
-            "MCP_SERVER: No CI workflow references Gourmand "
-            "(constitution claims the gate exists)"
+            "MCP_SERVER: No CI workflow references Gourmand (constitution claims the gate exists)"
         )
         return violations
 
@@ -294,8 +281,7 @@ def check_gourmand_ci_gate(repo_root: Path) -> list[str]:
         for pattern in GOURMAND_DEAD_PATTERNS:
             if re.search(pattern, content, re.IGNORECASE):
                 violations.append(
-                    f"MCP_SERVER: {f.name} runs Gourmand via a dead pattern "
-                    f"('{pattern}')"
+                    f"MCP_SERVER: {f.name} runs Gourmand via a dead pattern ('{pattern}')"
                 )
 
         # gatehouse hosts the reusable workflow, so it references its own copy
@@ -327,9 +313,7 @@ def _version_tuple(version: str | None) -> tuple[int, ...]:
     return tuple(int(part) for part in version.split(".")) if version else ()
 
 
-def check_quality_gate_wiring(
-    repo_root: Path | None, inherits: str | None
-) -> list[str]:
+def check_quality_gate_wiring(repo_root: Path | None, inherits: str | None) -> list[str]:
     """XII since 1.17.0: both pre-commit hooks, and the Gatehouse triage job.
 
     Reads the real files, like check_gourmand_ci_gate: prose saying a gate
@@ -348,9 +332,7 @@ def check_quality_gate_wiring(
         ("gatehouse", "quay.io/crunchtools/gatehouse", r"\S*\s+--stdin"),
     )
     for hook_id, image, trailing in required_hooks:
-        block = re.search(
-            rf"-\s*id:\s*{hook_id}\s*\n(.*?)(?=\n\s*-\s*id:|\Z)", hooks, re.S
-        )
+        block = re.search(rf"-\s*id:\s*{hook_id}\s*\n(.*?)(?=\n\s*-\s*id:|\Z)", hooks, re.S)
         if block is None:
             violations.append(
                 f"XII: .pre-commit-config.yaml has no `{hook_id}` hook "
@@ -362,16 +344,10 @@ def check_quality_gate_wiring(
                 + (" with --stdin" if trailing else "")
             )
 
-    workflows_dir = repo_root / ".github" / "workflows"
-    workflows = (
-        sorted(workflows_dir.glob("*.yml")) + sorted(workflows_dir.glob("*.yaml"))
-        if workflows_dir.is_dir()
-        else []
-    )
-    triage = re.compile(
-        r"uses:\s*(?:crunchtools/gatehouse|\.)/\.github/workflows/triage\.yml"
-    )
-    if not any(triage.search(strip_yaml_comments(f.read_text())) for f in workflows):
+    triage = re.compile(r"uses:\s*(?:crunchtools/gatehouse|\.)/\.github/workflows/triage\.yml")
+    if not any(
+        triage.search(strip_yaml_comments(f.read_text())) for f in workflow_files(repo_root)
+    ):
         violations.append(
             "XII: no workflow runs the `Gatehouse triage` job "
             "(crunchtools/gatehouse/.github/workflows/triage.yml)"
@@ -379,109 +355,91 @@ def check_quality_gate_wiring(
     return violations
 
 
-# ---------------------------------------------------------------------------
-# Container Image profile checks
-# ---------------------------------------------------------------------------
+# Pattern-count profile checks (Container Image, Web Application, CLI Tool)
+
+Rule = tuple[list[str], int, str]
+"""(patterns, minimum number that must match, violation message)."""
 
 
-def check_container_image(text: str) -> list[str]:
-    """Run Container Image profile checks."""
-    violations: list[str] = []
-
-    # Base image declared
-    base_image_patterns = [
-        r"ubi\d+",
-        r"UBI",
-        r"registry\.access\.redhat\.com",
-        r"[Hh]ummingbird",
+def failed_rules(text: str, rules: list[Rule]) -> list[str]:
+    """Return the message of every rule with too few matching patterns."""
+    return [
+        message
+        for patterns, needed, message in rules
+        if sum(1 for p in patterns if re.search(p, text)) < needed
     ]
-    if not any(re.search(p, text) for p in base_image_patterns):
-        violations.append("CONTAINER_IMAGE: No base image declared (UBI or Hummingbird)")
-
-    # Registry declared
-    if not re.search(r"quay\.io/crunchtools/", text):
-        violations.append("CONTAINER_IMAGE: Registry not declared (quay.io/crunchtools/*)")
-
-    # Containerfile conventions documented
-    containerfile_patterns = [r"[Cc]ontainerfile", r"LABEL", r"dnf"]
-    matches = sum(1 for p in containerfile_patterns if re.search(p, text))
-    if matches < 2:
-        violations.append(
-            "CONTAINER_IMAGE: Containerfile conventions not sufficiently documented"
-        )
-
-    # Testing standards section
-    test_patterns = [r"[Bb]uild\s+test", r"[Ss]moke\s+test", r"[Ss]ecurity\s+scan"]
-    matches = sum(1 for p in test_patterns if re.search(p, text))
-    if matches < 1:
-        violations.append("CONTAINER_IMAGE: Testing standards section missing or incomplete")
-
-    # Quality gates section
-    if not re.search(r"[Qq]uality\s+[Gg]ate", text):
-        violations.append("CONTAINER_IMAGE: Quality gates section missing")
-
-    return violations
 
 
-# ---------------------------------------------------------------------------
+CONTAINER_IMAGE_RULES: list[Rule] = [
+    (
+        [r"ubi\d+", r"UBI", r"registry\.access\.redhat\.com", r"[Hh]ummingbird"],
+        1,
+        "CONTAINER_IMAGE: No base image declared (UBI or Hummingbird)",
+    ),
+    (
+        [r"quay\.io/crunchtools/"],
+        1,
+        "CONTAINER_IMAGE: Registry not declared (quay.io/crunchtools/*)",
+    ),
+    (
+        [r"[Cc]ontainerfile", r"LABEL", r"dnf"],
+        2,
+        "CONTAINER_IMAGE: Containerfile conventions not sufficiently documented",
+    ),
+    (
+        [r"[Bb]uild\s+test", r"[Ss]moke\s+test", r"[Ss]ecurity\s+scan"],
+        1,
+        "CONTAINER_IMAGE: Testing standards section missing or incomplete",
+    ),
+    (
+        [r"[Qq]uality\s+[Gg]ate"],
+        1,
+        "CONTAINER_IMAGE: Quality gates section missing",
+    ),
+]
+
+
 # Claude Skill profile checks
-# ---------------------------------------------------------------------------
+
+
+def check_skill_frontmatter(skill_text: str) -> list[str]:
+    """Check SKILL.md opens with closed YAML frontmatter carrying the required fields."""
+    if not skill_text.startswith("---"):
+        return ["CLAUDE_SKILL: SKILL.md missing YAML frontmatter"]
+    fm_match = re.match(r"---\n(.*?)\n---", skill_text, re.DOTALL)
+    if not fm_match:
+        return ["CLAUDE_SKILL: SKILL.md has unclosed YAML frontmatter"]
+    frontmatter = fm_match.group(1)
+    return [
+        f"CLAUDE_SKILL: Missing frontmatter field '{field}'"
+        for field in ("name", "description", "argument-hint", "allowed-tools")
+        if not re.search(rf"^{field}:", frontmatter, re.MULTILINE)
+    ]
+
+
+def check_skill_file(skill_text: str) -> list[str]:
+    """Check the skill's own SKILL.md: frontmatter, numbered Phases, no credentials."""
+    violations = check_skill_frontmatter(skill_text)
+    if not re.search(r"##\s+Phase\s+\d+", skill_text):
+        violations.append("CLAUDE_SKILL: Workflow structure missing numbered Phases")
+    if re.search(
+        r'(?:api_key|password|secret|token)\s*=\s*["\'][^"\']+["\']', skill_text, re.IGNORECASE
+    ):
+        violations.append("CLAUDE_SKILL: Possible hardcoded credentials detected")
+    return violations
 
 
 def check_claude_skill(text: str, skill_dir: Path | None = None) -> list[str]:
     """Run Claude Skill profile checks."""
     violations: list[str] = []
-
-    # If a skill directory is provided, check SKILL.md exists with frontmatter
     if skill_dir and skill_dir.is_dir():
         skill_file = skill_dir / "SKILL.md"
-        if not skill_file.exists():
-            violations.append("CLAUDE_SKILL: SKILL.md not found in skill directory")
+        if skill_file.exists():
+            violations.extend(check_skill_file(skill_file.read_text()))
         else:
-            skill_text = skill_file.read_text()
+            violations.append("CLAUDE_SKILL: SKILL.md not found in skill directory")
 
-            # Valid YAML frontmatter
-            if not skill_text.startswith("---"):
-                violations.append("CLAUDE_SKILL: SKILL.md missing YAML frontmatter")
-            else:
-                # Extract frontmatter
-                fm_match = re.match(r"---\n(.*?)\n---", skill_text, re.DOTALL)
-                if not fm_match:
-                    violations.append(
-                        "CLAUDE_SKILL: SKILL.md has unclosed YAML frontmatter"
-                    )
-                else:
-                    frontmatter = fm_match.group(1)
-                    required_fields = [
-                        "name",
-                        "description",
-                        "argument-hint",
-                        "allowed-tools",
-                    ]
-                    for field in required_fields:
-                        if not re.search(rf"^{field}:", frontmatter, re.MULTILINE):
-                            violations.append(
-                                f"CLAUDE_SKILL: Missing frontmatter field '{field}'"
-                            )
-
-            # Workflow structure has numbered Phases
-            if not re.search(r"##\s+Phase\s+\d+", skill_text):
-                violations.append(
-                    "CLAUDE_SKILL: Workflow structure missing numbered Phases"
-                )
-
-            # No hardcoded credentials
-            credential_patterns = [
-                r'(?:api_key|password|secret|token)\s*=\s*["\'][^"\']+["\']',
-            ]
-            for pattern in credential_patterns:
-                if re.search(pattern, skill_text, re.IGNORECASE):
-                    violations.append(
-                        "CLAUDE_SKILL: Possible hardcoded credentials detected"
-                    )
-
-    # If validating the constitution text itself (not the skill file)
-    # check that the constitution references the required concepts
+    # The constitution text itself must reference the required concepts
     if text:
         if not re.search(r"SKILL\.md", text):
             violations.append("CLAUDE_SKILL: No reference to SKILL.md")
@@ -495,9 +453,7 @@ def check_claude_skill(text: str, skill_dir: Path | None = None) -> list[str]:
     return violations
 
 
-# ---------------------------------------------------------------------------
 # Autonomous Agent profile checks
-# ---------------------------------------------------------------------------
 
 
 AUTONOMOUS_AGENT_SECURITY_LAYERS = [
@@ -528,9 +484,7 @@ def check_autonomous_agent(text: str) -> list[str]:
     ]
     for pattern, label in trust_keywords:
         if not re.search(pattern, text):
-            violations.append(
-                f"AUTONOMOUS_AGENT: Trust boundary keyword missing: {label}"
-            )
+            violations.append(f"AUTONOMOUS_AGENT: Trust boundary keyword missing: {label}")
 
     # Circuit breaker / rate limiting
     if not re.search(r"[Cc]ircuit\s+[Bb]reak", text):
@@ -554,9 +508,7 @@ def check_autonomous_agent(text: str) -> list[str]:
     ]
     for pattern, label in container_keywords:
         if not re.search(pattern, text):
-            violations.append(
-                f"AUTONOMOUS_AGENT: Container security keyword missing: {label}"
-            )
+            violations.append(f"AUTONOMOUS_AGENT: Container security keyword missing: {label}")
 
     # Monitoring / kill switch
     if not re.search(r"[Kk]ill\s+[Ss]witch", text):
@@ -569,9 +521,7 @@ def check_autonomous_agent(text: str) -> list[str]:
     return violations
 
 
-# ---------------------------------------------------------------------------
 # Forked MCP Server profile checks
-# ---------------------------------------------------------------------------
 
 
 def check_forked_mcp_server(text: str) -> list[str]:
@@ -603,202 +553,105 @@ def check_forked_mcp_server(text: str) -> list[str]:
     return violations
 
 
-# ---------------------------------------------------------------------------
 # Web Application profile checks
-# ---------------------------------------------------------------------------
 
 
-def check_web_application(text: str) -> list[str]:
-    """Run Web Application profile checks."""
-    violations: list[str] = []
-
-    # Base image references Hummingbird or crunchtools tree
-    base_image_patterns = [
-        r"quay\.io/hummingbird/",
-        r"quay\.io/crunchtools/",
-        r"ubi\d+",
-        r"UBI",
-    ]
-    if not any(re.search(p, text) for p in base_image_patterns):
-        violations.append(
-            "WEB_APPLICATION: No base image declared "
-            "(Hummingbird or crunchtools tree)"
-        )
-
-    # Registry declared
-    if not re.search(r"quay\.io/crunchtools/", text):
-        violations.append(
-            "WEB_APPLICATION: Registry not declared (quay.io/crunchtools/*)"
-        )
-
-    # Application runtime mentioned
-    runtime_patterns = [
-        r"[Pp]ython",
-        r"[Nn]ode",
-        r"[Pp]erl",
-        r"[Pp]hp",
-        r"[Ff]lask",
-        r"[Ee]xpress",
-        r"[Gg]unicorn",
-    ]
-    if not any(re.search(p, text) for p in runtime_patterns):
-        violations.append(
-            "WEB_APPLICATION: Application runtime not mentioned "
-            "(Python, Node, Perl, PHP, or similar)"
-        )
-
-    # Host directory convention
-    host_dir_patterns = [
-        r"/srv/",
-        r"code.*config.*data",
-        r"bind.mount",
-    ]
-    if not any(re.search(p, text) for p in host_dir_patterns):
-        violations.append(
-            "WEB_APPLICATION: Host directory convention not documented "
-            "(/srv/<name>/ with code/config/data)"
-        )
-
-    # Data persistence section
-    data_patterns = [
-        r"[Dd]atabase",
-        r"[Vv]olume",
-        r"[Ss]tateful",
-        r"[Pp]ersist",
-    ]
-    if not any(re.search(p, text) for p in data_patterns):
-        violations.append(
-            "WEB_APPLICATION: Data persistence not documented"
-        )
-
-    # Monitoring section
-    monitoring_patterns = [
-        r"[Nn]agios",
-        r"[Mm]onitoring",
-    ]
-    if not any(re.search(p, text) for p in monitoring_patterns):
-        violations.append(
-            "WEB_APPLICATION: Monitoring section missing (Nagios or monitoring keyword)"
-        )
-
-    # Testing section
-    test_patterns = [
-        r"[Hh]ealth\s+check",
-        r"[Ss]moke\s+test",
-        r"[Bb]uild\s+test",
-    ]
-    if not any(re.search(p, text) for p in test_patterns):
-        violations.append(
-            "WEB_APPLICATION: Testing section missing (health check or smoke test)"
-        )
-
-    # Quality gates section
-    if not re.search(r"[Qq]uality\s+[Gg]ate", text):
-        violations.append("WEB_APPLICATION: Quality gates section missing")
-
-    # Cascade rebuild (repository_dispatch or cascade)
-    cascade_patterns = [
-        r"repository_dispatch",
-        r"[Cc]ascade",
-        r"parent.image.updated",
-    ]
-    if not any(re.search(p, text) for p in cascade_patterns):
-        violations.append(
-            "WEB_APPLICATION: Cascade rebuild not documented "
-            "(repository_dispatch or cascade mention)"
-        )
-
-    return violations
+WEB_APPLICATION_RULES: list[Rule] = [
+    (
+        [r"quay\.io/hummingbird/", r"quay\.io/crunchtools/", r"ubi\d+", r"UBI"],
+        1,
+        "WEB_APPLICATION: No base image declared (Hummingbird or crunchtools tree)",
+    ),
+    (
+        [r"quay\.io/crunchtools/"],
+        1,
+        "WEB_APPLICATION: Registry not declared (quay.io/crunchtools/*)",
+    ),
+    (
+        [
+            r"[Pp]ython",
+            r"[Nn]ode",
+            r"[Pp]erl",
+            r"[Pp]hp",
+            r"[Ff]lask",
+            r"[Ee]xpress",
+            r"[Gg]unicorn",
+        ],
+        1,
+        "WEB_APPLICATION: Application runtime not mentioned (Python, Node, Perl, PHP, or similar)",
+    ),
+    (
+        [r"/srv/", r"code.*config.*data", r"bind.mount"],
+        1,
+        "WEB_APPLICATION: Host directory convention not documented "
+        "(/srv/<name>/ with code/config/data)",
+    ),
+    (
+        [r"[Dd]atabase", r"[Vv]olume", r"[Ss]tateful", r"[Pp]ersist"],
+        1,
+        "WEB_APPLICATION: Data persistence not documented",
+    ),
+    (
+        [r"[Nn]agios", r"[Mm]onitoring"],
+        1,
+        "WEB_APPLICATION: Monitoring section missing (Nagios or monitoring keyword)",
+    ),
+    (
+        [r"[Hh]ealth\s+check", r"[Ss]moke\s+test", r"[Bb]uild\s+test"],
+        1,
+        "WEB_APPLICATION: Testing section missing (health check or smoke test)",
+    ),
+    (
+        [r"[Qq]uality\s+[Gg]ate"],
+        1,
+        "WEB_APPLICATION: Quality gates section missing",
+    ),
+    (
+        [r"repository_dispatch", r"[Cc]ascade", r"parent.image.updated"],
+        1,
+        "WEB_APPLICATION: Cascade rebuild not documented (repository_dispatch or cascade mention)",
+    ),
+]
 
 
-# ---------------------------------------------------------------------------
-# CLI Tool profile checks
-# ---------------------------------------------------------------------------
+CLI_TOOL_RULES: list[Rule] = [
+    (
+        [r"[Ee]xit\s+[Cc]ode", r"[Ee]xit.*`?0`?", r"[Ee]xit.*`?1`?"],
+        2,
+        "CLI_TOOL: Exit code contract not documented (need exit codes 0 and 1)",
+    ),
+    (
+        [r"argparse", r"CLI\s+[Ii]nterface", r"[Ff]lags", r"--\w+"],
+        2,
+        "CLI_TOOL: CLI interface not sufficiently documented (argparse, flags, or subcommands)",
+    ),
+    (
+        [r"uv", r"pip", r"PyPI"],
+        1,
+        "CLI_TOOL: Distribution channel not mentioned (uv, pip, or PyPI)",
+    ),
+    (
+        [r"quay\.io/crunchtools/"],
+        1,
+        "CLI_TOOL: Container registry not declared (quay.io/crunchtools/*)",
+    ),
+    ([r"[Qq]uality\s+[Gg]ate"], 1, "CLI_TOOL: Quality gates section missing"),
+    ([r"pytest"], 1, "CLI_TOOL: Testing framework not mentioned (pytest)"),
+    ([r"(?i)gourmand"], 1, "CLI_TOOL: Gourmand AI slop detection not mentioned"),
+    (
+        [r"[Aa]PI", r"[Ee]nvironment\s+[Vv]ariable", r"[Cc]redential", r"SecretStr"],
+        1,
+        "CLI_TOOL: External API or credential management not documented",
+    ),
+    (
+        [r"[Hh]ummingbird", r"quay\.io/hummingbird/"],
+        1,
+        "CLI_TOOL: Container base image not declared (Hummingbird)",
+    ),
+]
 
 
-def check_cli_tool(text: str) -> list[str]:
-    """Run CLI Tool profile checks."""
-    violations: list[str] = []
-
-    # Exit code contract (0, 1, 2)
-    exit_code_patterns = [
-        r"[Ee]xit\s+[Cc]ode",
-        r"[Ee]xit.*`?0`?",
-        r"[Ee]xit.*`?1`?",
-    ]
-    matches = sum(1 for p in exit_code_patterns if re.search(p, text))
-    if matches < 2:
-        violations.append(
-            "CLI_TOOL: Exit code contract not documented (need exit codes 0 and 1)"
-        )
-
-    # CLI interface section (argparse, flags, or subcommands)
-    cli_patterns = [
-        r"argparse",
-        r"CLI\s+[Ii]nterface",
-        r"[Ff]lags",
-        r"--\w+",
-    ]
-    matches = sum(1 for p in cli_patterns if re.search(p, text))
-    if matches < 2:
-        violations.append(
-            "CLI_TOOL: CLI interface not sufficiently documented "
-            "(argparse, flags, or subcommands)"
-        )
-
-    # Distribution channel (PyPI/uv/pipx)
-    dist_patterns = [r"uv", r"pip", r"PyPI"]
-    if not any(re.search(p, text) for p in dist_patterns):
-        violations.append(
-            "CLI_TOOL: Distribution channel not mentioned (uv, pip, or PyPI)"
-        )
-
-    # Container distribution
-    if not re.search(r"quay\.io/crunchtools/", text):
-        violations.append(
-            "CLI_TOOL: Container registry not declared (quay.io/crunchtools/*)"
-        )
-
-    # Quality gates section
-    if not re.search(r"[Qq]uality\s+[Gg]ate", text):
-        violations.append("CLI_TOOL: Quality gates section missing")
-
-    # Testing (pytest or test)
-    if not re.search(r"pytest", text):
-        violations.append("CLI_TOOL: Testing framework not mentioned (pytest)")
-
-    # Gourmand
-    if not re.search(r"gourmand", text, re.IGNORECASE):
-        violations.append("CLI_TOOL: Gourmand AI slop detection not mentioned")
-
-    # External API / credential management
-    api_patterns = [
-        r"[Aa]PI",
-        r"[Ee]nvironment\s+[Vv]ariable",
-        r"[Cc]redential",
-        r"SecretStr",
-    ]
-    if not any(re.search(p, text) for p in api_patterns):
-        violations.append(
-            "CLI_TOOL: External API or credential management not documented"
-        )
-
-    # Hummingbird or container base image
-    base_image_patterns = [
-        r"[Hh]ummingbird",
-        r"quay\.io/hummingbird/",
-    ]
-    if not any(re.search(p, text) for p in base_image_patterns):
-        violations.append(
-            "CLI_TOOL: Container base image not declared (Hummingbird)"
-        )
-
-    return violations
-
-
-# ---------------------------------------------------------------------------
 # Main validator
-# ---------------------------------------------------------------------------
 
 
 def validate(
@@ -822,15 +675,10 @@ def validate(
 
     all_violations: list[str] = []
 
-    # Universal checks
-    universal_violations = check_universal(text, header)
-    all_violations.extend(universal_violations)
+    all_violations.extend(check_universal(text, header))
     all_violations.extend(check_changelog(repo_root))
-    all_violations.extend(
-        check_quality_gate_wiring(repo_root, extract_inherits_version(header))
-    )
+    all_violations.extend(check_quality_gate_wiring(repo_root, extract_inherits_version(header)))
 
-    # Determine profile
     profile = profile_override or extract_profile(header)
 
     if verbose:
@@ -840,35 +688,32 @@ def validate(
         print(f"  Inherits: v{inherits_ver}" if inherits_ver else "  Inherits: (none)")
         print()
 
-    # Profile-specific checks
-    if profile == "MCP Server":
-        all_violations.extend(check_mcp_server(text))
-        if repo_root is not None:
-            all_violations.extend(check_gourmand_ci_gate(repo_root))
-    elif profile == "Container Image":
-        all_violations.extend(check_container_image(text))
-    elif profile == "Claude Skill":
-        all_violations.extend(check_claude_skill(text, skill_dir))
-    elif profile == "Autonomous Agent":
-        all_violations.extend(check_autonomous_agent(text))
-    elif profile == "Forked MCP Server":
-        all_violations.extend(check_forked_mcp_server(text))
-    elif profile == "Web Application":
-        all_violations.extend(check_web_application(text))
-    elif profile == "CLI Tool":
-        all_violations.extend(check_cli_tool(text))
-        if repo_root is not None:
-            all_violations.extend(check_gourmand_ci_gate(repo_root))
-    elif profile and profile not in VALID_PROFILES:
-        pass  # Already flagged by universal checks
+    # An unknown profile was already flagged by check_universal.
+    match profile:
+        case "MCP Server":
+            all_violations.extend(check_mcp_server(text))
+            if repo_root is not None:
+                all_violations.extend(check_gourmand_ci_gate(repo_root))
+        case "Container Image":
+            all_violations.extend(failed_rules(text, CONTAINER_IMAGE_RULES))
+        case "Claude Skill":
+            all_violations.extend(check_claude_skill(text, skill_dir))
+        case "Autonomous Agent":
+            all_violations.extend(check_autonomous_agent(text))
+        case "Forked MCP Server":
+            all_violations.extend(check_forked_mcp_server(text))
+        case "Web Application":
+            all_violations.extend(failed_rules(text, WEB_APPLICATION_RULES))
+        case "CLI Tool":
+            all_violations.extend(failed_rules(text, CLI_TOOL_RULES))
+            if repo_root is not None:
+                all_violations.extend(check_gourmand_ci_gate(repo_root))
 
     return all_violations
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(
-        description="Validate a crunchtools per-repo constitution"
-    )
+    parser = argparse.ArgumentParser(description="Validate a crunchtools per-repo constitution")
     parser.add_argument(
         "constitution",
         type=Path,

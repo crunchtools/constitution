@@ -1,0 +1,6 @@
+# Gourmand configuration. Exceptions live in gourmand-exceptions.toml, which
+# Gourmand only loads when this file exists.
+
+[output]
+format = "text"
+color = true
