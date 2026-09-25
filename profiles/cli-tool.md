@@ -31,8 +31,8 @@ Runtime configuration comes from environment variables. API keys, tokens, and cr
 
 | Pattern | Example |
 |---------|---------|
-| API keys | `GEMINI_API_KEY`, `GITHUB_TOKEN` |
-| File-based secrets | `GEMINI_API_KEY_FILE`, `GITHUB_TOKEN_FILE` |
+| API keys | `OPENROUTER_API_KEY`, `GITHUB_TOKEN` |
+| File-based secrets | `OPENROUTER_API_KEY_FILE`, `GITHUB_TOKEN_FILE` |
 | Feature flags | `GATEHOUSE_ADVISORY=1` |
 | Verbosity | `GATEHOUSE_VERBOSE=1` or `--verbose` flag |
 
