@@ -37,6 +37,7 @@ For any credential environment variable `FOO_TOKEN`, the server MUST also suppor
 - **No free-form objects in tool schemas.** No bare `dict[str, Any]` or `list[dict]` parameters. Declare the properties in a Pydantic model with `extra="forbid"`; a model fills what the schema names, and a bare `object` produces `{}`.
 - **Every field carries a `description`.** It is the only documentation the calling model sees.
 - **Constraints live in the schema.** ID fields declare `ge=1`; length, format and range constraints are expressed as `Field(...)` constraints, not only in validator code, so the published `inputSchema` is enough for a gateway to tell a valid value from an invalid one.
+- **The two rules above are layered, not in conflict.** The schema publishes the *valid domain* (e.g. `ge=1`), which tells a gateway such as Trentina which optional values to drop before forwarding. The server's `mode="before"` validator still maps an out-of-domain *optional* value (`""`, whitespace, `null`, `0`, a negative ID) to `None` before the constraint runs, so a client that talks to the server directly and sends one anyway is served, not refused. Out-of-domain *required* values fail validation.
 
 **Layer 3 — API Hardening:**
 - Auth via secure header (never in URL)
@@ -284,7 +285,7 @@ Every Pydantic model MUST have tests covering:
 - Valid minimal input
 - Valid full input
 - Invalid/rejected inputs (empty required strings, too-long values, extra fields)
-- Every optional field: `""` and `null` normalize to `None` (and `0` for ID fields)
+- Every optional field: `""`, whitespace-only, and `null` normalize to `None`; for ID fields also `0` and a negative value
 - Injection prevention (special characters in identifiers)
 
 ### Security Tests
