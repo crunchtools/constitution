@@ -10,6 +10,14 @@ onward were ratified without a tag or a GitHub Release.
 
 ## [Unreleased]
 
+### Added
+- **MCP Server profile 1.5.0** — Layer 2 tool-input rules from RT #1505:
+  optional parameters normalize `""`, whitespace-only, `null` and non-positive IDs to `None`
+  instead of rejecting; no free-form `dict`/`list[dict]` parameters; every
+  field carries a `description`; constraints (`ge=1` on IDs, length, format)
+  live in the published schema. Tests cover optional-field normalization and
+  assert the registered tool's schema, not just the model.
+
 ### Fixed
 - **MCP Server profile 1.4.1, CLI Tool profile 1.1.1** — said `gourmand.toml`
   holds excluded paths. Gourmand ignores `[global] excluded_paths` there; artifacts
