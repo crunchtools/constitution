@@ -1,6 +1,6 @@
 # MCP Server Profile
 
-> **Profile Version:** 1.4.1
+> **Profile Version:** 1.5.0
 > **Applies to:** All `mcp-*-crunchtools` projects
 
 This profile extends the [universal constitution](../constitution.md) with requirements specific to MCP (Model Context Protocol) servers in the crunchtools organization.
@@ -33,6 +33,10 @@ For any credential environment variable `FOO_TOKEN`, the server MUST also suppor
 - Pydantic models enforce strict data types with `extra="forbid"`
 - Allowlists for permitted values (states, scopes, statuses)
 - Resource identifiers validated against injection patterns
+- **Optional parameters normalize, they don't reject.** An optional value of `""` (or whitespace only), `null`, or a non-positive ID means "not given" and becomes `None`. Required parameters keep rejecting empty values. Models from the OpenAI family send every optional parameter rather than omitting it, and each rejection is a tool error an agent's client may count against the whole server (RT #1505).
+- **No free-form objects in tool schemas.** No bare `dict[str, Any]` or `list[dict]` parameters. Declare the properties in a Pydantic model with `extra="forbid"`; a model fills what the schema names, and a bare `object` produces `{}`.
+- **Every field carries a `description`.** It is the only documentation the calling model sees.
+- **Constraints live in the schema.** ID fields declare `ge=1`; length, format and range constraints are expressed as `Field(...)` constraints, not only in validator code, so the published `inputSchema` is enough for a gateway to tell a valid value from an invalid one.
 
 **Layer 3 — API Hardening:**
 - Auth via secure header (never in URL)
@@ -272,12 +276,15 @@ Every tool MUST have a corresponding mocked test. Tests use `httpx.AsyncClient` 
 
 **Tool count assertion:** `test_tool_count` MUST be updated whenever tools are added or removed. This catches accidental regressions.
 
+**Registered schema assertion:** tests MUST inspect the schema the registered tool actually publishes (e.g. `await mcp.get_tool(name)`), not only the Pydantic model, for any tool whose parameters include a nested model.
+
 ### Input Validation Tests
 
 Every Pydantic model MUST have tests covering:
 - Valid minimal input
 - Valid full input
-- Invalid/rejected inputs (empty strings, too-long values, extra fields)
+- Invalid/rejected inputs (empty required strings, too-long values, extra fields)
+- Every optional field: `""` and `null` normalize to `None` (and `0` for ID fields)
 - Injection prevention (special characters in identifiers)
 
 ### Security Tests
