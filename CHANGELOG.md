@@ -10,6 +10,11 @@ onward were ratified without a tag or a GitHub Release.
 
 ## [Unreleased]
 
+### Changed
+- This repo's required constitution check now pins `validate.yml@v1.18.0`
+  instead of calling it by local path, so a PR can't pass the validator it
+  changes (Gatehouse finding on #34).
+
 ## [1.18.0] - 2026-10-02
 
 ### Added
