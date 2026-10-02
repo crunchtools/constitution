@@ -14,4 +14,4 @@ Releases reach the fleet in one direction only: tag `vX.Y.Z`, publish the GitHub
 
 ## Self-Validation
 
-This repo validates itself through `./.github/workflows/validate.yml`, the same reusable workflow the fleet pins, called by local path so the check runs the code under review. Its `Inherits:` therefore always equals the version in `constitution.md`; a release PR bumps both.
+This repo's required check pins `validate.yml` to the last release, like every fleet repo, so a PR is never judged by the validator it changes. `ci.yml` runs the candidate validator against the fixtures and pytest. After a release, `scripts/fleet-bump.py` moves `Inherits:` and the pin here like anywhere else.

@@ -1,5 +1,6 @@
-# This repo calls its own validate.yml by local path, so a PR is judged by the
-# validator it changes. Fleet repos pin a tag instead (examples/constitution.yml).
+# Required check for this repo, pinned like every fleet repo: a PR is judged by
+# the last release's validator, never the one it changes (ci.yml tests the
+# candidate). scripts/fleet-bump.py moves this pin with Inherits.
 
 name: Constitution
 
@@ -14,4 +15,4 @@ permissions:
 jobs:
   constitution:
     name: Constitution
-    uses: ./.github/workflows/validate.yml
+    uses: crunchtools/constitution/.github/workflows/validate.yml@v1.18.0
