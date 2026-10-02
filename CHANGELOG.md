@@ -22,8 +22,8 @@ onward were ratified without a tag or a GitHub Release.
 - **Workflow-aware validation** driven by `profiles/requirements.toml`: gate
   workflows and their triggers, gatehouse pins at or above v0.15.0, Dependabot
   coverage, LICENSE, pre-commit hooks and profile files.
-- **Bootc Image, Host Config and Governance profiles**, so every repo has a
-  profile. This repo now validates itself under Governance.
+- **Bootc Image, Host Config, Governance, Package Repository and Data Archive
+  profiles**, so every repo has a profile. This repo now validates itself under Governance.
 - **Dependabot auto-merge** (`dependabot-automerge.yml`, XV) for GitHub Actions
   minor/patch updates.
 - `scripts/fleet-bump.py` (pin-bump PRs after a release) and `scripts/fleet-drift.py` with the

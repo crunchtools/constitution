@@ -666,7 +666,13 @@ and restating a fleet section locally is itself a violation (restated copies are
 what drifted)."""
 
 CONSTITUTION_DIR = Path(__file__).resolve().parent
-PROFILES_ADDED_IN_MANIFEST = {"Bootc Image", "Host Config", "Governance"}
+PROFILES_ADDED_IN_MANIFEST = {
+    "Bootc Image",
+    "Host Config",
+    "Governance",
+    "Package Repository",
+    "Data Archive",
+}
 MANIFEST_HEADER = ("Version", "Ratified", "Status")  # beside Inherits and Profile (VII)
 VALID_PROFILES |= PROFILES_ADDED_IN_MANIFEST
 

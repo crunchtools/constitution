@@ -62,3 +62,11 @@ private = true
 
 [profile."Governance"]
 files = ["pyproject.toml", "test*/**/*.py"]
+
+[profile."Package Repository"]
+files = ["*.asc"]
+
+[profile."Data Archive"]
+files = ["README.md"]
+license_agpl = false
+sections = ["Producer and Scrubbing"]
