@@ -10,6 +10,11 @@ onward were ratified without a tag or a GitHub Release.
 
 ## [Unreleased]
 
+### Fixed
+- `fleet-drift.py` reported `allow_auto_merge off` for every repo when run
+  with the workflow token, which can't see that setting on other repos. A
+  missing value is now unknown, not a violation.
+
 ### Changed
 - This repo's required constitution check now pins `validate.yml@v1.18.0`
   instead of calling it by local path, so a PR can't pass the validator it

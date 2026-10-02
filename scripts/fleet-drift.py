@@ -11,7 +11,8 @@ Out of policy:
   - no manifest constitution, or Inherits below the manifest era (v1.18.0)
   - any validator violation
   - inherits more than one minor release behind the latest
-  - allow_auto_merge off (Dependabot minor/patch bumps can't land)
+  - allow_auto_merge off (Dependabot minor/patch bumps can't land), when the
+    token can see the setting
   - Dependabot PRs open longer than --stale-days (nobody owns the bump)
 
 The org ruleset check needs a token that can read org rulesets; without one
@@ -111,7 +112,9 @@ def audit(repo: dict, validator, latest: tuple, stale_days: int) -> dict:
     with tempfile.TemporaryDirectory() as clone_root:
         audit_checkout(clone(name, Path(clone_root)), row, validator, latest)
     settings = gh_json("api", f"repos/{ORG}/{name}") or {}
-    if not settings.get("allow_auto_merge"):
+    # GitHub returns allow_auto_merge only to tokens with push access to the
+    # repo; the workflow's own token sees it as absent. Absent is unknown, not off.
+    if settings.get("allow_auto_merge") is False:
         row["problems"].append("allow_auto_merge off")
     if stale := stale_dependabot_prs(name, stale_days):
         row["problems"].append(f"{stale} Dependabot PR(s) older than {stale_days}d")
