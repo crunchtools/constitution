@@ -10,13 +10,47 @@ onward were ratified without a tag or a GitHub Release.
 
 ## [Unreleased]
 
+## [1.18.0] - 2026-10-02
+
 ### Added
+- **Manifest constitutions (VII, #22).** From v1.18.0 a repo's constitution is
+  a header plus only its repo-unique rules. A section that restates a numbered
+  section of the constitution or a declared profile fails validation.
+- **Reusable `validate.yml`.** Repos pin `crunchtools/constitution/.github/workflows/validate.yml@vX.Y.Z`.
+  The validator, profiles and requirements run from that tag, never HEAD, and
+  `--pinned` fails when `Inherits` differs from the tag.
+- **Workflow-aware validation** driven by `profiles/requirements.toml`: gate
+  workflows and their triggers, gatehouse pins at or above v0.15.0, Dependabot
+  coverage, LICENSE, pre-commit hooks and profile files.
+- **Bootc Image, Host Config and Governance profiles**, so every repo has a
+  profile. This repo now validates itself under Governance.
+- **Dependabot auto-merge** (`dependabot-automerge.yml`, XV) for GitHub Actions
+  minor/patch updates.
+- `scripts/fleet-bump.py` (pin-bump PRs after a release) and `scripts/fleet-drift.py` with the
+  `Fleet Drift` workflow (weekly drift report).
+- pytest suite for manifest validation (`tests/test_manifest.py`).
+- Tags and Releases backfilled for v1.7.0 through v1.16.0.
 - **MCP Server profile 1.5.0** — Layer 2 tool-input rules from RT #1505:
   optional parameters normalize `""`, whitespace-only, `null` and non-positive IDs to `None`
   instead of rejecting; no free-form `dict`/`list[dict]` parameters; every
   field carries a `description`; constraints (`ge=1` on IDs, length, format)
   live in the published schema. Tests cover optional-field normalization and
   assert the registered tool's schema, not just the model.
+
+### Changed
+- MCP Server 1.6.0, CLI Tool 1.2.0: the Gourmand snippet uses gatehouse's
+  reusable workflow instead of an inline job. Every profile's per-repo format
+  now describes the manifest.
+- Autonomous Agent 1.2.0, Web Application 1.1.0: the templates no longer ask
+  repos to restate the quality gates.
+- Container Image 1.3.0, Forked MCP Server 1.2.0: manifest note added.
+- This repo now runs its own Gourmand CI gate, the gourmand pre-commit hook, and
+  ruff (config in `pyproject.toml`, hook and CI step) (RT #1509).
+- `validate-constitution.py` and `validate-cascade.py` refactored to clear
+  Gourmand findings: the Container Image, Web Application and CLI Tool checks
+  are rule tables, profile dispatch is a `match`, and cascade `main()` is split
+  into phase functions. Output is unchanged, verified against every fleet
+  constitution under every profile.
 
 ### Fixed
 - **MCP Server profile 1.4.1, CLI Tool profile 1.1.1** — said `gourmand.toml`
@@ -30,15 +64,6 @@ onward were ratified without a tag or a GitHub Release.
   contradicting XII. Forks run Gourmand and Gatehouse like every repo, with
   upstream-owned paths excluded so only the crunchtools delta is gated
   (RT #1511, as done in crunchtools/mcp-atlassian#4).
-
-### Changed
-- This repo now runs its own Gourmand CI gate, the gourmand pre-commit hook, and
-  ruff (config in `pyproject.toml`, hook and CI step) (RT #1509).
-- `validate-constitution.py` and `validate-cascade.py` refactored to clear
-  Gourmand findings: the Container Image, Web Application and CLI Tool checks
-  are rule tables, profile dispatch is a `match`, and cascade `main()` is split
-  into phase functions. Output is unchanged, verified against every fleet
-  constitution under every profile.
 
 ## [1.17.0] - 2026-09-24
 

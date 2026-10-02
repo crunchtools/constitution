@@ -1,6 +1,6 @@
 # MCP Server Profile
 
-> **Profile Version:** 1.5.0
+> **Profile Version:** 1.6.0
 > **Applies to:** All `mcp-*-crunchtools` projects
 
 This profile extends the [universal constitution](../constitution.md) with requirements specific to MCP (Model Context Protocol) servers in the crunchtools organization.
@@ -302,19 +302,15 @@ All code MUST pass `gourmand check --full .` with **zero violations** before mer
 
 ### CI Execution (MANDATORY)
 
-Gourmand MUST run via the pre-built container image in CI — never installed from source:
+Gourmand MUST run through gatehouse's reusable workflow, which uses the pre-built container image — never installed from source:
 
 ```yaml
 gourmand:
   name: Code Quality (Gourmand)
-  runs-on: ubuntu-latest
-  container:
-    image: quay.io/crunchtools/gourmand:latest
-  steps:
-    - uses: actions/checkout@v4
-    - name: Run Gourmand
-      run: gourmand check --full .
+  uses: crunchtools/gatehouse/.github/workflows/gourmand.yml@v0.15.2
 ```
+
+The reusable workflow runs `quay.io/crunchtools/gourmand` in a container. An inline copy of the job is what let a dead gate spread across the fleet (RT #1468), so the validator rejects one.
 
 **Do not** use `cargo install` from Codeberg. The container provides a consistent, pre-built binary that avoids Rust toolchain installation and compilation in every CI run.
 
@@ -409,6 +405,8 @@ All MCP servers follow this pattern (replace `<name>` with the service name):
 
 ### Per-Repo Constitution Format
 
+Since constitution v1.18.0 this file is a manifest (constitution.md VII): the header plus sections for what is unique to this repo. Do not restate this profile or the fleet rules; the validator fails on a section titled like one of their numbered sections, and checks the gates, pins and files directly.
+
 Each MCP server MUST have a `.specify/memory/constitution.md` with the standard header declaring inheritance:
 
 ```markdown
@@ -417,14 +415,16 @@ Each MCP server MUST have a `.specify/memory/constitution.md` with the standard 
 > **Version:** X.Y.Z
 > **Ratified:** YYYY-MM-DD
 > **Status:** Active
-> **Inherits:** [crunchtools/constitution](https://github.com/crunchtools/constitution) v1.0.0
+> **Inherits:** [crunchtools/constitution](https://github.com/crunchtools/constitution) v1.18.0
 > **Profile:** MCP Server
 
-[Full constitution with project-specific details — credential names, port number,
- instance-specific configuration, and any project-unique requirements.]
+## <Project-specific section>
+
+[Credential names, port number, instance-specific configuration,
+ and any project-unique requirements.]
 ```
 
-Per-repo constitutions contain the **full text** of their governance — they are complete, standalone documents. The `Inherits` header declares alignment with this profile, not dependency on it at runtime.
+Before v1.18.0, per-repo constitutions restated their full governance. Those copies drifted from this profile (#22), so a manifest now carries only the project-specific facts: credential names, port, instance configuration, and project-unique requirements.
 
 ### spec-kit Framework
 

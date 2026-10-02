@@ -17,8 +17,12 @@ Exit codes:
 """
 
 import argparse
+import json
+import os
 import re
 import sys
+import tomllib
+import urllib.request
 from pathlib import Path
 
 VALID_PROFILES = {
@@ -651,21 +655,460 @@ CLI_TOOL_RULES: list[Rule] = [
 ]
 
 
+# Manifest constitutions (Inherits >= v1.18.0, issue #22)
+
+MANIFEST_SINCE = (1, 18, 0)
+"""First version where the local constitution is a manifest, not a restatement.
+
+From here on a repo is judged by what its files do, not by whether its prose
+repeats the fleet rules: the rules come from requirements.toml at the pinned tag,
+and restating a fleet section locally is itself a violation (restated copies are
+what drifted)."""
+
+CONSTITUTION_DIR = Path(__file__).resolve().parent
+PROFILES_ADDED_IN_MANIFEST = {"Bootc Image", "Host Config", "Governance"}
+VALID_PROFILES |= PROFILES_ADDED_IN_MANIFEST
+
+GATEHOUSE_REUSABLE = re.compile(
+    r"^(?:crunchtools/gatehouse|\.)/\.github/workflows/(\w[\w-]*)\.yml(?:@(\S+))?$"
+)
+CONSTITUTION_REUSABLE = re.compile(
+    r"^(?:crunchtools/constitution|\.)/\.github/workflows/(\w[\w-]*)\.yml(?:@(\S+))?$"
+)
+ROMAN_HEADING = re.compile(r"^##\s+[IVXLC]+\.\s+(.+?)\s*$", re.MULTILINE)
+LEGACY_VALIDATOR_CHECKOUT = re.compile(r"repository:\s*['\"]?crunchtools/constitution\b")
+SEMVER = re.compile(r"^v?(\d+)\.(\d+)\.(\d+)$")
+
+
+def own_version() -> str | None:
+    """The constitution version this validator ships with (constitution.md header)."""
+    source = CONSTITUTION_DIR / "constitution.md"
+    if not source.is_file():
+        return None
+    # The first header line: parse_header keeps the last, which is VII's template.
+    match = re.search(r"^>\s*\*\*Version:\*\*\s*v?(\d+\.\d+\.\d+)\s*$", source.read_text(), re.M)
+    return match.group(1) if match else None
+
+
+def load_requirements() -> dict:
+    """profiles/requirements.toml from this checkout; empty if it is not shipped."""
+    source = CONSTITUTION_DIR / "profiles" / "requirements.toml"
+    if not source.is_file():
+        return {}
+    return tomllib.loads(source.read_text())
+
+
+def declared_profiles(header: dict[str, str]) -> list[str]:
+    """`Profile:` may list several, comma-separated (VII)."""
+    return [p.strip() for p in header.get("Profile", "").split(",") if p.strip()]
+
+
+def normalize_title(title: str) -> str:
+    """Lowercase alphanumerics only, so `XII. Code Quality Gates` matches `code quality gates`."""
+    return re.sub(r"[^a-z0-9]+", " ", title.lower()).strip()
+
+
+def fleet_section_titles(profiles: list[str]) -> dict[str, str]:
+    """Numbered section titles owned by constitution.md and the declared profiles.
+
+    Maps the normalized title to where it lives. The profiles' own "Per-Repo
+    Constitution Format" section is a template for the manifest, so it and the
+    unnumbered headings inside it are not fleet-owned.
+    """
+    owned: dict[str, str] = {}
+    sources = [CONSTITUTION_DIR / "constitution.md"] + [
+        CONSTITUTION_DIR / "profiles" / f"{p.lower().replace(' ', '-')}.md" for p in profiles
+    ]
+    for source in sources:
+        if not source.is_file():
+            continue
+        for title in ROMAN_HEADING.findall(source.read_text()):
+            if normalize_title(title) != "per repo constitution format":
+                owned.setdefault(normalize_title(title), f"{source.name}: {title}")
+    return owned
+
+
+def check_manifest_text(text: str, profiles: list[str], requirements: dict) -> list[str]:
+    """The body holds repo-specific rules only; required facts are present."""
+    violations: list[str] = []
+    owned = fleet_section_titles(profiles)
+    for heading in re.findall(r"^##+\s+(.+?)\s*$", text, re.MULTILINE):
+        title = re.sub(r"^[IVXLC]+\.\s+|^\d+\.\s+", "", heading)
+        if normalize_title(title) in owned:
+            violations.append(
+                f"MANIFEST: section '{heading}' restates fleet-owned "
+                f"'{owned[normalize_title(title)]}'. Delete it, or keep only what is "
+                f"unique to this repo under a heading that says so"
+            )
+    present = {normalize_title(h) for h in re.findall(r"^##+\s+(.+?)\s*$", text, re.MULTILINE)}
+    for profile in profiles:
+        for section in requirements.get("profile", {}).get(profile, {}).get("sections", []):
+            if normalize_title(section) not in present:
+                violations.append(f"MANIFEST: {profile} requires a '## {section}' section")
+    return violations
+
+
+def load_yaml(path: Path) -> dict | None:
+    """A YAML mapping, or None when the file is not valid YAML or not a mapping."""
+    import yaml  # deferred: only manifest mode needs it
+
+    try:
+        doc = yaml.safe_load(path.read_text())
+    except yaml.YAMLError:
+        return None
+    return doc if isinstance(doc, dict) else None
+
+
+def triggers(workflow: dict) -> dict:
+    """The `on:` block as {event: config}. PyYAML reads a bare `on` key as True."""
+    events = workflow.get("on", workflow.get(True, {}))
+    if isinstance(events, str):
+        return {events: None}
+    if isinstance(events, list):
+        return dict.fromkeys(events)
+    return events if isinstance(events, dict) else {}
+
+
+def version_tuple(ref: str | None) -> tuple[int, ...] | None:
+    """`v1.2.3` or `1.2.3` as (1, 2, 3); None for a branch, sha or missing ref."""
+    match = SEMVER.match(ref or "")
+    return tuple(int(part) for part in match.groups()) if match else None
+
+
+class Workflows:
+    """The repo's parsed workflow files, and every reusable-workflow call in them."""
+
+    def __init__(self, repo_root: Path) -> None:
+        self.files: dict[str, dict] = {}
+        self.unparsable: list[str] = []
+        self.raw: dict[str, str] = {}
+        for path in workflow_files(repo_root):
+            self.raw[path.name] = path.read_text()
+            doc = load_yaml(path)
+            if doc is None:
+                self.unparsable.append(path.name)
+            else:
+                self.files[path.name] = doc
+
+    def calls(self, pattern: re.Pattern) -> list[tuple[str, dict, dict, re.Match]]:
+        """(file, workflow, job, match) for every job whose `uses:` matches."""
+        found = []
+        for name, workflow in self.files.items():
+            for job in (workflow.get("jobs") or {}).values():
+                match = pattern.match(str((job or {}).get("uses", "")))
+                if match:
+                    found.append((name, workflow, job, match))
+        return found
+
+
+def check_gate_workflows(repo_root: Path, inherits: str, requirements: dict) -> list[str]:
+    """XII and #22: the gates exist, on the right triggers, at supported pins."""
+    flows = Workflows(repo_root)
+    violations = [f"WORKFLOWS: {name} is not valid YAML" for name in flows.unparsable]
+    gatehouse = flows.calls(GATEHOUSE_REUSABLE)
+    constitution = flows.calls(CONSTITUTION_REUSABLE)
+
+    def called(calls: list, target: str, event: str, workflow_name: str | None = None) -> bool:
+        return any(
+            m.group(1) == target
+            and event in triggers(wf)
+            and (workflow_name is None or wf.get("name") == workflow_name)
+            for _, wf, _, m in calls
+        )
+
+    required = [
+        (gatehouse, "gourmand", "pull_request", None, "Code Quality (Gourmand) on pull_request"),
+        (gatehouse, "review", "pull_request_target", "Gatehouse", "Gatehouse review"),
+        (gatehouse, "triage", "pull_request_review_comment", "Gatehouse", "Gatehouse triage"),
+        (gatehouse, "retriage", "workflow_run", None, "Gatehouse retriage on workflow_run"),
+        (constitution, "validate", "pull_request", None, "Constitution validation on pull_request"),
+        (constitution, "dependabot-automerge", "pull_request", None, "Dependabot auto-merge"),
+    ]
+    for calls, target, event, workflow_name, label in required:
+        if not called(calls, target, event, workflow_name):
+            where = f" in the workflow named '{workflow_name}'" if workflow_name else ""
+            violations.append(
+                f"WORKFLOWS: no job calls {target}.yml on `{event}`{where} ({label}); "
+                f"copy it from the examples"
+            )
+
+    gatehouse_workflow = [wf for wf in flows.files.values() if wf.get("name") == "Gatehouse"]
+    if not any(
+        (job or {}).get("name") == "Protect workflows" and "steps" in (job or {})
+        for wf in gatehouse_workflow
+        for job in (wf.get("jobs") or {}).values()
+    ):
+        violations.append("WORKFLOWS: the Gatehouse workflow has no `Protect workflows` guard job")
+
+    floor = version_tuple(requirements.get("fleet", {}).get("gatehouse_min"))
+    for name, _, _, match in gatehouse:
+        ref = match.group(2)
+        if ref is None:  # a local ./ call, gatehouse calling itself
+            continue
+        pinned = version_tuple(ref)
+        if pinned is None:
+            violations.append(
+                f"WORKFLOWS: {name} pins gatehouse {match.group(1)}.yml@{ref}, not a release tag"
+            )
+        elif floor and pinned < floor:
+            violations.append(
+                f"WORKFLOWS: {name} pins gatehouse {match.group(1)}.yml@{ref}, below the "
+                f"supported v{'.'.join(map(str, floor))}"
+            )
+
+    for name, _, _, match in constitution:
+        ref = match.group(2)
+        if (
+            match.group(1) == "validate"
+            and ref is not None
+            and version_tuple(ref) != version_tuple(inherits)
+        ):
+            violations.append(
+                f"WORKFLOWS: {name} runs validate.yml@{ref} but the manifest inherits v{inherits}; "
+                f"the pin and Inherits move together"
+            )
+
+    for name, raw in flows.raw.items():
+        # validate.yml itself checks the constitution out, at its own pinned sha.
+        is_definition = "workflow_call" in triggers(flows.files.get(name, {}))
+        if LEGACY_VALIDATOR_CHECKOUT.search(strip_yaml_comments(raw)) and not is_definition:
+            violations.append(
+                f"WORKFLOWS: {name} checks out crunchtools/constitution at HEAD; "
+                f"replace that job with validate.yml pinned to the inherited tag"
+            )
+    return violations
+
+
+def check_repo_files(repo_root: Path, profiles: list[str], requirements: dict) -> list[str]:
+    """Files the fleet and each declared profile require, read from disk.
+
+    Checks the `files` globs, the AGPL LICENSE unless a profile turns it off,
+    Dependabot ecosystem coverage and its constitution ignore, and a profile's
+    required Containerfile base. Returns one FILES: violation per gap.
+    """
+    fleet = requirements.get("fleet", {})
+    rules = [requirements.get("profile", {}).get(p, {}) for p in profiles]
+    violations: list[str] = []
+
+    for pattern in fleet.get("files", []) + [f for r in rules for f in r.get("files", [])]:
+        if not any(repo_root.glob(pattern)):
+            violations.append(f"FILES: nothing matches `{pattern}`")
+
+    if all(r.get("license_agpl", fleet.get("license_agpl", True)) for r in rules):
+        licenses = [
+            p for p in repo_root.iterdir() if p.name.upper().startswith(("LICENSE", "COPYING"))
+        ]
+        if not any(
+            "GNU AFFERO GENERAL PUBLIC LICENSE" in p.read_text(errors="ignore")[:500]
+            for p in licenses
+        ):
+            violations.append("FILES: no AGPL-3.0 LICENSE file in the repo root (I)")
+
+    dependabot = repo_root / ".github" / "dependabot.yml"
+    doc = load_yaml(dependabot) if dependabot.is_file() else None
+    covered = {
+        u.get("package-ecosystem") for u in (doc or {}).get("updates", []) if isinstance(u, dict)
+    }
+    for ecosystem in fleet.get("dependabot", []) + [
+        e for r in rules for e in r.get("dependabot", [])
+    ]:
+        if ecosystem not in covered:
+            violations.append(f"FILES: .github/dependabot.yml does not cover `{ecosystem}` (XV)")
+    ignored = {
+        i.get("dependency-name", "")
+        for u in (doc or {}).get("updates", [])
+        if isinstance(u, dict) and u.get("package-ecosystem") == "github-actions"
+        for i in u.get("ignore", []) or []
+    }
+    if "github-actions" in covered and not any(
+        i.startswith("crunchtools/constitution") for i in ignored
+    ):
+        violations.append(
+            "FILES: dependabot.yml must ignore crunchtools/constitution; its pin moves "
+            "with Inherits through scripts/fleet-bump.py, never alone"
+        )
+
+    for r in rules:
+        if r.get("containerfile_from"):
+            froms = [
+                line
+                for path in repo_root.glob("Containerfile*")
+                for line in path.read_text().splitlines()
+                if line.upper().startswith("FROM ")
+            ]
+            if not any(re.search(r["containerfile_from"], line) for line in froms):
+                violations.append(
+                    f"FILES: no Containerfile FROM matches `{r['containerfile_from']}`"
+                )
+    return violations
+
+
+def github_api(path: str) -> dict | None:
+    """GET api.github.com/<path> with $GH_TOKEN if set. None when unreachable."""
+    request = urllib.request.Request(f"https://api.github.com/{path}")
+    token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
+    if token:
+        request.add_header("Authorization", f"Bearer {token}")
+    try:
+        with urllib.request.urlopen(request, timeout=10) as response:
+            return json.load(response)
+    except (OSError, ValueError) as error:
+        # Callers degrade (no freshness warning, unconfirmed visibility); say why.
+        print(f"note: GitHub API {path}: {error}", file=sys.stderr)
+        return None
+
+
+def check_visibility(profiles: list[str], requirements: dict, slug: str | None) -> list[str]:
+    """Host Config carries real secrets, so a public repo is a hard failure."""
+    if not any(requirements.get("profile", {}).get(p, {}).get("private") for p in profiles):
+        return []
+    slug = slug or os.environ.get("GITHUB_REPOSITORY")
+    repo = github_api(f"repos/{slug}") if slug else None
+    if repo is None:
+        return ["VISIBILITY: could not confirm the repo is private (needs its slug and GH_TOKEN)"]
+    return [] if repo.get("private") else ["VISIBILITY: Host Config repos MUST be private"]
+
+
+def check_pin(inherits: str, pinned: bool) -> list[str]:
+    """The declared version and the validator judging it are the same release."""
+    mine = own_version()
+    if mine is None:
+        return []
+    if version_tuple(inherits) > version_tuple(mine):
+        return [f"PIN: manifest inherits v{inherits}, newer than this validator (v{mine})"]
+    if pinned and inherits != mine:
+        return [
+            f"PIN: manifest inherits v{inherits} but CI validated with v{mine}; "
+            f"bump Inherits and the validate.yml pin together"
+        ]
+    return []
+
+
+def freshness_warning(inherits: str) -> str | None:
+    """Warn, never fail, when the pin is more than one minor release behind."""
+    latest = version_tuple(
+        (github_api("repos/crunchtools/constitution/releases/latest") or {}).get("tag_name")
+    )
+    pinned = version_tuple(inherits)
+    if latest and pinned and (latest[0] > pinned[0] or latest[1] - pinned[1] > 1):
+        return (
+            f"constitution v{'.'.join(map(str, latest))} is out; this repo inherits v{inherits}. "
+            f"Run scripts/fleet-bump.py or bump Inherits and the validate.yml pin"
+        )
+    return None
+
+
+def is_repo_checkout(repo_root: Path | None) -> bool:
+    """False for the factory watchdog's tempfile path, where file checks would misfire."""
+    return repo_root is not None and (
+        (repo_root / ".git").exists() or (repo_root / ".specify").is_dir()
+    )
+
+
+def validate_manifest(
+    text: str, header: dict[str, str], repo_root: Path | None, pinned: bool, slug: str | None
+) -> list[str]:
+    """All manifest-era checks. File and workflow checks need a real checkout."""
+    inherits = extract_inherits_version(header) or ""
+    profiles = declared_profiles(header)
+    requirements = load_requirements()
+    violations = [
+        f"UNIVERSAL: Unknown profile '{p}'. Valid profiles: {', '.join(sorted(VALID_PROFILES))}"
+        for p in profiles
+        if p not in VALID_PROFILES
+    ]
+    if not profiles:
+        violations.append("UNIVERSAL: Missing 'Profile:' header")
+    violations += check_pin(inherits, pinned)
+    violations += check_manifest_text(text, profiles, requirements)
+    if is_repo_checkout(repo_root):
+        violations += check_changelog(repo_root)
+        violations += check_quality_gate_wiring(repo_root, inherits)
+        violations += check_gourmand_ci_gate(repo_root)
+        violations += check_gate_workflows(repo_root, inherits, requirements)
+        violations += check_repo_files(repo_root, profiles, requirements)
+        violations += check_visibility(profiles, requirements, slug)
+    return violations
+
+
+def prose_only_rules() -> list[str]:
+    """Numbered fleet sections with no machine check behind them, for the report."""
+    checked = {
+        "license",
+        "semantic versioning",
+        "subsystem declaration",
+        "code quality gates",
+        "dependency lockfiles",
+    }
+    return sorted(
+        title
+        for title in fleet_section_titles([]).values()
+        if title.startswith("constitution.md")
+        and normalize_title(title.split(": ", 1)[1]) not in checked
+    )
+
+
 # Main validator
+
+
+def legacy_profile_checks(
+    profile: str | None, text: str, repo_root: Path | None, skill_dir: Path | None
+) -> list[str]:
+    """Pre-manifest profile checks: the restated prose must carry the fleet rules."""
+    gate = check_gourmand_ci_gate(repo_root) if repo_root is not None else []
+    checks = {
+        "MCP Server": lambda: check_mcp_server(text) + gate,
+        "Container Image": lambda: failed_rules(text, CONTAINER_IMAGE_RULES),
+        "Claude Skill": lambda: check_claude_skill(text, skill_dir),
+        "Autonomous Agent": lambda: check_autonomous_agent(text),
+        "Forked MCP Server": lambda: check_forked_mcp_server(text),
+        "Web Application": lambda: failed_rules(text, WEB_APPLICATION_RULES),
+        "CLI Tool": lambda: failed_rules(text, CLI_TOOL_RULES) + gate,
+    }
+    if profile in PROFILES_ADDED_IN_MANIFEST:
+        return [f"UNIVERSAL: the {profile} profile requires Inherits v1.18.0 or later"]
+    # An unknown profile was already flagged by check_universal.
+    return checks[profile]() if profile in checks else []
 
 
 def validate(
     constitution_path: Path,
     profile_override: str | None = None,
     skill_dir: Path | None = None,
-    verbose: bool = False,
+    *,
+    pinned: bool = False,
+    repo_slug: str | None = None,
 ) -> list[str]:
-    """Validate a per-repo constitution. Returns list of violations."""
+    """Validate a per-repo constitution.
+
+    Returns one human-readable message per violation, prefixed with the rule
+    family (UNIVERSAL, MANIFEST, WORKFLOWS, FILES, PIN, XII, ...); an empty list
+    means the repo passes.
+
+    constitution_path: the repo's .specify/memory/constitution.md. Its repo root
+    (two levels up) is where file and workflow checks look; a path outside a
+    checkout gets the text checks only.
+
+    profile_override: judge the file as this profile instead of its header's.
+
+    skill_dir: a Claude Skill directory whose SKILL.md the pre-manifest Claude
+    Skill checks inspect.
+
+    pinned: CI mode, set by validate.yml. A manifest repo fails unless its
+    `Inherits` equals this validator's own version, because CI runs the
+    validator from the tag the repo pins. Leave it off when validating from
+    another checkout (pre-commit, fleet-drift.py).
+
+    repo_slug (owner/name) is only needed for API checks when validating a repo
+    other than the one $GITHUB_REPOSITORY names, as fleet-drift.py does.
+    """
     if not constitution_path.exists():
         return [f"File not found: {constitution_path}"]
 
     text = constitution_path.read_text()
     header = parse_header(text)
+    if profile_override:
+        header["Profile"] = profile_override
 
     # Convention: constitution.md lives at <repo_root>/.specify/memory/constitution.md
     try:
@@ -673,43 +1116,16 @@ def validate(
     except IndexError:
         repo_root = None
 
-    all_violations: list[str] = []
+    inherits = extract_inherits_version(header)
+    if inherits and _version_tuple(inherits) >= MANIFEST_SINCE:
+        return validate_manifest(text, header, repo_root, pinned, repo_slug)
 
-    all_violations.extend(check_universal(text, header))
-    all_violations.extend(check_changelog(repo_root))
-    all_violations.extend(check_quality_gate_wiring(repo_root, extract_inherits_version(header)))
-
-    profile = profile_override or extract_profile(header)
-
-    if verbose:
-        print(f"  File: {constitution_path}")
-        print(f"  Profile: {profile or '(not declared)'}")
-        inherits_ver = extract_inherits_version(header)
-        print(f"  Inherits: v{inherits_ver}" if inherits_ver else "  Inherits: (none)")
-        print()
-
-    # An unknown profile was already flagged by check_universal.
-    match profile:
-        case "MCP Server":
-            all_violations.extend(check_mcp_server(text))
-            if repo_root is not None:
-                all_violations.extend(check_gourmand_ci_gate(repo_root))
-        case "Container Image":
-            all_violations.extend(failed_rules(text, CONTAINER_IMAGE_RULES))
-        case "Claude Skill":
-            all_violations.extend(check_claude_skill(text, skill_dir))
-        case "Autonomous Agent":
-            all_violations.extend(check_autonomous_agent(text))
-        case "Forked MCP Server":
-            all_violations.extend(check_forked_mcp_server(text))
-        case "Web Application":
-            all_violations.extend(failed_rules(text, WEB_APPLICATION_RULES))
-        case "CLI Tool":
-            all_violations.extend(failed_rules(text, CLI_TOOL_RULES))
-            if repo_root is not None:
-                all_violations.extend(check_gourmand_ci_gate(repo_root))
-
-    return all_violations
+    return (
+        check_universal(text, header)
+        + check_changelog(repo_root)
+        + check_quality_gate_wiring(repo_root, inherits)
+        + legacy_profile_checks(extract_profile(header), text, repo_root, skill_dir)
+    )
 
 
 def main() -> int:
@@ -734,22 +1150,43 @@ def main() -> int:
         action="store_true",
         help="Show detailed validation info",
     )
+    parser.add_argument(
+        "--pinned",
+        action="store_true",
+        help="CI mode (validate.yml): Inherits must equal this validator's version",
+    )
+    parser.add_argument(
+        "--freshness",
+        action="store_true",
+        help="Warn when the inherited version is more than one minor release behind",
+    )
     args = parser.parse_args()
 
     if not args.constitution.exists():
         print(f"ERROR: File not found: {args.constitution}", file=sys.stderr)
         return 2
 
+    header = parse_header(args.constitution.read_text())
+    inherits = extract_inherits_version(header)
     if args.verbose:
-        print(f"Validating: {args.constitution}")
+        print(f"Validating: {args.constitution} (validator v{own_version() or '?'})")
+        print(f"  Profile: {args.profile or extract_profile(header) or '(not declared)'}")
+        print(f"  Inherits: v{inherits}" if inherits else "  Inherits: (none)")
         print()
 
     violations = validate(
         args.constitution,
         profile_override=args.profile,
         skill_dir=args.skill_dir,
-        verbose=args.verbose,
+        pinned=args.pinned,
     )
+
+    if args.freshness and inherits and (warning := freshness_warning(inherits)):
+        print(f"WARNING — {warning}")
+        if os.environ.get("GITHUB_ACTIONS"):
+            print(f"::warning title=Constitution pin is stale::{warning}")
+    if args.verbose and inherits and _version_tuple(inherits) >= MANIFEST_SINCE:
+        print("Prose-only (not machine-checked): " + "; ".join(prose_only_rules()))
 
     if violations:
         print(f"FAIL — {len(violations)} violation(s):")

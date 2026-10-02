@@ -1,0 +1,48 @@
+# Reusable constitution validation (issue #22).
+#
+# Callers pin this file to a release tag:
+#
+#   uses: crunchtools/constitution/.github/workflows/validate.yml@v1.18.0
+#
+# That tag IS the version the repo is judged by: the validator, profiles and
+# requirements.toml are checked out at the same commit as this file
+# (github.job_workflow_sha), never at HEAD. --pinned fails the run when the
+# manifest's Inherits disagrees with the tag. Copy examples/constitution.yml.
+
+name: Constitution
+
+on:
+  workflow_call:
+    inputs:
+      constitution:
+        description: Path to the repo's manifest constitution
+        type: string
+        default: .specify/memory/constitution.md
+
+permissions: {}
+
+jobs:
+  validate:
+    name: Validate constitution
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v7
+        with:
+          repository: crunchtools/constitution
+          ref: ${{ github.job_workflow_sha }}
+          path: .constitution
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: pip install --quiet pyyaml==6.0.3
+      - name: Validate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MANIFEST: ${{ inputs.constitution }}
+        run: python .constitution/validate-constitution.py "$MANIFEST" --pinned --freshness --verbose

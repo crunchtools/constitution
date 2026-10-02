@@ -53,35 +53,37 @@ python validate-constitution.py path/to/constitution.md --profile "MCP Server"
 python validate-constitution.py path/to/constitution.md --verbose
 ```
 
-**Universal checks** (all profiles):
-- `Inherits:` header with valid semver version
-- `Profile:` header with known profile name
-- AGPL-3.0 license reference
-- Semantic versioning section
+**Manifest repos** (`Inherits` v1.18.0 or later) are judged by their files, not their prose. The validator checks:
+- the header: `Inherits`, and `Profile` (comma-separated for several)
+- no section restating a numbered section of the constitution or a declared profile
+- the gates, on the right triggers: Gourmand, the `Gatehouse` workflow (guard, review, triage), retriage, constitution validation and Dependabot auto-merge
+- pins: gatehouse at or above the supported release, and validate.yml at the inherited tag
+- files: CHANGELOG, LICENSE (AGPL-3.0 unless the profile says otherwise), both pre-commit hooks, Dependabot coverage, and each profile's files, per [`profiles/requirements.toml`](profiles/requirements.toml)
 
-**MCP Server checks**: 8 top-level sections, 5 security layers, quality gates, naming convention, required keywords (SecretStr, Pydantic, gourmand, etc.)
+Repos still inheriting an older version get the pre-manifest prose checks.
 
-**Container Image checks**: Base image declared, registry declared, Containerfile conventions, testing standards
-
-**Claude Skill checks**: SKILL.md frontmatter validation, phased workflow structure, no hardcoded credentials
+`--pinned` (CI) fails when `Inherits` differs from the validator's own version. `--freshness` warns when the pin is more than one minor release behind.
 
 Exit code `0` = pass, `1` = violations found, `2` = usage error.
 
 ## Adding to CI
 
-Add a constitution validation job to any repo's CI:
+Copy these into the repo (see constitution.md VII, XII and XV):
 
-```yaml
-validate-constitution:
-  runs-on: ubuntu-latest
-  steps:
-    - uses: actions/checkout@v4
-    - uses: actions/checkout@v4
-      with:
-        repository: crunchtools/constitution
-        path: .constitution
-    - run: python .constitution/validate-constitution.py .specify/memory/constitution.md --verbose
-```
+| Example | Destination |
+|---|---|
+| [`examples/constitution.yml`](examples/constitution.yml) | `.github/workflows/constitution.yml`: validation at the pinned tag |
+| [`examples/dependabot-automerge.yml`](examples/dependabot-automerge.yml) | `.github/workflows/dependabot-automerge.yml` |
+| [`examples/dependabot.yml`](examples/dependabot.yml) or [`dependabot-uv.yml`](examples/dependabot-uv.yml) | `.github/dependabot.yml` |
+| gatehouse [`examples/`](https://github.com/crunchtools/gatehouse/tree/master/examples) | `gatehouse.yml`, `gatehouse-retriage.yml`, `gourmand.yml`, pre-commit hooks |
+
+Then turn on `allow_auto_merge` for the repo.
+
+## Fleet tools
+
+- `scripts/fleet-drift.py` audits every non-archived repo in the org and exits `1` if any is out of policy. It runs as the `Fleet Drift` workflow, triggered weekly by Hermes.
+- `scripts/fleet-bump.py` runs after a release is tagged. It opens a PR in each manifest repo that moves `Inherits` and the validate.yml pin together, and queues it for auto-merge.
+- `validate-cascade.py` checks that image rebuilds cascade along the `FROM` graph.
 
 ## License
 

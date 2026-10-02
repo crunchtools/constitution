@@ -1,0 +1,17 @@
+# This repo calls its own validate.yml by local path, so a PR is judged by the
+# validator it changes. Fleet repos pin a tag instead (examples/constitution.yml).
+
+name: Constitution
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  constitution:
+    name: Constitution
+    uses: ./.github/workflows/validate.yml

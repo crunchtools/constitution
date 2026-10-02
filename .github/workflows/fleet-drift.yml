@@ -1,0 +1,36 @@
+name: Fleet Drift
+
+# Weekly fleet drift report (issue #22). A red run means at least one repo is
+# out of policy; the job summary has the table. Triggered weekly by Hermes via
+# workflow_dispatch, like validate-cascade. Deliberately no schedule: trigger.
+
+on:
+  workflow_dispatch:
+    inputs:
+      only:
+        description: "Comma-separated repo names (default: whole fleet)"
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  drift:
+    name: Fleet drift
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: pip install --quiet pyyaml==6.0.3
+      # The read-only workflow token, never an org secret: workflow_dispatch can
+      # run this file from any branch, so a secret here is a secret any branch
+      # can read. It sees public repos only; private ones validate themselves.
+      - name: Report
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ONLY: ${{ inputs.only }}
+        run: python scripts/fleet-drift.py ${ONLY:+--only "$ONLY"}

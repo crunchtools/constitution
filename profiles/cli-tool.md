@@ -1,6 +1,6 @@
 # CLI Tool Profile
 
-> **Profile Version:** 1.1.1
+> **Profile Version:** 1.2.0
 > **Applies to:** Standalone Python CLI tools distributed via PyPI and containers (gatehouse, etc.)
 
 This profile extends the [universal constitution](../constitution.md) with requirements specific to standalone command-line tools in the crunchtools organization. CLI tools differ from MCP servers in that they have no transport layer, no tool registration, and no MCP framework dependency. They differ from web applications in that they are stateless, run-to-completion processes invoked by developers.
@@ -155,19 +155,15 @@ All code MUST pass `gourmand check --full .` with **zero violations** before mer
 
 ### CI Execution (MANDATORY)
 
-Gourmand MUST run via the pre-built container image in CI:
+Gourmand MUST run through gatehouse's reusable workflow, which uses the pre-built container image:
 
 ```yaml
 gourmand:
   name: Code Quality (Gourmand)
-  runs-on: ubuntu-latest
-  container:
-    image: quay.io/crunchtools/gourmand:latest
-  steps:
-    - uses: actions/checkout@v4
-    - name: Run Gourmand
-      run: gourmand check --full .
+  uses: crunchtools/gatehouse/.github/workflows/gourmand.yml@v0.15.2
 ```
+
+The reusable workflow runs `quay.io/crunchtools/gourmand` in a container. An inline copy of the job is what let a dead gate spread across the fleet (RT #1468), so the validator rejects one.
 
 ### Configuration Files
 
@@ -247,6 +243,8 @@ CLI tools use **short, memorable names** — not the `mcp-<name>-crunchtools` pa
 ---
 
 ## X. Per-Repo Constitution Format
+
+Since constitution v1.18.0 this file is a manifest (constitution.md VII): the header plus sections for what is unique to this repo. Do not restate this profile or the fleet rules; the validator fails on a section titled like one of their numbered sections, and checks the gates, pins and files directly.
 
 Each CLI tool MUST have a constitution at `.specify/memory/constitution.md`:
 

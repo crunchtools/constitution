@@ -1,7 +1,7 @@
 # CrunchTools Constitution
 
-> **Version:** 1.17.0
-> **Ratified:** 2026-09-24
+> **Version:** 1.18.0
+> **Ratified:** 2026-10-02
 > **Status:** Active
 
 This constitution establishes the universal principles that govern all software projects in the [crunchtools](https://github.com/crunchtools) organization. Every repo inherits these rules. Subsystem-specific requirements are defined in profiles.
@@ -168,7 +168,7 @@ At minimum, every project must have CI that runs on pull requests and prevents m
 
 ## VII. Subsystem Declaration
 
-Every repository MUST declare which profile(s) it follows in its per-repo constitution header:
+Every repository MUST carry a manifest constitution at `.specify/memory/constitution.md`. It declares which profile(s) the repo follows and which constitution release it is judged by, then holds only the rules that are unique to that repo:
 
 ```markdown
 # <project-name> Constitution
@@ -177,19 +177,34 @@ Every repository MUST declare which profile(s) it follows in its per-repo consti
 > **Ratified:** YYYY-MM-DD
 > **Status:** Active
 > **Inherits:** [crunchtools/constitution](https://github.com/crunchtools/constitution) vX.Y.Z
-> **Profile:** <Profile Name>
+> **Profile:** <Profile Name>[, <Profile Name>]
+
+## <What is unique to this repo>
+
+[Invariants, external contracts, and decisions no other repo shares.]
 ```
 
 Valid profiles:
 - **MCP Server** — see `profiles/mcp-server.md`
 - **Container Image** — see `profiles/container-image.md`
+- **Bootc Image** — see `profiles/bootc-image.md`
 - **Claude Skill** — see `profiles/claude-skill.md`
 - **Autonomous Agent** — see `profiles/autonomous-agent.md`
 - **Forked MCP Server** — see `profiles/forked-mcp-server.md`
 - **Web Application** — see `profiles/web-application.md`
 - **CLI Tool** — see `profiles/cli-tool.md`
+- **Host Config** — see `profiles/host-config.md`
+- **Governance** — see `profiles/governance.md`
 
-A project MAY declare multiple profiles if it spans subsystems.
+Every repo in the organization has a profile. There are no exemptions: a repo that fits none gets a new profile. A project MAY declare multiple profiles if it spans subsystems.
+
+**Rules (since 1.18.0):**
+- **Reference, don't restate.** The manifest MUST NOT carry a section whose title is a numbered section of this constitution or of a declared profile. Restated copies are what drifted (#22): commands, job names and pins changed upstream while dozens of copies kept the old ones. The validator fails on a restated section.
+- **The pin is the version.** `.github/workflows/constitution.yml` (copy [`examples/constitution.yml`](examples/constitution.yml)) calls `crunchtools/constitution/.github/workflows/validate.yml@vX.Y.Z`. That workflow runs the validator, profiles and [`profiles/requirements.toml`](profiles/requirements.toml) from the same tag, never HEAD, and fails when `Inherits` differs from the tag. `Inherits` and the pin move together in one PR, opened by `scripts/fleet-bump.py` after each release.
+- **The repo is judged by its files, not its prose.** From 1.18.0 the validator checks the real workflows, `.pre-commit-config.yaml`, `dependabot.yml`, LICENSE and profile files against `requirements.toml`. Rules that cannot be checked mechanically are listed as prose-only in the validator's verbose output.
+- **Drift is reported.** `scripts/fleet-drift.py` (workflow `Fleet Drift`, triggered weekly by Hermes) audits every repo and goes red when one is out of policy: pre-manifest, failing validation, more than one minor release behind, auto-merge off, or Dependabot PRs older than 14 days.
+
+Repos inheriting a version before 1.18.0 are validated by the older rules until they adopt the manifest.
 
 ---
 
@@ -199,7 +214,8 @@ A project MAY declare multiple profiles if it spans subsystems.
 2. Document rationale in the PR description.
 3. Require maintainer approval.
 4. Bump the constitution version upon merge (semver rules apply).
-5. Per-repo constitutions that reference a specific version of this constitution MAY update their `Inherits` version at their own pace.
+5. Tag the release (`vX.Y.Z`) and publish a GitHub Release. Every version is tagged; a version that cannot be pinned cannot be enforced.
+6. Run `scripts/fleet-bump.py` to open the `Inherits` + pin PR in every manifest repo. A bump auto-merges when the repo passes the new release; otherwise it waits for a fix in that repo.
 
 ---
 
@@ -299,6 +315,11 @@ Canonical drop-in workflow files are maintained in [`crunchtools/gatehouse/examp
 | [`gourmand.yml`](https://github.com/crunchtools/gatehouse/blob/master/examples/gourmand.yml) | Gourmand CI job — add to your test/CI workflow |
 | [`gatehouse.yml`](https://github.com/crunchtools/gatehouse/blob/master/examples/gatehouse.yml) | Gatehouse review + triage workflow — add as `.github/workflows/gatehouse.yml` |
 | [`pre-commit.yaml`](https://github.com/crunchtools/gatehouse/blob/master/examples/pre-commit.yaml) | Gourmand and Gatehouse pre-commit hooks — merge into `.pre-commit-config.yaml` |
+| [`gatehouse-retriage.yml`](https://github.com/crunchtools/gatehouse/blob/master/examples/gatehouse-retriage.yml) | Re-runs triage when a finding gets a reply — add as `.github/workflows/gatehouse-retriage.yml` |
+
+These files are the fleet-owned wiring: copy them unchanged apart from the pins, which Dependabot keeps current. A single bundled reusable workflow was considered and rejected (#22): the gates need different triggers (`pull_request` for Gourmand, `pull_request_target` for review and triage, `workflow_run` for retriage), and nesting renames the check names that branch rules and retriage look up.
+
+Required checks, set once in the organization ruleset: `Protect workflows`, `Gatehouse triage / Gatehouse triage`, `Code Quality (Gourmand) / Code Quality (Gourmand)` and `Constitution / Validate constitution`.
 
 ### Pre-commit hooks
 
@@ -449,11 +470,18 @@ and the build broke with zero code changes to point at.
    scan cadence). Grouping minor/patch updates to reduce PR noise is
    fine; silently disabling or ignoring an ecosystem is not.
 
-A canonical `dependabot.yml` covering the `uv` and `github-actions`
-ecosystems is maintained at
-[`examples/dependabot-uv.yml`](examples/dependabot-uv.yml) in this repo.
-Other ecosystems follow the same shape — add one `package-ecosystem`
-block per manifest/lockfile present in the repo.
+4. **GitHub Actions minor and patch updates merge themselves.** Every repo
+   runs [`examples/dependabot-automerge.yml`](examples/dependabot-automerge.yml)
+   and has `allow_auto_merge` on: a green minor/patch github-actions bump is
+   queued and lands when the required checks pass. Majors and other
+   ecosystems wait for a human. Dependabot PRs left open more than 14 days
+   show up in the drift report.
+
+Canonical files: [`examples/dependabot.yml`](examples/dependabot.yml)
+(github-actions only) and [`examples/dependabot-uv.yml`](examples/dependabot-uv.yml)
+(uv and github-actions). Both ignore `crunchtools/constitution`, whose pin
+moves with `Inherits` (VII). Other ecosystems follow the same shape — add one
+`package-ecosystem` block per manifest/lockfile present in the repo.
 
 ---
 
@@ -648,3 +676,4 @@ a public repository. Keep it host-side (for example
 | 1.15.0 | 2026-09-19 | Scoped the Section II GitHub Release requirement to distribution-bearing repos — those whose CI publishes an artifact on a `release` event. Repos whose tags are deploy markers (continuously deployed web apps, skill repos) are exempt and keep only the `CHANGELOG.md` requirement; the clause applies to tags created on or after ratification, because a release against an old tag re-triggers distribution from that tag and ships stale code. Also requires the release's tag name to carry the `v`. Prompted by RT #1485 auditing 178 tags with no release and finding 166 of them to be deploy markers, 2 to be genuinely undistributed code, and 1 to be a malformed tag name |
 | 1.16.0 | 2026-09-22 | Extended XVII (retitled Secrets, PII and Real-World Names in Public Repositories) — public repos MUST NOT carry names of real people other than the maintainer identity, PII of anyone, private deployment names or the topology connecting them, or employer/third-party confidential information (including a real organization used as the illustrative secret); adds a fictional roster for examples and tests (Alice/Bob/Carol, RFC 2606 domains, Example Corp, RFC 5737 IPs, 555-01xx, agent1/agent2/agent3) and requires captured test data be rewritten to it; the private-terms scan list is itself private and stays host-side. Prompted by RT #1504 finding real agent names, fleet topology and personal addresses in the public mcp-trentina repo |
 | 1.17.0 | 2026-09-24 | Strengthened XII: Gourmand and Gatehouse MUST also run as pre-commit hooks from their container images (Gatehouse over the staged diff, blocking on critical/high), and every Gatehouse finding MUST be answered in its thread before merge, enforced by the deterministic `Gatehouse triage` job, which SHOULD be a required check while the review stays advisory. The validator enforces both for repos inheriting v1.17.0 or later. Prompted by a PR merged five minutes after 40 unanswered findings |
+| 1.18.0 | 2026-10-02 | Manifest constitutions (#22): the per-repo file declares profile and pinned version and holds only repo-unique rules, and restating a fleet section fails validation. Validation runs from the reusable `validate.yml` at the pinned tag (never HEAD) and checks the repo's real workflows, hooks, Dependabot config, LICENSE and profile files against `profiles/requirements.toml`. Every release is tagged (v1.7.0–v1.16.0 backfilled). Adds Bootc Image, Host Config and Governance profiles so no repo is exempt, Dependabot auto-merge for GitHub Actions minor/patch (XV), `scripts/fleet-bump.py` for pin bumps and the weekly `scripts/fleet-drift.py` report. Prompted by a 2026-09-23 survey that found 33 of 51 repos declaring v1.0.0 while all were validated at HEAD |

@@ -1,0 +1,39 @@
+# Reusable Dependabot auto-merge (issue #22, approved 2026-09-23).
+#
+# Queues GitHub Actions minor and patch updates for auto-merge. The merge
+# happens only once every required check is green, so this never bypasses a
+# gate. Majors, and every other ecosystem, wait for a human.
+# Requires `allow_auto_merge` on the repo. Copy examples/dependabot-automerge.yml.
+
+name: Dependabot auto-merge
+
+on:
+  workflow_call:
+
+permissions: {}
+
+jobs:
+  automerge:
+    name: Dependabot auto-merge
+    if: github.event.pull_request.user.login == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - id: meta
+        uses: dependabot/fetch-metadata@v3
+      - name: Queue minor/patch github-actions updates
+        if: >-
+          steps.meta.outputs.package-ecosystem == 'github_actions' &&
+          steps.meta.outputs.update-type != 'version-update:semver-major'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.html_url }}
+        run: |
+          set -euo pipefail
+          # Repos allow different merge methods; take the first one enabled.
+          for method in squash merge rebase; do
+            if gh pr merge --auto "--$method" "$PR"; then exit 0; fi
+          done
+          exit 1

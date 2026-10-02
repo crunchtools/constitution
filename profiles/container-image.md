@@ -1,6 +1,6 @@
 # Container Image Profile
 
-> **Profile Version:** 1.2.0
+> **Profile Version:** 1.3.0
 > **Applies to:** All `ubi10-*` and standalone container image projects
 
 This profile extends the [universal constitution](../constitution.md) with requirements specific to **UBI-based** container image projects in the crunchtools organization.
@@ -207,6 +207,8 @@ The workflow builds the Containerfile, tags with `latest` and commit SHA, and pu
 
 ## X. Per-Repo Constitution Format
 
+Since constitution v1.18.0 this file is a manifest (constitution.md VII): the header plus sections for what is unique to this repo. Do not restate this profile or the fleet rules; the validator fails on a section titled like one of their numbered sections, and checks the gates, pins and files directly.
+
 Container image repos have a lighter constitution:
 
 ```markdown
@@ -215,7 +217,7 @@ Container image repos have a lighter constitution:
 > **Version:** 1.0.0
 > **Ratified:** YYYY-MM-DD
 > **Status:** Active
-> **Inherits:** [crunchtools/constitution](https://github.com/crunchtools/constitution) v1.0.0
+> **Inherits:** [crunchtools/constitution](https://github.com/crunchtools/constitution) v1.18.0
 > **Profile:** Container Image
 
 [Container-specific governance — what the image provides, base image choice,

@@ -41,3 +41,21 @@ check = "EV013-hidden_env_config"
 path = "validate-cascade.py"
 justification = "GH_TOKEN (falling back to GITHUB_TOKEN) is the GitHub API credential, not a behavior toggle. It is required, documented in the module docstring ('Reads GH_TOKEN from the environment'), exits 2 with an explicit error when unset, and is set by validate-cascade.yml from the CRUNCHTOOLS_DISPATCH_TOKEN secret."
 classification = "by_design"
+
+[[exceptions]]
+check = "EV013-hidden_env_config"
+path = "validate-constitution.py"
+justification = "GH_TOKEN (falling back to GITHUB_TOKEN) is the GitHub API credential for the optional freshness and Host Config visibility checks, not a behavior toggle. validate.yml sets it from the workflow token; without it the API calls run unauthenticated and the stderr note says why a check degraded."
+classification = "by_design"
+
+[[exceptions]]
+check = "CH012-copy_paste_detection"
+path = "scripts/fleet_common.py"
+justification = "load_validator (spec_from_file_location, module_from_spec, exec_module) and extract_inherits_version (header lookup, regex search, group) share only a three-statement assign-call-return shape. No logic is shared; there is nothing to extract."
+classification = "gourmand_bug"
+
+[[exceptions]]
+check = "CH012-copy_paste_detection"
+path = "validate-constitution.py"
+justification = "check_gate_workflows and check_repo_files are both 'collect violations from a requirements table' loops but read different sources (parsed workflow jobs and triggers vs. files, LICENSE, dependabot.yml) against different rules. Merging them would produce one function that branches on what it is checking."
+classification = "by_design"

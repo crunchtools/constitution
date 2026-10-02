@@ -1,0 +1,64 @@
+# Machine-checked requirements for manifest constitutions (Inherits >= v1.18.0).
+#
+# validate-constitution.py reads this file from the constitution checkout it runs
+# from, so the rules a repo is judged by come from the tag it pins. Prose in
+# constitution.md and profiles/*.md explains the why; this file is what is
+# enforced. A rule that lives only in prose is reported as prose-only.
+
+[fleet]
+# Oldest crunchtools/gatehouse release a reusable-workflow pin may point at.
+# Dependabot auto-merge keeps pins current; this catches repos where it stopped.
+gatehouse_min = "0.15.0"
+
+# Files every repo carries (globs relative to the repo root).
+files = ["CHANGELOG.md", ".pre-commit-config.yaml", ".github/dependabot.yml"]
+
+# Dependabot ecosystems every repo keeps current (XV).
+dependabot = ["github-actions"]
+
+# The repo must carry an AGPL-3.0 LICENSE (I). Profiles may turn this off.
+license_agpl = true
+
+# Each profile adds to the fleet rules. Keys:
+#   files            globs that must each match at least one path
+#   dependabot       extra Dependabot ecosystems
+#   license_agpl     override the fleet license rule
+#   sections         headings the manifest MUST carry (repo-specific facts)
+#   private          the repo MUST be private (checked through the GitHub API)
+#   containerfile_from  regex a Containerfile FROM line must match
+
+[profile."MCP Server"]
+files = ["pyproject.toml", "uv.lock", "Containerfile*", "tests/**/*.py"]
+dependabot = ["uv"]
+
+[profile."CLI Tool"]
+files = ["pyproject.toml", "uv.lock", "Containerfile*", "tests/**/*.py"]
+dependabot = ["uv"]
+
+[profile."Container Image"]
+files = ["Containerfile*"]
+
+[profile."Web Application"]
+files = ["Containerfile*"]
+
+[profile."Autonomous Agent"]
+files = ["Containerfile*"]
+
+[profile."Forked MCP Server"]
+files = ["Containerfile*"]
+license_agpl = false
+sections = ["Upstream", "Deployment", "Patches"]
+
+[profile."Claude Skill"]
+files = ["**/SKILL.md"]
+
+[profile."Bootc Image"]
+files = ["Containerfile*"]
+containerfile_from = 'bootc'
+
+[profile."Host Config"]
+license_agpl = false
+private = true
+
+[profile."Governance"]
+files = ["pyproject.toml", "tests/**/*.py"]
