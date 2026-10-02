@@ -273,3 +273,15 @@ def test_inline_gourmand_job_fails_but_mentions_do_not(repo):
         "    steps:\n      - run: gourmand check --full .\n",
     )
     assert any("runs Gourmand inline" in v for v in violations(repo))
+    flow = repo / ".github/workflows/lint.yml"
+    flow.write_text(
+        flow.read_text().replace("on: pull_request", "on: [pull_request, workflow_call]")
+    )
+    assert any("runs Gourmand inline" in v for v in violations(repo))
+
+
+def test_license_title_after_preamble_passes(repo):
+    (repo / "LICENSE").unlink()
+    preamble = "Unless a file says otherwise, the following applies.\n" * 20
+    (repo / "COPYING").write_text(preamble + "GNU AFFERO GENERAL PUBLIC LICENSE\n")
+    assert violations(repo) == []

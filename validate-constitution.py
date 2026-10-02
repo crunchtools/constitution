@@ -816,7 +816,8 @@ def inline_gourmand_jobs(flows: "Workflows") -> list[str]:
     """
     found = []
     for name, workflow in flows.files.items():
-        if "workflow_call" in triggers(workflow):
+        # Only a pure reusable definition (gatehouse's gourmand.yml) is the gate itself.
+        if set(triggers(workflow)) == {"workflow_call"}:
             continue
         for job_id, job in (workflow.get("jobs") or {}).items():
             job = job or {}
