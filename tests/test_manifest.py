@@ -254,3 +254,22 @@ def test_manifest_needs_standard_header(repo):
     manifest = repo / ".specify/memory/constitution.md"
     manifest.write_text(manifest.read_text().replace("> **Status:** Active\n", ""))
     assert violations(repo) == ["UNIVERSAL: Missing 'Status:' header (VII)"]
+
+
+def test_inline_gourmand_job_fails_but_mentions_do_not(repo):
+    write(
+        repo,
+        ".github/workflows/build.yml",
+        "on: push\nenv:\n  IMAGE: quay.io/crunchtools/gourmand\njobs:\n  build:\n"
+        "    runs-on: ubuntu-latest\n    env:\n      SKIP: gatehouse,gourmand\n"
+        "    steps:\n      - run: podman build .\n",
+    )
+    assert violations(repo) == []
+    write(
+        repo,
+        ".github/workflows/lint.yml",
+        "on: pull_request\njobs:\n  slop:\n    runs-on: ubuntu-latest\n"
+        "    container: quay.io/crunchtools/gourmand:latest\n"
+        "    steps:\n      - run: gourmand check --full .\n",
+    )
+    assert any("runs Gourmand inline" in v for v in violations(repo))

@@ -808,6 +808,33 @@ class Workflows:
         return found
 
 
+def inline_gourmand_jobs(flows: "Workflows") -> list[str]:
+    """Jobs that run Gourmand themselves instead of calling gatehouse's gourmand.yml.
+
+    Parsed, not grepped: an image name in gourmand's own build or a `SKIP:
+    gourmand` env line is not a gate. A reusable definition is the gate itself.
+    """
+    found = []
+    for name, workflow in flows.files.items():
+        if "workflow_call" in triggers(workflow):
+            continue
+        for job_id, job in (workflow.get("jobs") or {}).items():
+            job = job or {}
+            container = job.get("container")
+            image = (
+                container.get("image", "") if isinstance(container, dict) else str(container or "")
+            )
+            runs = " ".join(str((step or {}).get("run", "")) for step in job.get("steps") or [])
+            if "crunchtools/gourmand" in image or re.search(
+                r"\bgourmand\s+(?:check|--full)|cargo\s+install.*gourmand", runs
+            ):
+                found.append(
+                    f"WORKFLOWS: {name} job `{job_id}` runs Gourmand inline; call "
+                    f"crunchtools/gatehouse/.github/workflows/gourmand.yml instead (RT #1468)"
+                )
+    return found
+
+
 def check_gate_workflows(repo_root: Path, inherits: str, requirements: dict) -> list[str]:
     """XII and #22: the gates exist, on the right triggers, at supported pins."""
     flows = Workflows(repo_root)
@@ -838,6 +865,8 @@ def check_gate_workflows(repo_root: Path, inherits: str, requirements: dict) -> 
                 f"WORKFLOWS: no job calls {target}.yml on `{event}`{where} ({label}); "
                 f"copy it from the examples"
             )
+
+    violations += inline_gourmand_jobs(flows)
 
     gatehouse_workflow = [wf for wf in flows.files.values() if wf.get("name") == "Gatehouse"]
     if not any(
@@ -1037,7 +1066,6 @@ def validate_manifest(
     if is_repo_checkout(repo_root):
         violations += check_changelog(repo_root)
         violations += check_quality_gate_wiring(repo_root, inherits)
-        violations += check_gourmand_ci_gate(repo_root)
         violations += check_gate_workflows(repo_root, inherits, requirements)
         violations += check_repo_files(repo_root, profiles, requirements)
         violations += check_visibility(profiles, requirements, slug)
