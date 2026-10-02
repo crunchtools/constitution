@@ -248,3 +248,9 @@ def test_freshness_warns_only_beyond_one_minor(monkeypatch):
     monkeypatch.setattr(V, "github_api", lambda path: {"tag_name": "v1.20.0"})
     assert V.freshness_warning("1.19.0") is None
     assert "v1.20.0 is out" in V.freshness_warning("1.18.0")
+
+
+def test_manifest_needs_standard_header(repo):
+    manifest = repo / ".specify/memory/constitution.md"
+    manifest.write_text(manifest.read_text().replace("> **Status:** Active\n", ""))
+    assert violations(repo) == ["UNIVERSAL: Missing 'Status:' header (VII)"]

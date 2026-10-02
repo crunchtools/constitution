@@ -29,7 +29,10 @@ INHERITS = re.compile(r"^(>\s*\*\*Inherits:\*\*.*?)v\d+\.\d+\.\d+", re.MULTILINE
 
 
 def git(root: Path, *args: str) -> None:
-    subprocess.run(["git", "-C", str(root), *args], check=True, capture_output=True)
+    """Run git in a clone; a failure raises with git's own message."""
+    result = subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True)
+    if result.returncode != 0:
+        raise RuntimeError(f"git {' '.join(args)} in {root.name}: {result.stderr.strip()}")
 
 
 def bump(root: Path, version: str) -> list[Path]:
@@ -67,7 +70,12 @@ def open_bump_pr(root: Path, name: str, version: str, changed: list[Path]) -> st
         f"(opened by constitution/scripts/fleet-bump.py). Auto-merges if the repo passes "
         f"validation at the new tag; otherwise it needs a fix here.",
     ).strip()
-    gh("pr", "merge", "--auto", "--squash", url, check=False)
+    queue = subprocess.run(
+        ["gh", "pr", "merge", "--auto", "--squash", url], capture_output=True, text=True
+    )
+    if queue.returncode != 0:
+        # The PR stands; it just needs merging by hand once green.
+        print(f"  warning: auto-merge not queued: {queue.stderr.strip()}", file=sys.stderr)
     return url
 
 
@@ -88,9 +96,20 @@ def bump_repo(name: str, version: str, clone_root: Path, validator, dry_run: boo
         print(f"  {open_bump_pr(root, name, version, changed)}")
 
 
+def release_version(value: str) -> str:
+    """argparse type: a bare X.Y.Z release version."""
+    if not re.fullmatch(r"(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)", value, re.ASCII):
+        raise argparse.ArgumentTypeError(f"{value!r} is not a X.Y.Z version")
+    return value
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--version", help="target version (default: this checkout's)")
+    parser.add_argument(
+        "--version",
+        type=release_version,
+        help="target version, X.Y.Z (default: this checkout's)",
+    )
     parser.add_argument("--only", help="comma-separated repo names")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()

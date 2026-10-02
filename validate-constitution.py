@@ -667,6 +667,7 @@ what drifted)."""
 
 CONSTITUTION_DIR = Path(__file__).resolve().parent
 PROFILES_ADDED_IN_MANIFEST = {"Bootc Image", "Host Config", "Governance"}
+MANIFEST_HEADER = ("Version", "Ratified", "Status")  # beside Inherits and Profile (VII)
 VALID_PROFILES |= PROFILES_ADDED_IN_MANIFEST
 
 GATEHOUSE_REUSABLE = re.compile(
@@ -898,9 +899,10 @@ def check_repo_files(repo_root: Path, profiles: list[str], requirements: dict) -
         licenses = [
             p for p in repo_root.iterdir() if p.name.upper().startswith(("LICENSE", "COPYING"))
         ]
+        # Anywhere in the file: some (petit's COPYING) open with a scope preamble.
+        # GPLv3 names the AGPL only in mixed case, so it can't match this title.
         if not any(
-            "GNU AFFERO GENERAL PUBLIC LICENSE" in p.read_text(errors="ignore")[:500]
-            for p in licenses
+            "GNU AFFERO GENERAL PUBLIC LICENSE" in p.read_text(errors="ignore") for p in licenses
         ):
             violations.append("FILES: no AGPL-3.0 LICENSE file in the repo root (I)")
 
@@ -1019,6 +1021,11 @@ def validate_manifest(
     ]
     if not profiles:
         violations.append("UNIVERSAL: Missing 'Profile:' header")
+    violations += [
+        f"UNIVERSAL: Missing '{field}:' header (VII)"
+        for field in MANIFEST_HEADER
+        if not header.get(field)
+    ]
     violations += check_pin(inherits, pinned)
     violations += check_manifest_text(text, profiles, requirements)
     if is_repo_checkout(repo_root):

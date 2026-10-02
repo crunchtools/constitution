@@ -28,11 +28,11 @@ license_agpl = true
 #   containerfile_from  regex a Containerfile FROM line must match
 
 [profile."MCP Server"]
-files = ["pyproject.toml", "uv.lock", "Containerfile*", "tests/**/*.py"]
+files = ["pyproject.toml", "uv.lock", "Containerfile*", "test*/**/*.py"]
 dependabot = ["uv"]
 
 [profile."CLI Tool"]
-files = ["pyproject.toml", "uv.lock", "Containerfile*", "tests/**/*.py"]
+files = ["pyproject.toml", "uv.lock", "Containerfile*", "test*/**/*.py"]
 dependabot = ["uv"]
 
 [profile."Container Image"]
@@ -61,4 +61,4 @@ license_agpl = false
 private = true
 
 [profile."Governance"]
-files = ["pyproject.toml", "tests/**/*.py"]
+files = ["pyproject.toml", "test*/**/*.py"]
