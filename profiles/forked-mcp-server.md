@@ -1,6 +1,6 @@
 # Forked MCP Server Profile
 
-> **Profile Version:** 1.1.1
+> **Profile Version:** 1.2.0
 > **Applies to:** Third-party MCP servers forked and containerized for crunchtools infrastructure
 
 This profile extends the [universal constitution](../constitution.md) with requirements specific to forked MCP servers — upstream projects we containerize and run but do not author. The upstream code is governed by its own project; this profile governs the **containerization, deployment, and operational lifecycle**.
@@ -175,6 +175,8 @@ Note: No `-crunchtools` suffix on the package name — we don't publish to PyPI.
 ---
 
 ## VIII. Per-Repo Constitution Format
+
+Since constitution v1.18.0 this file is a manifest (constitution.md VII): the header plus sections for what is unique to this repo. Do not restate this profile or the fleet rules; the validator fails on a section titled like one of their numbered sections, and checks the gates, pins and files directly.
 
 Forked MCP servers have a lightweight constitution focused on deployment facts:
 

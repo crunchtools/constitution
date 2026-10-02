@@ -1,6 +1,6 @@
 # Autonomous Agent Profile
 
-> **Profile Version:** 1.1.0
+> **Profile Version:** 1.2.0
 > **Applies to:** All autonomous AI agent deployments on crunchtools infrastructure
 
 This profile extends the [universal constitution](../constitution.md) with requirements specific to deploying autonomous AI agents (e.g., OpenClaw) on crunchtools infrastructure. The agent code is third-party — this profile governs the **deployment architecture**, not the agent internals.
@@ -258,6 +258,8 @@ Every autonomous agent deployment MUST pass these gates in order before entering
 
 ## IX. Per-Repo Constitution Format
 
+Since constitution v1.18.0 this file is a manifest (constitution.md VII): the header plus sections for what is unique to this repo. Do not restate this profile or the fleet rules; the validator fails on a section titled like one of their numbered sections, and checks the gates, pins and files directly.
+
 Each autonomous agent deployment MUST have a constitution with the standard header:
 
 ```markdown
@@ -266,7 +268,7 @@ Each autonomous agent deployment MUST have a constitution with the standard head
 > **Version:** X.Y.Z
 > **Ratified:** YYYY-MM-DD
 > **Status:** Active
-> **Inherits:** [crunchtools/constitution](https://github.com/crunchtools/constitution) v1.1.0
+> **Inherits:** [crunchtools/constitution](https://github.com/crunchtools/constitution) v1.18.0
 > **Profile:** Autonomous Agent
 
 ## Trust Boundary
@@ -285,9 +287,6 @@ Each autonomous agent deployment MUST have a constitution with the standard head
  circuit breaker limits, rate limits, credential sources,
  kill switch mechanisms, monitoring endpoints.]
 
-## Quality Gates
-
-[Ordered list of gates this deployment must pass.]
 ```
 
 Per-repo constitutions live at `.specify/memory/constitution.md` (consistent with other crunchtools profiles).

@@ -4,6 +4,8 @@
 
 [tool.ruff]
 line-length = 100
+# scripts/ holds fleet_common, imported by the fleet scripts and tests.
+src = [".", "scripts"]
 target-version = "py312"
 
 [tool.ruff.lint]

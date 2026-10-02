@@ -11,10 +11,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: '3.12'
 
@@ -23,6 +23,11 @@ jobs:
           pip install ruff==0.16.9
           ruff check .
           ruff format --check .
+
+      - name: Tests (pytest)
+        run: |
+          pip install pytest==9.1.1 pyyaml==6.0.3
+          pytest -q tests
 
       - name: Validate test constitutions (should pass)
         run: |

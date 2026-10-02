@@ -1,6 +1,6 @@
 # Web Application Profile
 
-> **Profile Version:** 1.0.0
+> **Profile Version:** 1.1.0
 > **Applies to:** End-user web applications deployed as containers (acquacotta, rotv)
 
 This profile extends the [universal constitution](../constitution.md) with requirements specific to web application projects in the crunchtools organization. Web applications differ from Container Image projects in that they contain application code, manage stateful data, run multiple services, and require application-level testing.
@@ -181,6 +181,8 @@ Additional recommended gates:
 
 ## XII. Per-Repo Constitution Format
 
+Since constitution v1.18.0 this file is a manifest (constitution.md VII): the header plus sections for what is unique to this repo. Do not restate this profile or the fleet rules; the validator fails on a section titled like one of their numbered sections, and checks the gates, pins and files directly.
+
 Web application repos MUST have a constitution at `.specify/memory/constitution.md`:
 
 ```markdown
@@ -189,7 +191,7 @@ Web application repos MUST have a constitution at `.specify/memory/constitution.
 > **Version:** 1.0.0
 > **Ratified:** YYYY-MM-DD
 > **Status:** Active
-> **Inherits:** [crunchtools/constitution](https://github.com/crunchtools/constitution) v1.3.0
+> **Inherits:** [crunchtools/constitution](https://github.com/crunchtools/constitution) v1.18.0
 > **Profile:** Web Application
 
 [Application-specific governance — what the app does, base image choice,
@@ -203,4 +205,4 @@ Required sections in per-repo constitutions:
 - Host directory convention (`/srv/<name>/`)
 - Data persistence strategy
 - Monitoring coverage
-- Testing and quality gates
+- Testing beyond the fleet gates (smoke tests, health checks)
