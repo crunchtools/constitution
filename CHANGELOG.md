@@ -24,6 +24,10 @@ onward were ratified without a tag or a GitHub Release.
   `bash -c '...'` into the pipeline it runs.
 
 ### Fixed
+- A release PR in this repo no longer moves its own `Inherits` and
+  `validate.yml` pin. Since v1.19.1 `validate.yml` checks out the tag it
+  names, which a release PR names before it exists, so the local-path call
+  used by earlier release PRs fails. `fleet-bump.py` moves both after the tag.
 - `fleet-drift.py` reported `allow_auto_merge off` for every repo when run
   with the workflow token, which can't see that setting on other repos. A
   missing value is now unknown, not a violation.

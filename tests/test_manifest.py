@@ -337,6 +337,7 @@ def add_hook(root: Path, entry: str, language: str = "system") -> None:
         ("bash -c 'cd web && FORCE_COLOR=1 eslint . || exit 1'", "system", "eslint"),
         ("./run.sh lint", "system", "./run.sh"),  # not in the repo
         ("bash -c 'echo \"$(npm run lint)\"'", "system", "npm"),
+        ("bash -c 'echo `npm run lint`'", "system", "npm"),
         ("bash -c 'podman run --rm example.com/lint\n eslint .'", "system", "eslint"),
         ("bash -c 'for f in *.js; do eslint $f; done'", "system", "eslint"),
         ("../bin/lint", "system", "../bin/lint"),
