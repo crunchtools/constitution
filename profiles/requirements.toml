@@ -13,6 +13,10 @@ gatehouse_min = "0.15.0"
 # Files every repo carries (globs relative to the repo root).
 files = ["CHANGELOG.md", ".pre-commit-config.yaml", ".github/dependabot.yml"]
 
+# What a developer machine has (XII host contract): the only programs a
+# `language: system` pre-commit hook may start, besides scripts in the repo.
+host_tools = ["git", "podman", "pre-commit", "gh"]
+
 # Dependabot ecosystems every repo keeps current (XV).
 dependabot = ["github-actions"]
 

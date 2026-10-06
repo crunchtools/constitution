@@ -318,3 +318,60 @@ def test_license_title_after_preamble_passes(repo):
     preamble = "Unless a file says otherwise, the following applies.\n" * 20
     (repo / "COPYING").write_text(preamble + "GNU AFFERO GENERAL PUBLIC LICENSE\n")
     assert violations(repo) == []
+
+
+def add_hook(root: Path, entry: str, language: str = "system") -> None:
+    config = root / ".pre-commit-config.yaml"
+    config.write_text(
+        config.read_text()
+        + f"      - id: lint\n        entry: {entry}\n        language: {language}\n"
+    )
+
+
+@pytest.mark.parametrize(
+    ("entry", "language", "program"),
+    [
+        ("npm run lint:fix", "system", "npm"),
+        ("uv run ruff check --fix", "unsupported", "uv"),
+        ("bash -c 'cd web && FORCE_COLOR=1 eslint . || exit 1'", "system", "eslint"),
+        ("./run.sh lint", "system", "./run.sh"),  # not in the repo
+        ("../bin/lint", "system", "../bin/lint"),
+    ],
+)
+def test_host_hook_fails(repo, entry, language, program):
+    (repo.parent / "bin").mkdir()
+    (repo.parent / "bin/lint").write_text("")
+    add_hook(repo, entry, language)
+    found = [v for v in violations(repo) if "from the host" in v]
+    assert len(found) == 1
+    assert f"hook `lint` runs `{program}`" in found[0]
+
+
+@pytest.mark.parametrize(
+    ("entry", "language"),
+    [
+        ("./run.sh lint --fix", "system"),
+        ("bash scripts/lint.sh", "system"),
+        ("sh -ec 'git diff --cached --quiet || podman run --rm example.com/lint'", "system"),
+        ("eslint", "node"),
+    ],
+)
+def test_contained_hook_passes(repo, entry, language):
+    write(repo, "run.sh", "")
+    write(repo, "scripts/lint.sh", "")
+    add_hook(repo, entry, language)
+    assert violations(repo) == []
+
+
+def test_host_contract_waits_for_inherits(repo):
+    """Version-gated: a repo on an older release is not judged by it."""
+    add_hook(repo, "npm run lint")
+    for rel in (".specify/memory/constitution.md", ".github/workflows/constitution.yml"):
+        path = repo / rel
+        path.write_text(path.read_text().replace(f"v{VERSION}", "v1.19.1"))
+    assert violations(repo) == []
+
+
+def test_unparseable_hook_entry_fails(repo):
+    add_hook(repo, 'bash -c "npm test')
+    assert any("entry is not shell" in v for v in violations(repo))
