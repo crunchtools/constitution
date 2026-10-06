@@ -205,6 +205,22 @@ def test_forked_server_needs_its_sections_not_agpl(repo):
     assert {v.split("'")[1] for v in found} == {"## Upstream", "## Deployment", "## Patches"}
 
 
+def test_security_gateway_needs_its_four_sections(repo):
+    manifest = repo / ".specify/memory/constitution.md"
+    manifest.write_text(manifest.read_text().replace("MCP Server", "Security Gateway"))
+    found = violations(repo)
+    assert {v.split("'")[1] for v in found} == {
+        "## Threat Model",
+        "## Layer Contract",
+        "## Known Gaps",
+        "## Instance",
+    }
+    sections = "".join(f"\n## {title}\n\nStated.\n" for title in
+                       ("Threat Model", "Layer Contract", "Known Gaps", "Instance"))  # fmt: skip
+    manifest.write_text(manifest.read_text() + sections)
+    assert violations(repo) == []
+
+
 def test_bootc_image_needs_bootc_base(repo):
     manifest = repo / ".specify/memory/constitution.md"
     manifest.write_text(manifest.read_text().replace("MCP Server", "Bootc Image"))

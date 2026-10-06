@@ -60,6 +60,11 @@ containerfile_from = 'bootc'
 license_agpl = false
 private = true
 
+[profile."Security Gateway"]
+files = ["pyproject.toml", "uv.lock", "Containerfile*", "test*/**/*.py"]
+dependabot = ["uv"]
+sections = ["Threat Model", "Layer Contract", "Known Gaps", "Instance"]
+
 [profile."Governance"]
 files = ["pyproject.toml", "test*/**/*.py"]
 

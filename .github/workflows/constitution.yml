@@ -1,6 +1,8 @@
-# Required check for this repo, pinned like every fleet repo: a PR is judged by
-# the last release's validator, never the one it changes (ci.yml tests the
-# candidate). scripts/fleet-bump.py moves this pin with Inherits.
+# Required check for this repo. Between releases it is pinned like every fleet
+# repo, so a PR is judged by the last release's validator (ci.yml tests the
+# candidate). A release PR cannot be: the pin and Inherits move together, and
+# the new tag does not exist until the PR merges. It calls validate.yml by
+# local path, and the PR after the tag pins it again (as #34 and #38 did).
 
 name: Constitution
 
@@ -15,4 +17,4 @@ permissions:
 jobs:
   constitution:
     name: Constitution
-    uses: crunchtools/constitution/.github/workflows/validate.yml@v1.18.0
+    uses: ./.github/workflows/validate.yml

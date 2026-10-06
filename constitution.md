@@ -1,6 +1,6 @@
 # CrunchTools Constitution
 
-> **Version:** 1.18.0
+> **Version:** 1.19.0
 > **Ratified:** 2026-10-02
 > **Status:** Active
 
@@ -197,6 +197,7 @@ Valid profiles:
 - **Governance** — see `profiles/governance.md`
 - **Package Repository** — see `profiles/package-repository.md`
 - **Data Archive** — see `profiles/data-archive.md`
+- **Security Gateway** — see `profiles/security-gateway.md`
 
 Every repo in the organization has a profile. There are no exemptions: a repo that fits none gets a new profile. A project MAY declare multiple profiles if it spans subsystems.
 
@@ -679,3 +680,4 @@ a public repository. Keep it host-side (for example
 | 1.16.0 | 2026-09-22 | Extended XVII (retitled Secrets, PII and Real-World Names in Public Repositories) — public repos MUST NOT carry names of real people other than the maintainer identity, PII of anyone, private deployment names or the topology connecting them, or employer/third-party confidential information (including a real organization used as the illustrative secret); adds a fictional roster for examples and tests (Alice/Bob/Carol, RFC 2606 domains, Example Corp, RFC 5737 IPs, 555-01xx, agent1/agent2/agent3) and requires captured test data be rewritten to it; the private-terms scan list is itself private and stays host-side. Prompted by RT #1504 finding real agent names, fleet topology and personal addresses in the public mcp-trentina repo |
 | 1.17.0 | 2026-09-24 | Strengthened XII: Gourmand and Gatehouse MUST also run as pre-commit hooks from their container images (Gatehouse over the staged diff, blocking on critical/high), and every Gatehouse finding MUST be answered in its thread before merge, enforced by the deterministic `Gatehouse triage` job, which SHOULD be a required check while the review stays advisory. The validator enforces both for repos inheriting v1.17.0 or later. Prompted by a PR merged five minutes after 40 unanswered findings |
 | 1.18.0 | 2026-10-02 | Manifest constitutions (#22): the per-repo file declares profile and pinned version and holds only repo-unique rules, and restating a fleet section fails validation. Validation runs from the reusable `validate.yml` at the pinned tag (never HEAD) and checks the repo's real workflows, hooks, Dependabot config, LICENSE and profile files against `profiles/requirements.toml`. Every release is tagged (v1.7.0–v1.16.0 backfilled). Adds Bootc Image, Host Config, Governance, Package Repository and Data Archive profiles so no repo is exempt, Dependabot auto-merge for GitHub Actions minor/patch (XV), `scripts/fleet-bump.py` for pin bumps and the weekly `scripts/fleet-drift.py` report. Prompted by a 2026-09-23 survey that found 33 of 51 repos declaring v1.0.0 while all were validated at HEAD |
+| 1.19.0 | 2026-10-06 | Added the Security Gateway profile for software that decides what reaches an AI agent (Trentina): image-only distribution with no PyPI package, a judging path that fails closed, delivery of exactly what was judged, a versioned perimeter, declared coverage with gaps held open by tests, detector changes that ship with their measurement, and hostile parsers in limited child processes. The manifest must carry Threat Model, Layer Contract, Known Gaps and Instance. Prompted by Trentina outgrowing the MCP Server profile, whose naming and PyPI distribution no longer described it |

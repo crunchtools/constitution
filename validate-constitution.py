@@ -672,6 +672,7 @@ PROFILES_ADDED_IN_MANIFEST = {
     "Governance",
     "Package Repository",
     "Data Archive",
+    "Security Gateway",
 }
 MANIFEST_HEADER = ("Version", "Ratified", "Status")  # beside Inherits and Profile (VII)
 VALID_PROFILES |= PROFILES_ADDED_IN_MANIFEST
