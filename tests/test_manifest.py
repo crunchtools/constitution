@@ -4,6 +4,7 @@ Each test builds a compliant repo in tmp_path from the real examples, breaks one
 thing, and checks that exactly that is reported. Names follow XVII's roster.
 """
 
+import re
 import shutil
 from pathlib import Path
 
@@ -99,7 +100,7 @@ def repo(tmp_path: Path) -> Path:
     write(root, ".github/workflows/gatehouse-retriage.yml", RETRIAGE)
     write(root, ".github/workflows/gourmand.yml", GOURMAND)
     for name in ("constitution.yml", "dependabot-automerge.yml"):
-        text = (ROOT / "examples" / name).read_text().replace("@v1.18.0", f"@v{VERSION}")
+        text = re.sub(r"@v\d+\.\d+\.\d+", f"@v{VERSION}", (ROOT / "examples" / name).read_text())
         write(root, f".github/workflows/{name}", text)
     shutil.copy(ROOT / "examples" / "dependabot-uv.yml", root / ".github" / "dependabot.yml")
     for rel in ("pyproject.toml", "uv.lock", "Containerfile", "tests/test_tools.py"):
@@ -134,9 +135,25 @@ def test_pin_must_match_inherits(repo):
     assert any("the pin and Inherits move together" in v for v in violations(repo))
 
 
+def test_validate_yml_checks_out_this_release():
+    """A called workflow cannot name its own ref, so the release is a literal (#42)."""
+    workflow = (ROOT / ".github/workflows/validate.yml").read_text()
+    assert f"ref: v{VERSION}\n" in workflow
+    assert "job_workflow_sha }}" not in workflow
+
+
 def test_pinned_mode_rejects_other_version(repo, monkeypatch):
     monkeypatch.setattr(V, "own_version", lambda: "9.9.9")
     assert any(v.startswith("PIN:") for v in violations(repo, pinned=True))
+
+
+@pytest.mark.parametrize("old", V.VALIDATED_AT_MAIN)
+def test_releases_that_validated_at_main_still_pass(repo, old):
+    """v1.19.0's release failed every repo pinned to v1.18.0 (#42)."""
+    for rel in (".specify/memory/constitution.md", ".github/workflows/constitution.yml"):
+        path = repo / rel
+        path.write_text(path.read_text().replace(f"v{VERSION}", f"v{old}"))
+    assert violations(repo, pinned=True) == []
 
 
 def test_stale_gatehouse_pin_fails(repo):

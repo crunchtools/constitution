@@ -20,6 +20,19 @@ onward were ratified without a tag or a GitHub Release.
   instead of calling it by local path, so a PR can't pass the validator it
   changes (Gatehouse finding on #34).
 
+## [1.19.1] - 2026-10-06
+
+### Fixed
+- `validate.yml` now checks out the release it belongs to (#42). It read
+  `github.job_workflow_sha`, which is empty in a called workflow, so every
+  pinned repo was validated against main. Releasing v1.19.0 made that
+  visible: every repo pinned to v1.18.0 failed `PIN: manifest inherits
+  v1.18.0 but CI validated with v1.19.0`.
+- The validator no longer fails a manifest for inheriting an older release
+  than the validator. Repos pinned to v1.18.0 and v1.19.0 still reach main's
+  validator, and the workflow check already holds pin and `Inherits`
+  together.
+
 ## [1.19.0] - 2026-10-06
 
 ### Added
