@@ -674,6 +674,12 @@ PROFILES_ADDED_IN_MANIFEST = {
     "Data Archive",
     "Security Gateway",
 }
+VALIDATED_AT_MAIN = ("1.18.0", "1.19.0")
+"""Releases whose validate.yml checks out main instead of its own tag (#42).
+
+A repo pinned to one of them reaches this validator whatever it inherits, so
+for those two an Inherits older than the validator is not a violation; the
+workflow check still holds their pin and Inherits together."""
 MANIFEST_HEADER = ("Version", "Ratified", "Status")  # beside Inherits and Profile (VII)
 VALID_PROFILES |= PROFILES_ADDED_IN_MANIFEST
 
@@ -1015,7 +1021,7 @@ def check_pin(inherits: str, pinned: bool) -> list[str]:
         return []
     if version_tuple(inherits) > version_tuple(mine):
         return [f"PIN: manifest inherits v{inherits}, newer than this validator (v{mine})"]
-    if pinned and inherits != mine:
+    if pinned and inherits != mine and inherits not in VALIDATED_AT_MAIN:
         return [
             f"PIN: manifest inherits v{inherits} but CI validated with v{mine}; "
             f"bump Inherits and the validate.yml pin together"

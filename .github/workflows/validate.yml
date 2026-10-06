@@ -5,9 +5,12 @@
 #   uses: crunchtools/constitution/.github/workflows/validate.yml@v1.19.0
 #
 # That tag IS the version the repo is judged by: the validator, profiles and
-# requirements.toml are checked out at the same commit as this file
-# (github.job_workflow_sha), never at HEAD. --pinned fails the run when the
-# manifest's Inherits disagrees with the tag. Copy examples/constitution.yml.
+# requirements.toml are checked out at the release this file belongs to,
+# never at HEAD. That release is written below as a literal (`ref:`), and
+# tests/test_manifest.py fails when it is not this constitution's version: a
+# reusable workflow has no context that names its own ref. Until v1.19.1 this
+# read `github.job_workflow_sha`, which is empty, so every pinned repo was
+# validated against main (#42). Copy examples/constitution.yml.
 
 name: Constitution
 
@@ -34,7 +37,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           repository: crunchtools/constitution
-          ref: ${{ github.job_workflow_sha }}
+          ref: v1.19.1
           path: .constitution
           persist-credentials: false
       - uses: actions/setup-python@v7
