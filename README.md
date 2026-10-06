@@ -58,7 +58,7 @@ python validate-constitution.py path/to/constitution.md --verbose
 - no section restating a numbered section of the constitution or a declared profile
 - the gates, on the right triggers: Gourmand, the `Gatehouse` workflow (guard, review, triage), retriage, constitution validation and Dependabot auto-merge
 - pins: gatehouse at or above the supported release, and validate.yml at the inherited tag
-- files: CHANGELOG, LICENSE (AGPL-3.0 unless the profile says otherwise), both pre-commit hooks, Dependabot coverage, and each profile's files, per [`profiles/requirements.toml`](profiles/requirements.toml)
+- files: CHANGELOG, LICENSE (AGPL-3.0 unless the profile says otherwise), both pre-commit hooks, no `language: system` hook that needs a host install (v1.20.0+), Dependabot coverage, and each profile's files, per [`profiles/requirements.toml`](profiles/requirements.toml)
 
 Repos still inheriting an older version get the pre-manifest prose checks.
 

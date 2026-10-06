@@ -10,7 +10,24 @@ onward were ratified without a tag or a GitHub Release.
 
 ## [Unreleased]
 
+## [1.20.0] - 2026-10-06
+
+### Added
+- XII host contract (#40): a developer machine needs only git, podman,
+  pre-commit and gh, plus `~/.config/mcp-env/gatehouse.env`. Linters, test
+  runners and review tools run from container images or pre-commit-managed
+  environments, a local runner fails rather than skips a gate it cannot run,
+  and a checkout does not live under a file-sync client.
+- The validator fails a `language: system` pre-commit hook whose entry starts
+  anything but the `host_tools` in `requirements.toml` or a script in the
+  repo. It applies to repos inheriting v1.20.0 or later, and follows
+  `bash -c '...'` into the pipeline it runs.
+
 ### Fixed
+- A release PR in this repo no longer moves its own `Inherits` and
+  `validate.yml` pin. Since v1.19.1 `validate.yml` checks out the tag it
+  names, which a release PR names before it exists, so the local-path call
+  used by earlier release PRs fails. `fleet-bump.py` moves both after the tag.
 - `fleet-drift.py` reported `allow_auto_merge off` for every repo when run
   with the workflow token, which can't see that setting on other repos. A
   missing value is now unknown, not a violation.

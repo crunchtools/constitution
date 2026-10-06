@@ -1,7 +1,7 @@
 # CrunchTools Constitution
 
-> **Version:** 1.19.1
-> **Ratified:** 2026-10-02
+> **Version:** 1.20.0
+> **Ratified:** 2026-10-06
 > **Status:** Active
 
 This constitution establishes the universal principles that govern all software projects in the [crunchtools](https://github.com/crunchtools) organization. Every repo inherits these rules. Subsystem-specific requirements are defined in profiles.
@@ -323,6 +323,17 @@ Canonical drop-in workflow files are maintained in [`crunchtools/gatehouse/examp
 These files are the fleet-owned wiring: copy them unchanged apart from the pins, which Dependabot keeps current. A single bundled reusable workflow was considered and rejected (#22): the gates need different triggers (`pull_request` for Gourmand, `pull_request_target` for review and triage, `workflow_run` for retriage), and nesting renames the check names that branch rules and retriage look up.
 
 Required checks, set once in the organization ruleset: `Protect workflows`, `Gatehouse triage / Gatehouse triage`, `Code Quality (Gourmand) / Code Quality (Gourmand)` and `Constitution / Validate constitution`.
+
+### Host contract
+
+Requiring two gates to run from containers said nothing about the rest. On a freshly installed laptop one repo's ESLint hook ran `npm` on the host, its ruff hook called a host `ruff`, and its test runner skipped three gates with a warning and printed the other results as if that were a pass (#40). Every tool a gate quietly expects on the host is a gate that only runs on the machine it was written on.
+
+**Rules:**
+- A developer machine needs `git`, `podman`, `pre-commit` and `gh`, plus `~/.config/mcp-env/gatehouse.env`. A repo MUST NOT assume anything else is installed.
+- Linters, test runners and review tools MUST run from container images or pre-commit-managed environments (a hook's upstream repo, such as `astral-sh/ruff-pre-commit`, or `language: python`/`node` with `additional_dependencies`), never from host `npm`, `pip`, `uv` or `cargo` installs.
+- A `language: system` hook's `entry` MUST start only the four tools above or a script in the repo, named with a path (`./run.sh lint`). The list is `host_tools` in `requirements.toml`.
+- A local runner (`run.sh test`, `make test`) MUST exit non-zero when a gate cannot run. It MUST NOT skip the gate with a warning, and MUST NOT tell the user to install a tool on the host.
+- A checkout MUST NOT live under a directory a file-sync client manages (pCloud, Dropbox, Google Drive, iCloud). A sync client replaced tracked files, `.git/HEAD` and `.git/config` with "[conflicted]" copies in the middle of a commit.
 
 ### Pre-commit hooks
 
@@ -682,3 +693,4 @@ a public repository. Keep it host-side (for example
 | 1.18.0 | 2026-10-02 | Manifest constitutions (#22): the per-repo file declares profile and pinned version and holds only repo-unique rules, and restating a fleet section fails validation. Validation runs from the reusable `validate.yml` at the pinned tag (never HEAD) and checks the repo's real workflows, hooks, Dependabot config, LICENSE and profile files against `profiles/requirements.toml`. Every release is tagged (v1.7.0–v1.16.0 backfilled). Adds Bootc Image, Host Config, Governance, Package Repository and Data Archive profiles so no repo is exempt, Dependabot auto-merge for GitHub Actions minor/patch (XV), `scripts/fleet-bump.py` for pin bumps and the weekly `scripts/fleet-drift.py` report. Prompted by a 2026-09-23 survey that found 33 of 51 repos declaring v1.0.0 while all were validated at HEAD |
 | 1.19.0 | 2026-10-06 | Added the Security Gateway profile for software that decides what reaches an AI agent (Trentina): image-only distribution with no PyPI package, a judging path that fails closed, delivery of exactly what was judged, a versioned perimeter, declared coverage with gaps held open by tests, detector changes that ship with their measurement, and hostile parsers in limited child processes. The manifest must carry Threat Model, Layer Contract, Known Gaps and Instance. Prompted by Trentina outgrowing the MCP Server profile, whose naming and PyPI distribution no longer described it |
 | 1.19.1 | 2026-10-06 | Fix (#42): `validate.yml` checks out the release it belongs to, written as a literal ref and held to this file's version by a test. It read `github.job_workflow_sha`, which is empty in a called workflow, so every pinned repo had been validated against main; that went unseen while main and the only pin were both v1.18.0, and failed the required check across the fleet when v1.19.0 was released. The validator no longer fails a manifest for inheriting an older release than the validator, since repos pinned to v1.18.0 and v1.19.0 still reach main's |
+| 1.20.0 | 2026-10-06 | Strengthened XII with a host contract (#40): a developer machine needs only git, podman, pre-commit and gh plus the Gatehouse key file; linters, test runners and review tools run from container images or pre-commit-managed environments; a local runner fails instead of skipping a gate it cannot run; a checkout does not live under a file-sync client. The validator fails a `language: system` pre-commit hook that starts anything but those four tools or a script in the repo, for repos inheriting v1.20.0 or later. Prompted by a fresh laptop on which rotv's ESLint and ruff hooks needed host installs, its runner skipped three gates with a warning, and pCloud replaced `.git/HEAD` with a conflicted copy mid-commit |
