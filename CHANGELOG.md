@@ -20,6 +20,16 @@ onward were ratified without a tag or a GitHub Release.
   instead of calling it by local path, so a PR can't pass the validator it
   changes (Gatehouse finding on #34).
 
+## [1.19.0] - 2026-10-06
+
+### Added
+- **Security Gateway profile** (`profiles/security-gateway.md`) for software
+  that decides what reaches an AI agent. Image-only distribution, a judging
+  path that fails closed, a versioned perimeter, coverage and known gaps held
+  open by tests, measured detector changes, and hostile parsers in limited
+  child processes. Its manifest must carry Threat Model, Layer Contract,
+  Known Gaps and Instance.
+
 ## [1.18.0] - 2026-10-02
 
 ### Added
