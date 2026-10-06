@@ -2,7 +2,7 @@
 #
 # Callers pin this file to a release tag:
 #
-#   uses: crunchtools/constitution/.github/workflows/validate.yml@v1.18.0
+#   uses: crunchtools/constitution/.github/workflows/validate.yml@v1.19.0
 #
 # That tag IS the version the repo is judged by: the validator, profiles and
 # requirements.toml are checked out at the same commit as this file
