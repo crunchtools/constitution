@@ -1001,6 +1001,8 @@ SHELL_PREFIXES |= {"then", "time", "until", "while"}
 SHELL_BUILTINS = {":", "[", "[[", "cd", "echo", "exit", "export", "false", "for", "printf", "set"}
 SHELL_BUILTINS |= {"shift", "test", "trap", "true", "unset"}
 
+SUBSTITUTION = re.compile(r"\$\(([^()]+)\)|`([^`]+)`")
+
 
 def host_commands(entry: str) -> list[str]:
     """The programs a `language: system` hook entry starts, in order.
@@ -1008,11 +1010,15 @@ def host_commands(entry: str) -> list[str]:
     Follows `bash -c '...'` into the quoted script and splits on pipes and
     lists, so `bash -c 'git diff --cached | podman run ...'` yields git and
     podman. Shell builtins, keywords and `VAR=value` prefixes are not programs.
-    Raises ValueError on unbalanced quotes.
+    A newline ends a command, and `$(...)` or backticks are read wherever they
+    sit, quoted or as a builtin's argument. Not a shell parser: it errs toward
+    naming a program. Raises ValueError on unbalanced quotes.
     """
-    lexer = shlex.shlex(entry, posix=True, punctuation_chars=True)
-    lexer.whitespace_split = True
     commands: list[str] = []
+    for substitution in SUBSTITUTION.findall(entry):
+        commands += host_commands("".join(substitution))
+    lexer = shlex.shlex(re.sub(r"(?<!\\)\n", " ; ", entry), posix=True, punctuation_chars=True)
+    lexer.whitespace_split = True
     words: list[str] = []
     for token in [*lexer, ";"]:
         if token not in COMMAND_BOUNDARIES:
@@ -1066,7 +1072,7 @@ def check_host_contract(repo_root: Path, inherits: str, requirements: dict) -> l
                 f"XII: pre-commit hook `{hook.get('id')}` entry is not shell: {error}"
             )
             continue
-        for command in commands:
+        for command in dict.fromkeys(commands):
             local = "/" in command and (root / command).resolve().is_relative_to(root)
             if command in allowed or (local and (root / command).is_file()):
                 continue

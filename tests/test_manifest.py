@@ -4,6 +4,7 @@ Each test builds a compliant repo in tmp_path from the real examples, breaks one
 thing, and checks that exactly that is reported. Names follow XVII's roster.
 """
 
+import json
 import re
 import shutil
 from pathlib import Path
@@ -324,7 +325,7 @@ def add_hook(root: Path, entry: str, language: str = "system") -> None:
     config = root / ".pre-commit-config.yaml"
     config.write_text(
         config.read_text()
-        + f"      - id: lint\n        entry: {entry}\n        language: {language}\n"
+        + f"      - id: lint\n        entry: {json.dumps(entry)}\n        language: {language}\n"
     )
 
 
@@ -335,6 +336,9 @@ def add_hook(root: Path, entry: str, language: str = "system") -> None:
         ("uv run ruff check --fix", "unsupported", "uv"),
         ("bash -c 'cd web && FORCE_COLOR=1 eslint . || exit 1'", "system", "eslint"),
         ("./run.sh lint", "system", "./run.sh"),  # not in the repo
+        ("bash -c 'echo \"$(npm run lint)\"'", "system", "npm"),
+        ("bash -c 'podman run --rm example.com/lint\n eslint .'", "system", "eslint"),
+        ("bash -c 'for f in *.js; do eslint $f; done'", "system", "eslint"),
         ("../bin/lint", "system", "../bin/lint"),
     ],
 )
@@ -353,6 +357,7 @@ def test_host_hook_fails(repo, entry, language, program):
         ("./run.sh lint --fix", "system"),
         ("bash scripts/lint.sh", "system"),
         ("sh -ec 'git diff --cached --quiet || podman run --rm example.com/lint'", "system"),
+        ("bash -c 'for f in *.py; do ./run.sh lint $f; done'", "system"),
         ("eslint", "node"),
     ],
 )
