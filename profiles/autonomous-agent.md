@@ -302,7 +302,7 @@ A deployment is a honeypot agent only if all of these hold:
 | Rule | Requirement |
 |------|-------------|
 | **Nothing real behind it** | Its gateway profile MUST be one the gateway itself refuses to load with a real backend in it. Every tool it can call is a decoy that reaches nothing, or a read of public content through the gateway. |
-| **No real credential** | It MUST NOT hold a credential for any service, real account or other agent. The credentials it is given to lose are fake, do not work anywhere, and are known to the gateway so that their use is recorded. Two real secrets are allowed and MUST be named in the deployment's configuration: the token for its own gateway profile, and a model key with a hard spending limit set at the provider. The model key SHOULD be held by the gateway, not the agent. |
+| **No real credential** | It MUST NOT hold a credential for any service, real account or other agent. The credentials it is given to lose are fake, do not work anywhere, and are known to the gateway so that their use is recorded. The one real secret it holds is the token for its own gateway profile, which opens nothing real. Its model key MUST carry a hard spending limit set at the provider and MUST be held by the gateway, never in the agent's process, environment, configuration or workspace: an agent that reads hostile content can be talked into giving up whatever it can see. |
 | **No real hands** | The agent runtime's own tools that act on the container or the network (shell, file write, web, messaging, scheduling) MUST be disabled, or the deployment MUST record why one is needed and what contains it. |
 | **A network of its own** | Section III applies in full, on a network no other agent is on. It MUST NOT have a route to another agent, to another agent's memory, or to any internal service other than the gateway. |
 | **Disposable memory** | Its memory and workspace are assumed poisoned. They MUST NOT be read by, copied to or merged into another agent, and MUST be deletable without loss. |
@@ -318,13 +318,13 @@ For a honeypot agent these clauses read differently:
 | IV, human-in-the-loop gates and dead man's switch | It runs unattended. There is no write to approve. Circuit breakers and rate limits still apply, and the model key's spending limit is its token budget. |
 | IV, audit logging | The 90-day minimum applies to the record of its calls. Captured documents are evidence, not logs: they may contain third parties' names and handles, and they are kept only in the gateway's database. |
 | V, credential principles | Replaced by "No real credential" above. |
-| VI, anomaly detection and incident response | A decoy call or a fake credential in use is the result it exists to produce: it is recorded, and the agent keeps running. An incident is a real backend in its profile, a real credential in its environment or workspace, traffic from it that did not pass through the gateway, or its memory reaching another agent. Any of those halts it under the usual procedure. |
+| VI, anomaly detection and incident response | A decoy call or a fake credential in use is the result it exists to produce: it is recorded, and the agent keeps running. An incident is a real backend in its profile, a real credential other than its gateway token in its environment or workspace, traffic from it that did not pass through the gateway, or its memory reaching another agent. Any of those halts it under the usual procedure. |
 | VI, memory and context integrity | Memory stays inspectable. Poisoning is expected and is contained by "Disposable memory" above, not by Q-Agent separation. |
 
 Everything else in this profile applies unchanged, including the runtime constraints and no direct egress (III) and the kill switches (VI).
 
 A honeypot agent adds one quality gate, before it first reads anything hostile:
 
-7. **Holds nothing real**: the gateway lists only decoys and named reads for its profile; a call to each decoy returns its canned answer and is recorded; a request carrying a planted credential is recorded; a direct request to the internet from its container fails; and its environment, configuration and workspace contain no credential that works.
+7. **Holds nothing real**: the gateway lists only decoys and named reads for its profile; a call to each decoy returns its canned answer and is recorded; a request carrying a planted credential is recorded; a direct request to the internet from its container fails; and its environment, configuration and workspace contain no credential that works other than its own gateway token.
 
 A honeypot agent's name, its profile and the network it sits on are private deployment names (constitution XVII). Its configuration lives only in `/srv/<service>/config/` and the private repo that mirrors it. A honeypot that runs an existing agent image needs no repo of its own.
