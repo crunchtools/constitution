@@ -5,10 +5,24 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/).
 
 Entries through 1.14.0 are derived from the Ratification History table in
-`constitution.md`. Note that only 1.0.0 through 1.6.0 carry git tags; 1.7.0
-onward were ratified without a tag or a GitHub Release.
+`constitution.md`. Every release carries a git tag.
 
 ## [Unreleased]
+
+## [1.21.0] - 2026-10-08
+
+### Added
+- Autonomous Agent profile 1.3.0, section X Honeypot Agents: what makes a
+  deployment a honeypot (nothing real behind it, no real credential, no real
+  hands, a network and a memory of its own, captured content treated as
+  hostile), how the clauses on P/Q separation, scoring, human approval,
+  credentials and incident response read for one, and a seventh quality
+  gate, "holds nothing real". Nothing changes for an agent that is not a
+  honeypot.
+
+### Fixed
+- This file said only 1.0.0 through 1.6.0 carry git tags. Every release is
+  tagged since 1.18.0 backfilled them.
 
 ## [1.20.0] - 2026-10-06
 
