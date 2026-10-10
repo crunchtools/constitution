@@ -1005,19 +1005,18 @@ def check_tests_contain(
     """
     if (version_tuple(inherits) or ()) < TESTS_CONTAIN_SINCE:
         return []
-    patterns = [
+    missing = [
         pattern
         for profile in profiles
         for pattern in requirements.get("profile", {}).get(profile, {}).get("tests_contain", [])
     ]
-    if not patterns:
-        return []
-    texts = [p.read_text(errors="ignore") for p in repo_root.glob("test*/**/*.py") if p.is_file()]
-    return [
-        f"TESTS: no file under test*/ matches `{pattern}`"
-        for pattern in patterns
-        if not any(re.search(pattern, text) for text in texts)
-    ]
+    for path in repo_root.glob("test*/**/*.py"):
+        if not missing:
+            break
+        if path.is_file():
+            text = path.read_text(errors="ignore")
+            missing = [pattern for pattern in missing if not re.search(pattern, text)]
+    return [f"TESTS: no file under test*/ matches `{pattern}`" for pattern in missing]
 
 
 HOST_CONTRACT_SINCE = (1, 20, 0)
