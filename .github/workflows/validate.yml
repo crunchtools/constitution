@@ -2,7 +2,7 @@
 #
 # Callers pin this file to a release tag:
 #
-#   uses: crunchtools/constitution/.github/workflows/validate.yml@v1.22.0
+#   uses: crunchtools/constitution/.github/workflows/validate.yml@v1.22.1
 #
 # That tag IS the version the repo is judged by: the validator, profiles and
 # requirements.toml are checked out at the release this file belongs to,
@@ -37,7 +37,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           repository: crunchtools/constitution
-          ref: v1.22.0
+          ref: v1.22.1
           path: .constitution
           persist-credentials: false
       - uses: actions/setup-python@v7

@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Open the pin-bump PR in every fleet repo after a constitution release (issue #22).
 
-A repo's `Inherits:` and its validate.yml pin are one version and move in one
-PR; Dependabot ignores the constitution pin so it can't bump one without the
-other. For each manifest repo behind the target this rewrites both, opens a PR
+A repo's `Inherits:`, its validate.yml pin and its pre-commit hook rev are one
+version and move in one PR; Dependabot ignores the constitution pin so it can't bump one without the
+other. For each manifest repo behind the target this rewrites all three, opens a PR
 and queues it for auto-merge. Validation at the new tag decides whether it lands;
 a repo the new rules break keeps its PR open for a human, and the drift report
 lists it.
@@ -26,6 +26,10 @@ from fleet_common import MANIFEST, ORG, clone, gh, load_validator, select_repos
 
 PIN = re.compile(r"(crunchtools/constitution/\.github/workflows/[\w-]+\.yml@)v\d+\.\d+\.\d+")
 INHERITS = re.compile(r"^(>\s*\*\*Inherits:\*\*.*?)v\d+\.\d+\.\d+", re.MULTILINE)
+HOOK_REV = re.compile(
+    r"(repo:\s*https://github\.com/crunchtools/constitution/?\s*\n\s*rev:\s*)v\d+\.\d+\.\d+"
+)
+PRE_COMMIT = ".pre-commit-config.yaml"
 
 
 def git(root: Path, *args: str) -> None:
@@ -36,13 +40,20 @@ def git(root: Path, *args: str) -> None:
 
 
 def bump(root: Path, version: str) -> list[Path]:
-    """Rewrite Inherits and every constitution workflow pin. Returns changed files."""
+    """Rewrite Inherits, every constitution workflow pin and the pre-commit hook rev.
+
+    Returns changed files.
+    """
     changed = []
     targets = [root / MANIFEST, *sorted((root / ".github" / "workflows").glob("*.y*ml"))]
+    if (root / PRE_COMMIT).is_file():
+        targets.append(root / PRE_COMMIT)
     for path in targets:
         text = path.read_text()
         new = INHERITS.sub(rf"\g<1>v{version}", text) if path.name == "constitution.md" else text
         new = PIN.sub(rf"\g<1>v{version}", new)
+        if path.name == PRE_COMMIT:
+            new = HOOK_REV.sub(rf"\g<1>v{version}", new)
         if new != text:
             path.write_text(new)
             changed.append(path)

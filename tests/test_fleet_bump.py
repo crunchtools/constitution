@@ -66,3 +66,21 @@ def test_bump_moves_inherits_and_pin_together(tmp_path):
     assert set(changed) == {manifest, flows / "constitution.yml"}
     assert "v1.19.0" in manifest.read_text()
     assert "validate.yml@v1.19.0" in (flows / "constitution.yml").read_text()
+
+
+def test_bump_moves_the_pre_commit_hook_rev(tmp_path):
+    manifest = tmp_path / ".specify/memory/constitution.md"
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text("> **Inherits:** [crunchtools/constitution](https://example.com) v1.18.0\n")
+    (tmp_path / ".github/workflows").mkdir(parents=True)
+    config = tmp_path / ".pre-commit-config.yaml"
+    config.write_text(
+        "repos:\n"
+        "  - repo: https://github.com/astral-sh/ruff-pre-commit\n"
+        "    rev: v0.6.0\n"
+        "  - repo: https://github.com/crunchtools/constitution\n"
+        "    rev: v1.0.0\n"
+    )
+    assert config in bump.bump(tmp_path, "1.19.0")
+    assert "ruff-pre-commit\n    rev: v0.6.0\n" in config.read_text()
+    assert "crunchtools/constitution\n    rev: v1.19.0\n" in config.read_text()

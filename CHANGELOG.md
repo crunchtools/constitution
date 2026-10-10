@@ -9,6 +9,21 @@ Entries through 1.14.0 are derived from the Ratification History table in
 
 ## [Unreleased]
 
+## [1.22.1] - 2026-10-10
+
+### Changed
+- MCP Server profile 1.7.1: the partition-test snippet reads the annotation
+  through `model_dump(by_alias=True)`; FastMCP 4 deprecates the `readOnlyHint`
+  attribute and warns on it.
+- MCP Server profile 1.7.1: upkeep every tool performs alike (a transparent
+  token refresh, a session login, first-call initialisation) is not a tool's
+  effect when deciding whether it is read-only.
+
+### Fixed
+- `fleet-bump.py` moves the constitution pre-commit hook `rev` together with
+  `Inherits` and the workflow pins (#52). It sat at v1.0.0 across the fleet and
+  failed every current manifest.
+
 ## [1.22.0] - 2026-10-10
 
 ### Added

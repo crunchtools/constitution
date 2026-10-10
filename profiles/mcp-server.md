@@ -1,6 +1,6 @@
 # MCP Server Profile
 
-> **Profile Version:** 1.7.0
+> **Profile Version:** 1.7.1
 > **Applies to:** All `mcp-*-crunchtools` projects
 
 This profile extends the [universal constitution](../constitution.md) with requirements specific to MCP (Model Context Protocol) servers in the crunchtools organization.
@@ -38,7 +38,7 @@ For any credential environment variable `FOO_TOKEN`, the server MUST also suppor
 - **Every field carries a `description`.** It is the only documentation the calling model sees.
 - **Constraints live in the schema.** ID fields declare `ge=1`; length, format and range constraints are expressed as `Field(...)` constraints, not only in validator code, so the published `inputSchema` is enough for a gateway to tell a valid value from an invalid one.
 - **The two rules above are layered, not in conflict.** The schema publishes the *valid domain* (e.g. `ge=1`), which tells a gateway such as Trentina which optional values it may drop before forwarding. It drops one only on a tool annotated read-only (next rule); on any other tool it refuses the call. The server's `mode="before"` validator still maps an out-of-domain *optional* value (`""`, whitespace, `null`, `0`, a negative ID) to `None` before the constraint runs, so a client that talks to the server directly and sends one anyway is served, not refused. Out-of-domain *required* values fail validation.
-- **Tools that only read say so.** A read-only tool MUST be registered with `annotations={"readOnlyHint": True}`. A tool is read-only when all three hold: it changes nothing observable through the backend or on the server's own disk, it does not execute code the caller supplies, and one call costs no more than an ordinary API request. Classify each tool by what its implementation does, never by its name: a `read_entry` that marks the entry read is a write. When unsure, leave the tool unannotated. A gateway drops an invalid optional argument only on an annotated tool, because dropping one that narrows a write widens it (crunchtools/mcp-trentina#335), and a client may run an annotated tool without asking. Do not set `destructiveHint: True`; it is the protocol default for every tool that is not read-only.
+- **Tools that only read say so.** A read-only tool MUST be registered with `annotations={"readOnlyHint": True}`. A tool is read-only when all three hold: it changes nothing observable through the backend or on the server's own disk, it does not execute code the caller supplies, and one call costs no more than an ordinary API request. Classify each tool by what its implementation does, never by its name: a `read_entry` that marks the entry read is a write. Upkeep every tool performs alike is not a tool's effect: a transparent token refresh, a session login, a first-call schema or cache initialisation. When unsure, leave the tool unannotated. A gateway drops an invalid optional argument only on an annotated tool, because dropping one that narrows a write widens it (crunchtools/mcp-trentina#335), and a client may run an annotated tool without asking. Do not set `destructiveHint: True`; it is the protocol default for every tool that is not read-only.
 
 **Layer 3 — API Hardening:**
 - Auth via secure header (never in URL)
@@ -280,7 +280,7 @@ Every tool MUST have a corresponding mocked test. Tests use `httpx.AsyncClient` 
 
 **Registered schema assertion:** tests MUST inspect the schema the registered tool actually publishes (e.g. `await mcp.get_tool(name)`), not only the Pydantic model, for any tool whose parameters include a nested model.
 
-**Read-only partition assertion:** tests MUST pin two sets, `READ_ONLY` and `WRITES`, and assert against the registered tools, not `tools.__all__`, that every tool is in exactly one and that the annotated tools are exactly `READ_ONLY`. Adding a tool then fails the suite until it is classified.
+**Read-only partition assertion:** tests MUST pin two sets, `READ_ONLY` and `WRITES`, and assert against the registered tools, not `tools.__all__`, that every tool is in exactly one and that the annotated tools are exactly `READ_ONLY`. Adding a tool then fails the suite until it is classified. The snippet reads the annotation through `model_dump(by_alias=True)` because FastMCP 4 deprecates the `readOnlyHint` attribute.
 
 ```python
 READ_ONLY = frozenset({"list_things_tool", "get_thing_tool"})
@@ -295,7 +295,8 @@ async def test_every_tool_is_classified() -> None:
     annotated = {
         tool.name
         for tool in tools
-        if tool.annotations is not None and tool.annotations.readOnlyHint is True
+        if tool.annotations is not None
+        and tool.annotations.model_dump(by_alias=True).get("readOnlyHint") is True
     }
     assert annotated == READ_ONLY
 ```
