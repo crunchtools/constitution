@@ -2,8 +2,9 @@
 """Open the pin-bump PR in every fleet repo after a constitution release (issue #22).
 
 A repo's `Inherits:`, its validate.yml pin and its pre-commit hook rev are one
-version and move in one PR; Dependabot ignores the constitution pin so it can't bump one without the
-other. For each manifest repo behind the target this rewrites all three, opens a PR
+version and move in one PR; Dependabot ignores the constitution pin so it can't
+bump one without the others. For each manifest repo behind the target this
+rewrites them (the hook rev where the repo has a pre-commit config), opens a PR
 and queues it for auto-merge. Validation at the new tag decides whether it lands;
 a repo the new rules break keeps its PR open for a human, and the drift report
 lists it.
