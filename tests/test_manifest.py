@@ -104,8 +104,9 @@ def repo(tmp_path: Path) -> Path:
         text = re.sub(r"@v\d+\.\d+\.\d+", f"@v{VERSION}", (ROOT / "examples" / name).read_text())
         write(root, f".github/workflows/{name}", text)
     shutil.copy(ROOT / "examples" / "dependabot-uv.yml", root / ".github" / "dependabot.yml")
-    for rel in ("pyproject.toml", "uv.lock", "Containerfile", "tests/test_tools.py"):
+    for rel in ("pyproject.toml", "uv.lock", "Containerfile"):
         write(root, rel, "")
+    write(root, "tests/test_tools.py", "assert tool.annotations.readOnlyHint is True\n")
     return root
 
 
@@ -375,6 +376,21 @@ def test_host_contract_waits_for_inherits(repo):
     for rel in (".specify/memory/constitution.md", ".github/workflows/constitution.yml"):
         path = repo / rel
         path.write_text(path.read_text().replace(f"v{VERSION}", "v1.19.1"))
+    assert violations(repo) == []
+
+
+def test_mcp_server_needs_read_only_test(repo):
+    write(repo, "tests/test_tools.py", "")
+    (only,) = violations(repo)
+    assert "no file under test*/ matches `readOnlyHint`" in only
+
+
+def test_read_only_test_waits_for_inherits(repo):
+    """Version-gated: the drift report judges older pins with this validator."""
+    write(repo, "tests/test_tools.py", "")
+    for rel in (".specify/memory/constitution.md", ".github/workflows/constitution.yml"):
+        path = repo / rel
+        path.write_text(path.read_text().replace(f"v{VERSION}", "v1.21.0"))
     assert violations(repo) == []
 
 

@@ -989,6 +989,36 @@ def check_repo_files(repo_root: Path, profiles: list[str], requirements: dict) -
     return violations
 
 
+TESTS_CONTAIN_SINCE = (1, 22, 0)
+"""First constitution version with the `tests_contain` requirement."""
+
+
+def check_tests_contain(
+    repo_root: Path, inherits: str, profiles: list[str], requirements: dict
+) -> list[str]:
+    """Since 1.22.0: each profile's `tests_contain` regex matches in some test file.
+
+    Version-gated because the drift report judges every repo with main's
+    requirements, whatever release the repo inherits. A match is a tripwire,
+    not proof: it says the test the profile asks for was written, not that it
+    is right.
+    """
+    if (version_tuple(inherits) or ()) < TESTS_CONTAIN_SINCE:
+        return []
+    missing = [
+        pattern
+        for profile in profiles
+        for pattern in requirements.get("profile", {}).get(profile, {}).get("tests_contain", [])
+    ]
+    for path in repo_root.glob("test*/**/*.py"):
+        if not missing:
+            break
+        if path.is_file():
+            text = path.read_text(errors="ignore")
+            missing = [pattern for pattern in missing if not re.search(pattern, text)]
+    return [f"TESTS: no file under test*/ matches `{pattern}`" for pattern in missing]
+
+
 HOST_CONTRACT_SINCE = (1, 20, 0)
 """First constitution version whose XII states the host contract."""
 HOST_LANGUAGES = {"system", "unsupported"}  # pre-commit 4.4 renamed system to unsupported
@@ -1173,6 +1203,7 @@ def validate_manifest(
         violations += check_host_contract(repo_root, inherits, requirements)
         violations += check_gate_workflows(repo_root, inherits, requirements)
         violations += check_repo_files(repo_root, profiles, requirements)
+        violations += check_tests_contain(repo_root, inherits, profiles, requirements)
         violations += check_visibility(profiles, requirements, slug)
     return violations
 

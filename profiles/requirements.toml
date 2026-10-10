@@ -30,10 +30,15 @@ license_agpl = true
 #   sections         headings the manifest MUST carry (repo-specific facts)
 #   private          the repo MUST be private (checked through the GitHub API)
 #   containerfile_from  regex a Containerfile FROM line must match
+#   tests_contain    regexes that must each match in a file under test*/**/*.py
+#                    (repos inheriting v1.22.0 or later)
 
 [profile."MCP Server"]
 files = ["pyproject.toml", "uv.lock", "Containerfile*", "test*/**/*.py"]
 dependabot = ["uv"]
+# The read-only partition test (profile Layer 2 and IV). A tripwire: the test
+# itself, in the repo's own gate, is what holds the classification.
+tests_contain = ["readOnlyHint"]
 
 [profile."CLI Tool"]
 files = ["pyproject.toml", "uv.lock", "Containerfile*", "test*/**/*.py"]
