@@ -240,6 +240,27 @@ def test_security_gateway_needs_its_four_sections(repo):
     assert violations(repo) == []
 
 
+def test_workflow_automation_needs_caller_scripts_and_sections(repo):
+    manifest = repo / ".specify/memory/constitution.md"
+    manifest.write_text(manifest.read_text().replace("MCP Server", "Workflow Automation"))
+    found = violations(repo)
+    assert {v for v in found if v.startswith("FILES:")} == {
+        "FILES: nothing matches `examples/*.yml`",
+        "FILES: nothing matches `scripts/*`",
+    }
+    assert {v.split("'")[1] for v in found if not v.startswith("FILES:")} == {
+        "## Authority Split",
+        "## Configured Limits",
+    }
+    write(repo, "examples/caller.yml", "name: Caller\n")
+    write(repo, "scripts/apply_labels.py", "")
+    sections = "".join(
+        f"\n## {title}\n\nStated.\n" for title in ("Authority Split", "Configured Limits")
+    )
+    manifest.write_text(manifest.read_text() + sections)
+    assert violations(repo) == []
+
+
 def test_bootc_image_needs_bootc_base(repo):
     manifest = repo / ".specify/memory/constitution.md"
     manifest.write_text(manifest.read_text().replace("MCP Server", "Bootc Image"))

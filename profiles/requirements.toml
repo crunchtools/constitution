@@ -84,3 +84,7 @@ files = ["*.asc"]
 files = ["README.md"]
 license_agpl = false
 sections = ["Producer and Scrubbing"]
+
+[profile."Workflow Automation"]
+files = ["examples/*.yml", "scripts/*", "test*/**/*.py"]
+sections = ["Authority Split", "Configured Limits"]

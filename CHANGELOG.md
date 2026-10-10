@@ -9,6 +9,19 @@ Entries through 1.14.0 are derived from the Ratification History table in
 
 ## [Unreleased]
 
+## [1.23.0] - 2026-10-10
+
+### Added
+- **Workflow Automation profile** (`profiles/workflow-automation.md`) for repos
+  whose product is reusable GitHub Actions workflows that act on other repos.
+  Ashigaru v2 is the first: it stops being an MCP server and becomes workflows
+  that triage issues and fix bugs across the fleet. The profile requires pinned
+  release tags for consumers, no write credential in a step that runs an LLM,
+  writes made by deterministic steps, no LLM merge authority, a gate that keeps
+  content from accounts without write access away from an agent, and tested
+  limits. `requirements.toml` checks for a caller in `examples/`, scripts,
+  tests, and the `Authority Split` and `Configured Limits` manifest sections.
+
 ## [1.22.1] - 2026-10-10
 
 ### Changed
