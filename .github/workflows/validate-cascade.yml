@@ -37,6 +37,8 @@ jobs:
           app-id: ${{ vars.CRUNCHTOOLS_CI_APP_ID || secrets.CRUNCHTOOLS_CI_APP_ID }}
           private-key: ${{ secrets.CRUNCHTOOLS_CI_APP_KEY }}
           owner: crunchtools
+          # The check only reads workflows across the org.
+          permission-contents: read
 
       - name: Run cascade determinism check
         env:
