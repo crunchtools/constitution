@@ -28,7 +28,17 @@ jobs:
         with:
           python-version: '3.12'
 
+      # The crunchtools-ci App's token, not a personal one: it has its own rate
+      # limit, so a busy day on someone's account can't turn this check red.
+      - name: Mint CI token
+        id: ci-token
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ vars.CRUNCHTOOLS_CI_APP_ID || secrets.CRUNCHTOOLS_CI_APP_ID }}
+          private-key: ${{ secrets.CRUNCHTOOLS_CI_APP_KEY }}
+          owner: crunchtools
+
       - name: Run cascade determinism check
         env:
-          GH_TOKEN: ${{ secrets.CRUNCHTOOLS_DISPATCH_TOKEN }}
+          GH_TOKEN: ${{ steps.ci-token.outputs.token }}
         run: python validate-cascade.py --verbose
