@@ -1,6 +1,6 @@
 # CrunchTools Constitution
 
-> **Version:** 1.22.1
+> **Version:** 1.23.0
 > **Ratified:** 2026-10-10
 > **Status:** Active
 
@@ -198,6 +198,7 @@ Valid profiles:
 - **Package Repository** — see `profiles/package-repository.md`
 - **Data Archive** — see `profiles/data-archive.md`
 - **Security Gateway** — see `profiles/security-gateway.md`
+- **Workflow Automation** — see `profiles/workflow-automation.md`
 
 Every repo in the organization has a profile. There are no exemptions: a repo that fits none gets a new profile. A project MAY declare multiple profiles if it spans subsystems.
 
@@ -697,3 +698,4 @@ a public repository. Keep it host-side (for example
 | 1.21.0 | 2026-10-08 | Added Honeypot Agents (X) to the Autonomous Agent profile (1.3.0): an agent that reads hostile content on purpose is allowed when it holds nothing real. Its gateway profile is one the gateway refuses to load with a real backend, its credentials are fake and known to the gateway, its model key stays at the gateway, the runtime's own tools are disabled, it has a network and a memory no other agent shares, and what it reads is kept as evidence, never as a log or a fixture. The clauses on P/Q separation, scoring, human approval, credentials and incident response are restated for it, and a seventh quality gate checks that it holds nothing real. Prompted by planning the first honeypot deployment and finding that the profile had no class of agent at all, so every rule that makes a normal agent safe forbade it |
 | 1.22.0 | 2026-10-10 | MCP Server profile 1.7.0 (#35): a tool that only reads MUST be registered with `readOnlyHint`, where read-only means it changes nothing observable through the backend or on the server's disk, runs no caller-supplied code and costs no more than an ordinary API request; tests MUST pin every registered tool into a `READ_ONLY` or a `WRITES` set. The validator fails an MCP Server repo with no test naming `readOnlyHint`, for repos inheriting v1.22.0 or later. Prompted by mcp-trentina 0.53.0, which drops an invalid optional argument only on a tool annotated read-only and refuses the call otherwise, while 18 of 19 crunchtools servers published no annotations and had their reads refused |
 | 1.22.1 | 2026-10-10 | MCP Server profile 1.7.1: the partition-test snippet reads the annotation through `model_dump(by_alias=True)` (FastMCP 4 deprecates the attribute), and upkeep every tool performs alike (token refresh, session login, first-call initialisation) is not a tool's effect. `fleet-bump.py` moves the pre-commit hook rev with the pin (#52) |
+| 1.23.0 | 2026-10-10 | Added the Workflow Automation profile for repos whose product is reusable GitHub Actions workflows that act on other repos (Ashigaru v2): consumers pin release tags, a step that runs an LLM holds no write credential, writes are made by deterministic steps, no LLM holds merge authority, content from accounts without write access never reaches an agent unattended, and the switch, turn, round and per-run limits are tested. Manifests carry Authority Split and Configured Limits |
