@@ -9,6 +9,28 @@ Entries through 1.14.0 are derived from the Ratification History table in
 
 ## [Unreleased]
 
+## [1.22.0] - 2026-10-10
+
+### Added
+- MCP Server profile 1.7.0 (#35): a tool that only reads MUST be registered
+  with `annotations={"readOnlyHint": True}`. Read-only means the tool changes
+  nothing observable through the backend or on the server's own disk, runs no
+  caller-supplied code, and costs no more than an ordinary API request per
+  call. Since mcp-trentina 0.53.0 the gateway drops an invalid optional
+  argument only on an annotated tool and refuses the call otherwise.
+- The profile's testing standards require a partition test: every registered
+  tool is in exactly one of `READ_ONLY` and `WRITES`, and the annotated tools
+  are exactly `READ_ONLY`.
+- `requirements.toml` key `tests_contain`, and the validator check behind it.
+  An MCP Server repo inheriting v1.22.0 or later fails when no test file names
+  `readOnlyHint`.
+
+### Changed
+- MCP Server Layer 2 said the published schema tells a gateway which optional
+  values to drop. It now says the gateway drops one only on a read-only tool.
+- MCP Server Layer 4 said tools have no side effects, which no write tool
+  meets. It now says no effect beyond the API call they wrap.
+
 ## [1.21.0] - 2026-10-08
 
 ### Added

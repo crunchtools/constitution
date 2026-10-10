@@ -1,6 +1,6 @@
 # MCP Server Profile
 
-> **Profile Version:** 1.6.0
+> **Profile Version:** 1.7.0
 > **Applies to:** All `mcp-*-crunchtools` projects
 
 This profile extends the [universal constitution](../constitution.md) with requirements specific to MCP (Model Context Protocol) servers in the crunchtools organization.
@@ -37,7 +37,8 @@ For any credential environment variable `FOO_TOKEN`, the server MUST also suppor
 - **No free-form objects in tool schemas.** No bare `dict[str, Any]` or `list[dict]` parameters. Declare the properties in a Pydantic model with `extra="forbid"`; a model fills what the schema names, and a bare `object` produces `{}`.
 - **Every field carries a `description`.** It is the only documentation the calling model sees.
 - **Constraints live in the schema.** ID fields declare `ge=1`; length, format and range constraints are expressed as `Field(...)` constraints, not only in validator code, so the published `inputSchema` is enough for a gateway to tell a valid value from an invalid one.
-- **The two rules above are layered, not in conflict.** The schema publishes the *valid domain* (e.g. `ge=1`), which tells a gateway such as Trentina which optional values to drop before forwarding. The server's `mode="before"` validator still maps an out-of-domain *optional* value (`""`, whitespace, `null`, `0`, a negative ID) to `None` before the constraint runs, so a client that talks to the server directly and sends one anyway is served, not refused. Out-of-domain *required* values fail validation.
+- **The two rules above are layered, not in conflict.** The schema publishes the *valid domain* (e.g. `ge=1`), which tells a gateway such as Trentina which optional values it may drop before forwarding. It drops one only on a tool annotated read-only (next rule); on any other tool it refuses the call. The server's `mode="before"` validator still maps an out-of-domain *optional* value (`""`, whitespace, `null`, `0`, a negative ID) to `None` before the constraint runs, so a client that talks to the server directly and sends one anyway is served, not refused. Out-of-domain *required* values fail validation.
+- **Tools that only read say so.** A read-only tool MUST be registered with `annotations={"readOnlyHint": True}`. A tool is read-only when all three hold: it changes nothing observable through the backend or on the server's own disk, it does not execute code the caller supplies, and one call costs no more than an ordinary API request. Classify each tool by what its implementation does, never by its name: a `read_entry` that marks the entry read is a write. When unsure, leave the tool unannotated. A gateway drops an invalid optional argument only on an annotated tool, because dropping one that narrows a write widens it (crunchtools/mcp-trentina#335), and a client may run an annotated tool without asking. Do not set `destructiveHint: True`; it is the protocol default for every tool that is not read-only.
 
 **Layer 3 — API Hardening:**
 - Auth via secure header (never in URL)
@@ -48,7 +49,7 @@ For any credential environment variable `FOO_TOKEN`, the server MUST also suppor
 **Layer 4 — Dangerous Operation Prevention:**
 - No filesystem access, shell execution, or code evaluation
 - No `eval()`/`exec()` functions
-- Tools are pure API wrappers with no side effects
+- Tools are pure API wrappers with no effect beyond the API call they wrap
 
 **Layer 5 — Supply Chain Security:**
 - Weekly automated CVE scanning via GitHub Actions
@@ -279,6 +280,26 @@ Every tool MUST have a corresponding mocked test. Tests use `httpx.AsyncClient` 
 
 **Registered schema assertion:** tests MUST inspect the schema the registered tool actually publishes (e.g. `await mcp.get_tool(name)`), not only the Pydantic model, for any tool whose parameters include a nested model.
 
+**Read-only partition assertion:** tests MUST pin two sets, `READ_ONLY` and `WRITES`, and assert against the registered tools, not `tools.__all__`, that every tool is in exactly one and that the annotated tools are exactly `READ_ONLY`. Adding a tool then fails the suite until it is classified.
+
+```python
+READ_ONLY = frozenset({"list_things_tool", "get_thing_tool"})
+WRITES = frozenset({"create_thing_tool", "delete_thing_tool"})
+
+
+async def test_every_tool_is_classified() -> None:
+    # FastMCP 3.x and 4.x. On 2.x: tools = (await mcp.get_tools()).values()
+    tools = await mcp.list_tools()
+    assert READ_ONLY.isdisjoint(WRITES)
+    assert READ_ONLY | WRITES == {tool.name for tool in tools}
+    annotated = {
+        tool.name
+        for tool in tools
+        if tool.annotations is not None and tool.annotations.readOnlyHint is True
+    }
+    assert annotated == READ_ONLY
+```
+
 ### Input Validation Tests
 
 Every Pydantic model MUST have tests covering:
@@ -385,11 +406,12 @@ All MCP servers follow this pattern (replace `<name>` with the service name):
 
 1. Add the async function to the appropriate `tools/*.py` file
 2. Export it from `tools/__init__.py`
-3. Import it in `server.py` and register with `@mcp.tool()`
+3. Import it in `server.py` and register with `@mcp.tool()`, or `@mcp.tool(annotations={"readOnlyHint": True})` if it only reads (Layer 2)
 4. Add a mocked test in `tests/test_tools.py`
 5. Update the tool count in `test_tool_count`
-6. Run all five quality gates
-7. Update CLAUDE.md tool listing
+6. Add the tool to `READ_ONLY` or `WRITES` in the partition test
+7. Run all five quality gates
+8. Update CLAUDE.md tool listing
 
 ### Adding a New Tool Group
 
