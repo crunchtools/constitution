@@ -9,6 +9,23 @@ Entries through 1.14.0 are derived from the Ratification History table in
 
 ## [Unreleased]
 
+## [1.25.0] - 2026-10-11
+
+### Added
+- Web Application profile 1.2.0, **Hosted Dev Sites** (XII): what a dev
+  deployment that runs a git checkout may contain (no agent, editor,
+  source-control client or credential), and the file contract an agent in its
+  own container drives it through: the checkout, `control/<name>` with a closed
+  set of names, and capped `logs/<unit>.log` copies of the journal. The
+  name-to-unit mapping is tested where the image is built, and a deploy from
+  such a session goes through an audited tool, not a host login.
+- Web Application profile, Section III: a path two containers mount uses the
+  shared label `:z` in every unit that mounts it; `:Z` stays for what one
+  container alone mounts.
+
+### Changed
+- The profile's Per-Repo Constitution Format section is now XIII.
+
 ## [1.24.0] - 2026-10-11
 
 ### Changed
