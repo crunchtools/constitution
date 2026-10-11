@@ -1,6 +1,6 @@
 # Web Application Profile
 
-> **Profile Version:** 1.1.0
+> **Profile Version:** 1.2.0
 > **Applies to:** End-user web applications deployed as containers (acquacotta, rotv)
 
 This profile extends the [universal constitution](../constitution.md) with requirements specific to web application projects in the crunchtools organization. Web applications differ from Container Image projects in that they contain application code, manage stateful data, run multiple services, and require application-level testing.
@@ -57,6 +57,10 @@ All container data on the host lives under `/srv/<container-name>/` with three s
 | `data/` | `:Z` | Database files, uploads, logs — everything that persists across container restarts |
 
 This separation enables clean backups (`data/`), version control (`code/`), and runtime config changes (`config/`) without touching the image. Not all applications use all three directories — `data/` is the minimum for any stateful app.
+
+### Mounts shared between containers
+
+`:Z` gives a mount a label private to one container. When a second container mounts the same path, or a directory above it, each start relabels the tree for itself and the other loses access. A path that two containers mount MUST use the shared label, `:z`, in **every** unit that mounts it, including a unit that mounts only part of a tree another container mounts whole. Keep `:Z` for everything that one container alone mounts.
 
 ---
 
@@ -179,7 +183,38 @@ Additional recommended gates:
 
 ---
 
-## XII. Per-Repo Constitution Format
+## XII. Hosted Dev Sites
+
+A hosted dev site is a second deployment of the application that runs from a git checkout on the host instead of the code in the image, so a change can be seen on a real device before it merges. The checkout is edited by an agent that runs in **its own container** ([Autonomous Agent profile](autonomous-agent.md)) with the site's directory bind-mounted. The dev container and the agent container meet only through files.
+
+### What the dev image is
+
+- The production image plus units that run the checkout: the application's own services pointed at it, a dev server with hot reload where the stack has one, and dependency installation.
+- It MUST NOT contain an agent, an editor, a source-control client, or a credential for anything: no forge token, no key to the production host, no model login. A site that reads untrusted content must hold nothing worth taking.
+- It is never deployed as production, and it MUST NOT act on the world: scheduled jobs and outbound mail are off, and its data is a scrubbed copy.
+
+### The contract
+
+Under `/srv/<dev-site>/data/`, mounted into both containers (shared labels, Section III):
+
+| Path | Who writes | Meaning |
+|------|-----------|---------|
+| `checkout/` | the agent | The code. A saved file takes effect without a command wherever the stack allows it: hot reload for the frontend, a watching runtime for the backend. |
+| `control/<name>` | the agent, by `touch` | Restart the units behind `<name>`. The names are a closed set the image defines and documents; a file with any other name does nothing. A systemd path unit per name is the standard implementation. |
+| `logs/<unit>.log` | the dev container | The recent journal of each dev unit, as a bounded file. The journal remains the record (Section XIII of the universal constitution); the file is a copy, and it MUST be capped because it sits on the host's disk. |
+
+- Dependencies live inside the checkout, not in a volume only the dev container can see, so the agent can run unit tests against what the site runs.
+- A change that needs more than a save (a lockfile, a migration) SHOULD trigger its own control name.
+- The mapping from control name to units MUST be tested where the image is built.
+- The agent MUST NOT be given a shell in the dev container, its container runtime socket, or a login on the host. Restarting the whole dev container is the host's job, through whatever audited tool the host offers.
+
+### Deploying from a dev session
+
+A session working on the checkout MAY merge, tag and deploy. The deploy step MUST go through an audited tool that can do that one thing (restart the production unit), never through a general login on the production host.
+
+---
+
+## XIII. Per-Repo Constitution Format
 
 Since constitution v1.18.0 this file is a manifest (constitution.md VII): the header plus sections for what is unique to this repo. Do not restate this profile or the fleet rules; the validator fails on a section titled like one of their numbered sections, and checks the gates, pins and files directly.
 
