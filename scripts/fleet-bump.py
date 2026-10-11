@@ -30,6 +30,13 @@ INHERITS = re.compile(r"^(>\s*\*\*Inherits:\*\*.*?)v\d+\.\d+\.\d+", re.MULTILINE
 HOOK_REV = re.compile(
     r"(repo:\s*https://github\.com/crunchtools/constitution/?\s*\n\s*rev:\s*)v\d+\.\d+\.\d+"
 )
+# Gatehouse and Ashigaru are called at the major tag, which their releases move
+# (XII, from v1.24.0). An exact pin left from before is rewritten in the same PR
+# that moves Inherits: the validator a repo ran until then rejects `@v0`.
+MAJOR_TAGGED = re.compile(
+    r"(crunchtools/(?:gatehouse|ashigaru)/\.github/workflows/[\w-]+\.yml@v\d+)\.\d+\.\d+"
+)
+MAJOR_TAGS_SINCE = (1, 24, 0)
 PRE_COMMIT = ".pre-commit-config.yaml"
 
 
@@ -43,8 +50,10 @@ def git(root: Path, *args: str) -> None:
 def bump(root: Path, version: str) -> list[Path]:
     """Rewrite Inherits, every constitution workflow pin and the pre-commit hook rev.
 
+    From v1.24.0 an exact Gatehouse or Ashigaru pin also becomes its major tag.
     Returns changed files.
     """
+    gates_use_major_tags = tuple(int(part) for part in version.split(".")) >= MAJOR_TAGS_SINCE
     changed = []
     targets = [root / MANIFEST, *sorted((root / ".github" / "workflows").glob("*.y*ml"))]
     if (root / PRE_COMMIT).is_file():
@@ -53,6 +62,8 @@ def bump(root: Path, version: str) -> list[Path]:
         text = path.read_text()
         new = INHERITS.sub(rf"\g<1>v{version}", text) if path.name == "constitution.md" else text
         new = PIN.sub(rf"\g<1>v{version}", new)
+        if gates_use_major_tags:
+            new = MAJOR_TAGGED.sub(r"\g<1>", new)
         if path.name == PRE_COMMIT:
             new = HOOK_REV.sub(rf"\g<1>v{version}", new)
         if new != text:
@@ -79,7 +90,9 @@ def open_bump_pr(root: Path, name: str, version: str, changed: list[Path]) -> st
         f"chore: inherit constitution v{version}",
         "--body",
         f"Moves `Inherits:` and the validate.yml pin to v{version} together "
-        f"(opened by constitution/scripts/fleet-bump.py). Auto-merges if the repo passes "
+        f"(opened by constitution/scripts/fleet-bump.py). From v1.24.0 this also turns an "
+        f"exact Gatehouse or Ashigaru pin into its major tag (`@v0`, `@v2`), which their "
+        f"releases move. Auto-merges if the repo passes "
         f"validation at the new tag; otherwise it needs a fix here.",
     ).strip()
     queue = subprocess.run(

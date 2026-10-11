@@ -20,7 +20,7 @@
 # `ready-for-triage` to have it looked at again.
 #
 # Where the checks are. This file only routes events. The workflows it calls
-# do the checking, at the pinned release, before any agent runs:
+# do the checking before any agent runs:
 #   • the switch: every called workflow stops at its first job unless the
 #     organization variable ASHIGARU_ENABLED is true
 #   • who may reach an agent: scripts/guard.py asks the API for the write
@@ -30,7 +30,8 @@
 #   • what the secrets can do: the job that runs the model gets a read-only
 #     token; the app key is used only by jobs that run no model
 #
-# Copy unchanged apart from the pins, which Dependabot keeps current.
+# Copy unchanged. The workflows are called at the major tag, which each
+# release moves, so this file never needs a version bump.
 
 name: Ashigaru
 
@@ -57,7 +58,7 @@ jobs:
     permissions:
       contents: read
       issues: write
-    uses: crunchtools/ashigaru/.github/workflows/triage.yml@v2.3.0
+    uses: crunchtools/ashigaru/.github/workflows/triage.yml@v2
     secrets:
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
 
@@ -72,7 +73,7 @@ jobs:
     permissions:
       contents: read
       issues: read
-    uses: crunchtools/ashigaru/.github/workflows/code.yml@v2.3.0
+    uses: crunchtools/ashigaru/.github/workflows/code.yml@v2
     secrets:
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
       ASHIGARU_APP_ID: ${{ secrets.ASHIGARU_APP_ID }}
@@ -91,7 +92,7 @@ jobs:
       pull-requests: read
       checks: read
       actions: read
-    uses: crunchtools/ashigaru/.github/workflows/fix.yml@v2.3.0
+    uses: crunchtools/ashigaru/.github/workflows/fix.yml@v2
     secrets:
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
       ASHIGARU_APP_ID: ${{ secrets.ASHIGARU_APP_ID }}

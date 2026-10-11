@@ -160,7 +160,7 @@ Gourmand MUST run through gatehouse's reusable workflow, which uses the pre-buil
 ```yaml
 gourmand:
   name: Code Quality (Gourmand)
-  uses: crunchtools/gatehouse/.github/workflows/gourmand.yml@v0.15.2
+  uses: crunchtools/gatehouse/.github/workflows/gourmand.yml@v0
 ```
 
 The reusable workflow runs `quay.io/crunchtools/gourmand` in a container. An inline copy of the job is what let a dead gate spread across the fleet (RT #1468), so the validator rejects one.

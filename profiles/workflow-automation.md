@@ -1,16 +1,17 @@
 # Workflow Automation Profile
 
-> **Profile Version:** 1.0.0
+> **Profile Version:** 1.1.0
 > **Applies to:** Repos whose product is reusable GitHub Actions workflows that act on other crunchtools repos, with or without an LLM agent in them (`crunchtools/ashigaru`)
 
-A workflow automation repo ships no package and no image. Its product is workflow files other repos call at a pinned tag, the scripts those workflows run and, where an agent is involved, its prompts. It runs with write access to every repo that enrolls, so the questions that matter are who holds the credentials, what stops a run, and whether a consumer can pin what it gets.
+A workflow automation repo ships no package and no image. Its product is workflow files other repos call at its major tag, the scripts those workflows run and, where an agent is involved, its prompts. It runs with write access to every repo that enrolls, so the questions that matter are who holds the credentials, what stops a run, and how a release reaches consumers and is taken back.
 
 ---
 
 ## I. Distribution
 
-- Consumers call the reusable workflows at a release tag (`uses: crunchtools/<name>/.github/workflows/<file>.yml@vX.Y.Z`), never a branch. Every version is tagged `vX.Y.Z` with a GitHub Release.
-- The supported wiring is the caller file in `examples/`. Consumers copy it unchanged apart from the pin, which Dependabot keeps current.
+- Consumers call the reusable workflows at the major tag (`uses: crunchtools/<name>/.github/workflows/<file>.yml@vN`), never a branch. Publishing a release moves that tag to it, forward only, and that is the rollout. Every version is also tagged `vX.Y.Z` with a GitHub Release, so a release is undone by moving the major tag back, and a consumer MAY name an exact release to hold itself back.
+- The supported wiring is the caller file in `examples/`. Consumers copy it unchanged; it carries no version to keep current.
+- The step that moves the major tag runs code from the default branch, holds `contents: write` and nothing else, and is tested to move the tag only to the newest release of its major.
 - Inputs, secrets, label names, branch prefixes and check names are the public interface. Renaming or removing one is a MAJOR change.
 
 ## II. Authority
@@ -45,7 +46,7 @@ A workflow automation repo ships no package and no image. Its product is workflo
 > **Version:** 1.0.0
 > **Ratified:** YYYY-MM-DD
 > **Status:** Active
-> **Inherits:** [crunchtools/constitution](https://github.com/crunchtools/constitution) v1.23.0
+> **Inherits:** [crunchtools/constitution](https://github.com/crunchtools/constitution) v1.24.0
 > **Profile:** Workflow Automation
 
 ## Authority Split

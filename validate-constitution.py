@@ -694,6 +694,7 @@ CONSTITUTION_REUSABLE = re.compile(
 ROMAN_HEADING = re.compile(r"^##\s+[IVXLC]+\.\s+(.+?)\s*$", re.MULTILINE)
 LEGACY_VALIDATOR_CHECKOUT = re.compile(r"repository:\s*['\"]?crunchtools/constitution\b")
 SEMVER = re.compile(r"^v?(\d+)\.(\d+)\.(\d+)$")
+MAJOR_TAG = re.compile(r"^v(\d+)$")
 
 
 def own_version() -> str | None:
@@ -846,7 +847,7 @@ def inline_gourmand_jobs(flows: "Workflows") -> list[str]:
 
 
 def check_gate_workflows(repo_root: Path, inherits: str, requirements: dict) -> list[str]:
-    """XII and #22: the gates exist, on the right triggers, at supported pins."""
+    """XII and #22: the gates exist, on the right triggers, at a supported tag."""
     flows = Workflows(repo_root)
     violations = [f"WORKFLOWS: {name} is not valid YAML" for name in flows.unparsable]
     gatehouse = flows.calls(GATEHOUSE_REUSABLE)
@@ -891,10 +892,18 @@ def check_gate_workflows(repo_root: Path, inherits: str, requirements: dict) -> 
         ref = match.group(2)
         if ref is None:  # a local ./ call, gatehouse calling itself
             continue
+        major = MAJOR_TAG.match(ref)
         pinned = version_tuple(ref)
-        if pinned is None:
+        if major:  # the tag each release moves; XII
+            if floor and int(major.group(1)) < floor[0]:
+                violations.append(
+                    f"WORKFLOWS: {name} calls gatehouse {match.group(1)}.yml@{ref}, below the "
+                    f"supported major v{floor[0]}"
+                )
+        elif pinned is None:
             violations.append(
-                f"WORKFLOWS: {name} pins gatehouse {match.group(1)}.yml@{ref}, not a release tag"
+                f"WORKFLOWS: {name} calls gatehouse {match.group(1)}.yml@{ref}, not a release tag; "
+                f"use the major tag (@v{floor[0] if floor else 0})"
             )
         elif floor and pinned < floor:
             violations.append(

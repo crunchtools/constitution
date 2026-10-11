@@ -6,8 +6,9 @@
 # enforced. A rule that lives only in prose is reported as prose-only.
 
 [fleet]
-# Oldest crunchtools/gatehouse release a reusable-workflow pin may point at.
-# Dependabot auto-merge keeps pins current; this catches repos where it stopped.
+# Repos call crunchtools/gatehouse at its major tag (`@v0`), which each release
+# moves. This is the oldest release a repo may name instead: its major is the
+# oldest major tag accepted, and an exact pin (`@vX.Y.Z`) must be at least this.
 gatehouse_min = "0.15.0"
 
 # Files every repo carries (globs relative to the repo root).
