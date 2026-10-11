@@ -1,7 +1,7 @@
 # CrunchTools Constitution
 
-> **Version:** 1.23.0
-> **Ratified:** 2026-10-10
+> **Version:** 1.24.0
+> **Ratified:** 2026-10-11
 > **Status:** Active
 
 This constitution establishes the universal principles that govern all software projects in the [crunchtools](https://github.com/crunchtools) organization. Every repo inherits these rules. Subsystem-specific requirements are defined in profiles.
@@ -321,7 +321,7 @@ Canonical drop-in workflow files are maintained in [`crunchtools/gatehouse/examp
 | [`pre-commit.yaml`](https://github.com/crunchtools/gatehouse/blob/master/examples/pre-commit.yaml) | Gourmand and Gatehouse pre-commit hooks — merge into `.pre-commit-config.yaml` |
 | [`gatehouse-retriage.yml`](https://github.com/crunchtools/gatehouse/blob/master/examples/gatehouse-retriage.yml) | Re-runs triage when a finding gets a reply — add as `.github/workflows/gatehouse-retriage.yml` |
 
-These files are the fleet-owned wiring: copy them unchanged apart from the pins, which Dependabot keeps current. A single bundled reusable workflow was considered and rejected (#22): the gates need different triggers (`pull_request` for Gourmand, `pull_request_target` for review and triage, `workflow_run` for retriage), and nesting renames the check names that branch rules and retriage look up.
+These files are the fleet-owned wiring: copy them unchanged. They call Gatehouse at its major tag (`@v0`), which each Gatehouse release moves once its images are pushed, so a release reaches every repo with no pull request there. A repo MAY name an exact release (`@vX.Y.Z`) to hold itself back during an incident; a branch or a commit is not accepted. The same holds for a Workflow Automation repo's caller file (`crunchtools/ashigaru` at `@v2`). What this gives up is a per-repo trial of each release; what it buys is that no repo runs a stale gate, and a bad release is undone by moving one tag back. A single bundled reusable workflow was considered and rejected (#22): the gates need different triggers (`pull_request` for Gourmand, `pull_request_target` for review and triage, `workflow_run` for retriage), and nesting renames the check names that branch rules and retriage look up.
 
 Required checks, set once in the organization ruleset: `Protect workflows`, `Gatehouse triage / Gatehouse triage`, `Code Quality (Gourmand) / Code Quality (Gourmand)` and `Constitution / Validate constitution`.
 
@@ -491,6 +491,12 @@ and the build broke with zero code changes to point at.
    queued and lands when the required checks pass. Majors and other
    ecosystems wait for a human. Dependabot PRs left open more than 14 days
    show up in the drift report.
+
+5. **The fleet's own reusable workflows are not pinned per repo.** A call to
+   `crunchtools/gatehouse` or to a Workflow Automation repo names the major
+   tag, which the release moves (XII). There is no per-repo version to keep
+   current, so rule 2 has nothing to update; Dependabot proposes only a new
+   major, and that waits for a human like any other.
 
 Canonical files: [`examples/dependabot.yml`](examples/dependabot.yml)
 (github-actions only) and [`examples/dependabot-uv.yml`](examples/dependabot-uv.yml)
@@ -699,3 +705,4 @@ a public repository. Keep it host-side (for example
 | 1.22.0 | 2026-10-10 | MCP Server profile 1.7.0 (#35): a tool that only reads MUST be registered with `readOnlyHint`, where read-only means it changes nothing observable through the backend or on the server's disk, runs no caller-supplied code and costs no more than an ordinary API request; tests MUST pin every registered tool into a `READ_ONLY` or a `WRITES` set. The validator fails an MCP Server repo with no test naming `readOnlyHint`, for repos inheriting v1.22.0 or later. Prompted by mcp-trentina 0.53.0, which drops an invalid optional argument only on a tool annotated read-only and refuses the call otherwise, while 18 of 19 crunchtools servers published no annotations and had their reads refused |
 | 1.22.1 | 2026-10-10 | MCP Server profile 1.7.1: the partition-test snippet reads the annotation through `model_dump(by_alias=True)` (FastMCP 4 deprecates the attribute), and upkeep every tool performs alike (token refresh, session login, first-call initialisation) is not a tool's effect. `fleet-bump.py` moves the pre-commit hook rev with the pin (#52) |
 | 1.23.0 | 2026-10-10 | Added the Workflow Automation profile for repos whose product is reusable GitHub Actions workflows that act on other repos (Ashigaru v2): consumers pin release tags, a step that runs an LLM holds no write credential, writes are made by deterministic steps, no LLM holds merge authority, content from accounts without write access never reaches an agent unattended, and the switch, turn, round and per-run limits are tested. Manifests carry Authority Split and Configured Limits |
+| 1.24.0 | 2026-10-11 | Repos call Gatehouse and Workflow Automation workflows at the major tag (`@v0`, `@v2`), which each release moves, instead of an exact release Dependabot bumps per repo (XII, XV rule 5, Workflow Automation profile 1.1.0). The validator accepts a major tag at or above the supported major; an exact release is still accepted, a branch or commit is not. `fleet-bump.py` rewrites the calls in the same PR that moves `Inherits`. Prompted by 2026-10-10: Ashigaru released 2.3.0, 2.4.0 and 2.5.0 in one day, repos sat one and two releases behind within the hour, and since minor and patch bumps merged themselves the pin delayed a release without reviewing it. The constitution's own pin is unchanged: there the pin is the version a repo is judged by |

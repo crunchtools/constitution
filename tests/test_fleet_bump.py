@@ -68,6 +68,43 @@ def test_bump_moves_inherits_and_pin_together(tmp_path):
     assert "validate.yml@v1.19.0" in (flows / "constitution.yml").read_text()
 
 
+def gate_callers(tmp_path):
+    manifest = tmp_path / ".specify/memory/constitution.md"
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text("> **Inherits:** [crunchtools/constitution](https://example.com) v1.23.0\n")
+    flows = tmp_path / ".github/workflows"
+    flows.mkdir(parents=True)
+    (flows / "gatehouse.yml").write_text(
+        "uses: crunchtools/gatehouse/.github/workflows/review.yml@v0.15.2\n"
+        "uses: crunchtools/gatehouse/.github/workflows/triage.yml@v0.16.0\n"
+        "uses: actions/checkout@v7.1.0\n"
+    )
+    (flows / "ashigaru.yml").write_text(
+        "uses: crunchtools/ashigaru/.github/workflows/fix.yml@v2.4.0\n"
+    )
+    return flows
+
+
+def test_bump_turns_gate_pins_into_major_tags(tmp_path):
+    flows = gate_callers(tmp_path)
+    assert {flows / "gatehouse.yml", flows / "ashigaru.yml"} <= set(bump.bump(tmp_path, "1.24.0"))
+    assert (flows / "gatehouse.yml").read_text() == (
+        "uses: crunchtools/gatehouse/.github/workflows/review.yml@v0\n"
+        "uses: crunchtools/gatehouse/.github/workflows/triage.yml@v0\n"
+        "uses: actions/checkout@v7.1.0\n"
+    )
+    assert (
+        flows / "ashigaru.yml"
+    ).read_text() == "uses: crunchtools/ashigaru/.github/workflows/fix.yml@v2\n"
+
+
+def test_an_older_release_leaves_gate_pins_alone(tmp_path):
+    flows = gate_callers(tmp_path)
+    before = (flows / "gatehouse.yml").read_text()
+    bump.bump(tmp_path, "1.23.1")
+    assert (flows / "gatehouse.yml").read_text() == before
+
+
 def test_bump_moves_the_pre_commit_hook_rev(tmp_path):
     manifest = tmp_path / ".specify/memory/constitution.md"
     manifest.parent.mkdir(parents=True)

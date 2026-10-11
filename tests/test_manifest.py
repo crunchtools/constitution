@@ -164,6 +164,24 @@ def test_stale_gatehouse_pin_fails(repo):
     assert any("below the supported" in v for v in violations(repo))
 
 
+@pytest.mark.parametrize("ref", ["v0", "v1"])
+def test_the_major_tag_passes(repo, ref):
+    """Repos call the gates at the tag each Gatehouse release moves (XII)."""
+    for name in ("gourmand.yml", "gatehouse.yml", "gatehouse-retriage.yml"):
+        flow = repo / ".github/workflows" / name
+        flow.write_text(flow.read_text().replace("@v0.15.2", f"@{ref}"))
+    assert violations(repo) == []
+
+
+def test_a_major_tag_older_than_the_supported_one_fails(repo, monkeypatch):
+    raised = V.load_requirements()
+    raised["fleet"]["gatehouse_min"] = "1.2.0"
+    monkeypatch.setattr(V, "load_requirements", lambda: raised)
+    flow = repo / ".github/workflows/gourmand.yml"
+    flow.write_text(flow.read_text().replace("v0.15.2", "v0"))
+    assert any("below the supported major v1" in v for v in violations(repo))
+
+
 def test_branch_pin_fails(repo):
     flow = repo / ".github/workflows/gourmand.yml"
     flow.write_text(flow.read_text().replace("v0.15.2", "main"))

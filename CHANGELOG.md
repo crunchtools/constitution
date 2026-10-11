@@ -9,6 +9,27 @@ Entries through 1.14.0 are derived from the Ratification History table in
 
 ## [Unreleased]
 
+## [1.24.0] - 2026-10-11
+
+### Changed
+- **Gatehouse and Workflow Automation workflows are called at the major tag**
+  (`@v0`, `@v2`), which each release moves, and no longer at an exact release
+  that Dependabot bumps in every repo (XII, XV rule 5, Workflow Automation
+  profile 1.1.0). On 2026-10-10 Ashigaru released three times and repos were
+  one and two releases behind within the hour; minor and patch bumps merged
+  themselves, so the pin delayed a release without reviewing it. A release is
+  undone by moving the major tag back. A repo may still name an exact release
+  to hold itself back; a branch or a commit is not accepted.
+- The validator accepts a Gatehouse call at a major tag at or above the major
+  of `gatehouse_min`. Exact releases keep the `gatehouse_min` floor.
+- `scripts/fleet-bump.py` rewrites `crunchtools/gatehouse` and
+  `crunchtools/ashigaru` calls to the major tag in the same PR that moves
+  `Inherits`, because a repo inheriting an older release is validated by a
+  validator that rejects `@v0`.
+
+The constitution's own pin is unchanged: `validate.yml@vX.Y.Z` is the version
+a repo is judged by and moves with `Inherits`.
+
 ## [1.23.0] - 2026-10-10
 
 ### Added
