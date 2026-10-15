@@ -1,6 +1,6 @@
 # Autonomous Agent Profile
 
-> **Profile Version:** 1.3.0
+> **Profile Version:** 1.4.0
 > **Applies to:** All autonomous AI agent deployments on crunchtools infrastructure
 
 This profile extends the [universal constitution](../constitution.md) with requirements specific to deploying autonomous AI agents (e.g., OpenClaw) on crunchtools infrastructure. The agent code is third-party — this profile governs the **deployment architecture**, not the agent internals.
@@ -96,6 +96,7 @@ All agent containers MUST run with:
 - **No host network** (`--network` must not be `host`)
 - **No direct egress** — the container MUST NOT reach the internet directly. All external access routes through an audited MCP gateway on a dedicated point-to-point network (`internal=true`, `dns_enabled=false`). Inherited host resolver entries MUST be stripped so a prohibited call fails immediately rather than timing out
 - **Dropped capabilities** — only retain what the agent explicitly needs
+- **Forges only through the gateway** — the agent reaches a code forge (GitHub, GitLab) only through the gateway: its MCP tools for the API, its git route for clone and push. The container holds no forge CLI (`gh`, `glab`) and no forge credential, and no forge host is on its egress allowlist. The gateway holds the token and limits the repositories and the branches a push may move; the default branch, tags and deletes are refused there, because a token that can bypass the forge's own rules makes the gateway the last limit
 
 ### Dependency Pinning
 
