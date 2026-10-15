@@ -9,6 +9,15 @@ Entries through 1.14.0 are derived from the Ratification History table in
 
 ## [Unreleased]
 
+## [1.26.0] - 2026-10-14
+
+### Added
+- Autonomous Agent profile 1.4.0, Runtime Constraints: an agent reaches a
+  code forge only through the gateway, by its MCP tools and its git route.
+  The container holds no forge CLI or credential and has no forge host on its
+  egress allowlist; the gateway limits repositories and pushable branches and
+  refuses the default branch, tags and deletes.
+
 ## [1.25.0] - 2026-10-11
 
 ### Added
