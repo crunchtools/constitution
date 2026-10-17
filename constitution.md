@@ -516,9 +516,16 @@ the same 2026-09-17 backup-freshness check (`check_backup_freshness.sh`,
 
 ### Scheduling
 
-Monitoring checks and their remediations MUST use **Nagios** (interval-based
-detection) or **Hermes** (agent/script jobs) — nothing else. No new systemd
-timers, no host cron, for a monitoring purpose. This is the same rule as
+Scheduled operations work MUST use **Nagios** (interval-based detection) or
+**Hermes** (agent/script jobs) — nothing else. That covers monitoring checks
+and their remediations, and every recurring host job: backups, data
+collection, certificate renewals, pruning, OS and container updates. No host
+cron. The only systemd timers on a host are the ones its OS image ships
+(fstrim, logrotate, sysstat and the like). A job that needs host privileges
+keeps its `.service` on the host, and a Hermes monitor-mode job starts it
+through the systemd MCP tools: Hermes owns the clock, a stable script output
+keeps healthy runs free, and a failed run wakes the agent to investigate
+instead of waiting for a human. This is the same rule as
 Section XIII's centralized logging and exists for the same reason: a third
 scheduler is a third place to look during an incident and a third thing that
 silently stops working. See the Autonomous Agent profile for how a Hermes job
