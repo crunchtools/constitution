@@ -9,6 +9,17 @@ Entries through 1.14.0 are derived from the Ratification History table in
 
 ## [Unreleased]
 
+### Changed
+- **Section XVI — Scheduling** now covers all scheduled operations work, not
+  only monitoring: backups, data collection, certificate renewals, pruning, and
+  OS and container updates are scheduled by Nagios or Hermes too. The only
+  systemd timers on a host are the ones its OS image ships. A job that needs
+  host privileges keeps its `.service` on the host, and a Hermes monitor-mode
+  job starts it through the systemd MCP tools. Prompted by 2026-10-17: GitHub
+  throttled Ashigaru's hourly sweep to every four or five hours, and lotor's own
+  backup, collector and update timers failed into Nagios with nothing to retry
+  them; all of them moved to Hermes jobs that wake Kagetora on a failed run.
+
 ## [1.26.0] - 2026-10-14
 
 ### Added
