@@ -19,6 +19,10 @@ Entries through 1.14.0 are derived from the Ratification History table in
   throttled Ashigaru's hourly sweep to every four or five hours, and lotor's own
   backup, collector and update timers failed into Nagios with nothing to retry
   them; all of them moved to Hermes jobs that wake Kagetora on a failed run.
+- **Section XVI — Scheduling:** a scheduled Hermes job that does work uses
+  monitor mode (`--monitor-script`), so the agent wakes only when the script's
+  stable output changes. `--no-agent` is only for jobs whose whole purpose is to
+  report; a prompt-every-tick agent job is not used for scheduling.
 
 ## [1.26.0] - 2026-10-14
 

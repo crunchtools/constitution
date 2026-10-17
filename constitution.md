@@ -528,7 +528,15 @@ keeps healthy runs free, and a failed run wakes the agent to investigate
 instead of waiting for a human. This is the same rule as
 Section XIII's centralized logging and exists for the same reason: a third
 scheduler is a third place to look during an incident and a third thing that
-silently stops working. See the Autonomous Agent profile for how a Hermes job
+silently stops working.
+
+A scheduled Hermes job that does work MUST use monitor mode
+(`--monitor-script`): a script runs every tick with no model call and prints
+one stable line (no timestamps or run ids), and the agent wakes only when that
+line changes, so it can diagnose, retry or roll back. `--no-agent` is only for
+a job whose whole purpose is to report, where there is nothing for an agent to
+fix. A plain agent job (a prompt on every tick) pays for a model call each run
+and is not used for scheduling. See the Autonomous Agent profile for how a Hermes job
 that reacts to a check (rather than polling on its own timer) fits this rule.
 
 ### Standalone Checks
