@@ -122,12 +122,14 @@ This means:
 
 | Image | Use Case |
 |-------|----------|
-| `quay.io/hummingbird/python:latest` | Python runtime (distroless — no shell, no DNF) |
-| `quay.io/hummingbird/python:latest-builder` | Python with build toolchain (shell, gcc, DNF) |
-| `quay.io/hummingbird/python:latest-fips` | Python FIPS runtime (distroless) |
-| `quay.io/hummingbird/python:latest-fips-builder` | Python FIPS with build toolchain |
+| `quay.io/hummingbird/python:3.14` | Python runtime (distroless — no shell, no DNF) |
+| `quay.io/hummingbird/python:3.14-builder` | Python with build toolchain (shell, gcc, DNF) |
+| `quay.io/hummingbird/python:3.14-fips` | Python FIPS runtime (distroless) |
+| `quay.io/hummingbird/python:3.14-fips-builder` | Python FIPS with build toolchain |
 | `quay.io/hummingbird/nodejs:latest` | Node.js runtime (distroless) |
 | `quay.io/hummingbird/core-runtime:latest` | Minimal runtime with libstdc++, glibc, ca-certificates |
+
+Python images MUST be pinned to the Python minor-version tag (`3.14`, `3.14-builder`, `3.14-fips`, `3.14-fips-builder`), never `latest`. The minor tag still receives patch and CVE rebuilds. `latest` jumps Python minor versions without warning: on 2026-10-20 it moved to 3.15.0, locked wheels such as `onnxruntime==1.30.0` had no 3.15 build, and every rebuild failed (trentina#502). Moving to a new Python minor is a deliberate change: update the tags, the lockfile and any `python3.X` paths together.
 
 ### Multi-Stage Build Pattern (Venv)
 
@@ -142,15 +144,15 @@ Allowed builder/runtime combinations:
 
 | Builder | Runtime | Status |
 |---------|---------|--------|
-| `quay.io/hummingbird/python:latest-fips-builder` | `quay.io/hummingbird/python:latest-fips` | **Allowed** |
-| `quay.io/hummingbird/python:latest-builder` | `quay.io/hummingbird/python:latest` | **Allowed** |
+| `quay.io/hummingbird/python:3.14-fips-builder` | `quay.io/hummingbird/python:3.14-fips` | **Allowed** |
+| `quay.io/hummingbird/python:3.14-builder` | `quay.io/hummingbird/python:3.14` | **Allowed** |
 | `registry.access.redhat.com/ubi10/ubi` | `registry.access.redhat.com/ubi10/ubi-minimal` | **Allowed** |
-| `registry.fedoraproject.org/fedora:44` | `quay.io/hummingbird/python:latest` | **Prohibited** |
-| `registry.access.redhat.com/ubi10/ubi` | `quay.io/hummingbird/python:latest` | **Prohibited** |
+| `registry.fedoraproject.org/fedora:44` | `quay.io/hummingbird/python:3.14` | **Prohibited** |
+| `registry.access.redhat.com/ubi10/ubi` | `quay.io/hummingbird/python:3.14` | **Prohibited** |
 
 ```dockerfile
 # Stage 1: Builder (has shell, dnf, build tools)
-FROM quay.io/hummingbird/python:latest-fips-builder AS builder
+FROM quay.io/hummingbird/python:3.14-fips-builder AS builder
 USER 0
 WORKDIR /app
 RUN python3 -m venv /app/venv
@@ -160,7 +162,7 @@ COPY src/ ./src/
 RUN pip install --no-cache-dir .
 
 # Stage 2: Runtime (distroless — no shell, no package manager)
-FROM quay.io/hummingbird/python:latest-fips
+FROM quay.io/hummingbird/python:3.14-fips
 COPY --from=builder /app/venv /app/venv
 ENV PATH="/app/venv/bin:$PATH"
 ENTRYPOINT ["python", "-m", "<module_name>"]
@@ -175,15 +177,15 @@ ENTRYPOINT ["python", "-m", "<module_name>"]
 | Runtime image | `libstdc++.so.6` | `libgomp.so.1` |
 |---|---|---|
 | `registry.access.redhat.com/hi/python:3.12` | present | **present** |
-| `quay.io/hummingbird/python:latest` | present | **absent** |
-| `quay.io/hummingbird/python:latest-fips` | present | absent |
+| `quay.io/hummingbird/python:3.14` | present | **absent** |
+| `quay.io/hummingbird/python:3.14-fips` | present | absent |
 
 So a Containerfile on the `hi/` path that still `dnf install`s `libgomp libstdc++` in the builder and copies them forward is doing redundant work. On the `quay.io/hummingbird` path, `libgomp` genuinely is missing: PyTorch bundles its own under `torch/lib` and is fine, but a package expecting the *system* libgomp (some numpy/scipy/scikit-learn builds) will fail at import.
 
 Re-verify rather than trusting this note — the base images move:
 
 ```bash
-podman run --rm --entrypoint "" quay.io/hummingbird/python:latest python -c \
+podman run --rm --entrypoint "" quay.io/hummingbird/python:3.14 python -c \
   "import glob; print(glob.glob('/usr/lib64/libstdc++.so*'), glob.glob('/usr/lib64/libgomp.so*'))"
 ```
 
@@ -203,7 +205,7 @@ The runtime image has **no `/bin/sh`**. A shell-form `RUN` fails outright at bui
 
 Libraries that probe for a host identity read `/etc/machine-id` and fall through to a shell-based fallback when the value is unusable. The empty file that systemd documents as the "uninitialized / first boot" state **does not** short-circuit that fallback.
 
-Measured against `onnxruntime` 1.29.0 on `quay.io/hummingbird/python:latest` with telemetry left enabled:
+Measured against `onnxruntime` 1.29.0 on `quay.io/hummingbird/python:3.14` with telemetry left enabled:
 
 | `/etc/machine-id` | Result |
 |---|---|

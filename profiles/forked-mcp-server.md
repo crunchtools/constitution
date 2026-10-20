@@ -42,7 +42,7 @@ Forked MCP servers exist to:
 All forked MCP servers use **Hummingbird** Python images:
 
 ```
-FROM quay.io/hummingbird/python:latest
+FROM quay.io/hummingbird/python:3.14
 ```
 
 **Before building on Hummingbird images**, always check the upstream examples at https://gitlab.com/redhat/hummingbird/containers for current best practices, Containerfile patterns, and supported image variants.
