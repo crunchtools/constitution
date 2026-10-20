@@ -10,6 +10,10 @@ Entries through 1.14.0 are derived from the Ratification History table in
 ## [Unreleased]
 
 ### Changed
+- **Web Application profile**: monitoring items are registered in Nagios, not
+  the factory watchdog, and the parent's build workflow (not the watchdog)
+  dispatches `parent-image-updated`. factory.crunchtools.com is
+  decommissioned.
 - **Section XVI — Scheduling** now covers all scheduled operations work, not
   only monitoring: backups, data collection, certificate renewals, pruning, and
   OS and container updates are scheduled by Nagios or Hermes too. The only

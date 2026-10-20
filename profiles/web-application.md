@@ -131,7 +131,7 @@ Web applications that build on crunchtools image tree parents MUST participate i
   ```
 - **Parent declaration**: The per-repo constitution MUST declare which parent image triggers a cascade rebuild.
 
-When a parent image (e.g., `ubi10-core`, `ubi10-httpd`) is updated, the factory watchdog dispatches `parent-image-updated` events to all child repos. This ensures security patches propagate through the image tree automatically.
+When a parent image (e.g., `ubi10-core`, `ubi10-httpd`) is updated, the parent's build workflow dispatches `parent-image-updated` events to its child repos. This ensures security patches propagate through the image tree automatically.
 
 ---
 
@@ -146,7 +146,7 @@ Every service running inside the container MUST have corresponding Nagios monito
 | **Service-specific** | When applicable | `pg_isready`, `mysqladmin ping`, `valkey-cli ping` |
 
 Requirements:
-- All monitoring items MUST be registered in the factory watchdog
+- All monitoring items MUST be registered in Nagios, in the `/srv` config on the host that runs the container
 - Container MUST expose enough to be monitored (ports, health endpoints)
 - Multi-service containers need monitoring for each service, not just the frontend
 
