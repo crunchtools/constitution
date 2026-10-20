@@ -10,6 +10,10 @@ Entries through 1.14.0 are derived from the Ratification History table in
 ## [Unreleased]
 
 ### Changed
+- **MCP Server, Forked MCP Server and CLI Tool profiles**: Hummingbird Python images are pinned
+  to the minor-version tag (`python:3.14`, `3.14-builder`, `3.14-fips`,
+  `3.14-fips-builder`) instead of `latest`, which moved to Python 3.15.0 on
+  2026-10-20 and broke rebuilds whose locked wheels have no 3.15 build.
 - **Web Application profile**: monitoring items are registered in Nagios, not
   the factory watchdog, and the parent's build workflow (not the watchdog)
   dispatches `parent-image-updated`. factory.crunchtools.com is
