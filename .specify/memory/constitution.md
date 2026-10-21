@@ -3,7 +3,7 @@
 > **Version:** 1.0.0
 > **Ratified:** 2026-10-02
 > **Status:** Active
-> **Inherits:** [crunchtools/constitution](https://github.com/crunchtools/constitution) v1.24.0
+> **Inherits:** [crunchtools/constitution](https://github.com/crunchtools/constitution) v1.26.0
 > **Profile:** Governance
 
 ## Enforcement Scope
