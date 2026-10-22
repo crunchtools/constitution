@@ -10,6 +10,14 @@ Entries through 1.14.0 are derived from the Ratification History table in
 ## [Unreleased]
 
 ### Changed
+- **Build caching (section on container builds)**: `no-cache` is now required on
+  `schedule`, `repository_dispatch` and `workflow_dispatch` builds and still
+  forbidden on `push` and `pull_request` builds. The old text sent full rebuilds
+  to `workflow_dispatch` and cron, which hit the same cache.
+- **Container Image profile 1.4.0**: scheduled, dispatched and manual rebuilds
+  MUST set `no-cache` so package layers are rebuilt and pick up errata. With
+  the GHA layer cache on, those rebuilds reused the cached `dnf install` layer
+  and shipped no updates.
 - **MCP Server, Forked MCP Server and CLI Tool profiles**: Hummingbird Python images are pinned
   to the minor-version tag (`python:3.14`, `3.14-builder`, `3.14-fips`,
   `3.14-fips-builder`) instead of `latest`, which moved to Python 3.15.0 on
