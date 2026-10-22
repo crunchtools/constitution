@@ -22,7 +22,7 @@
 ## CI
 - Workflows MUST include weekly cron trigger for base image security updates
 - Build caching is MANDATORY: `cache-from: type=gha` / `cache-to: type=gha,mode=max`
-- Never use `no-cache: true` in CI workflows
+- Set `no-cache` only on non-commit builds (`schedule`, `repository_dispatch`, `workflow_dispatch`); never on `push` or `pull_request` builds
 - Dual-push (Quay + GHCR) uses two separate jobs, not steps
 
 ## Versioning
