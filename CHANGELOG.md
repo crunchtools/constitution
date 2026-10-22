@@ -10,6 +10,15 @@ Entries through 1.14.0 are derived from the Ratification History table in
 ## [Unreleased]
 
 ### Changed
+- **Container Image profile 1.5.0**: contract tests (required executables, enabled
+  units, nothing that must not ship) are required for every image, and boot tests
+  for multi-service images. Both run against the pushed digest on every trigger,
+  including dispatched rebuilds. `latest` moves only in a promote job that copies
+  the tested digest, and never back to an older commit. An unbraced `|| true`
+  inside a `RUN` chain is forbidden. Prompted by the 2026-10-22 rotv outage, where
+  a swallowed EPEL failure shipped an image without PostgreSQL.
+- **Web Application profile 1.3.0**: the health check gates promotion to `latest`
+  and covers every unit and endpoint the production monitor checks.
 - **Build caching (section on container builds)**: `no-cache` is now required on
   `schedule`, `repository_dispatch` and `workflow_dispatch` builds and still
   forbidden on `push` and `pull_request` builds. The old text sent full rebuilds

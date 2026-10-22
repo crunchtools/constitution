@@ -1,6 +1,6 @@
 # Container Image Profile
 
-> **Profile Version:** 1.4.0
+> **Profile Version:** 1.5.0
 > **Applies to:** All `ubi10-*` and standalone container image projects
 
 This profile extends the [universal constitution](../constitution.md) with requirements specific to **UBI-based** container image projects in the crunchtools organization.
@@ -162,23 +162,28 @@ Container image projects MUST include the following test gates:
 | Test | What it verifies | Required |
 |------|-----------------|----------|
 | **Build test** | CI builds the image from Containerfile | Yes |
-| **Smoke test** | Container starts and reaches a healthy state | Recommended |
-| **Service test** | Expected services respond (e.g., httpd on port 80) | Recommended |
+| **Contract test** | The image holds what it promises without starting it: required executables, enabled units, and no leftovers that must not ship (dev-only files, RHSM consumer or entitlement certs) | Yes |
+| **Boot test** | The image starts as production starts it, and every service the production monitor checks is up and answering | Yes for multi-service images; recommended otherwise |
 | **Security scan** | Trivy or equivalent CVE scanner | Recommended |
 
-At minimum, CI MUST build the image on every push and PR. Smoke and service tests are strongly recommended but may be deferred for simple base images.
+The contract and boot tests run against the **pushed digest** that will be promoted, never against a separate test build. They run on **every** build trigger, including `schedule`, `repository_dispatch` and `workflow_dispatch` rebuilds, which change packages without a commit.
+
+A `RUN` chain MUST NOT let `|| true` bind to more than its own command. Write `{ cmd || true; } && next`, never `cmd || true && next`: unbraced, it swallows every earlier failure in the chain and the build goes green.
+
+Found 2026-10-22: an EPEL mirror outage during rotv's nightly base rebuild failed the PostgreSQL install. `subscription-manager unregister 2>/dev/null || true && dnf clean all` swallowed the failure, the image shipped with no PostgreSQL, no Weston and a live RHSM registration, and production served 503 for two hours after auto-update. The only test that existed ran on pull requests, against an image it built itself.
 
 ---
 
 ## VII. Quality Gates
 
-Every container image change must pass:
+Every container image build must pass:
 
 1. **Build** — `podman build -f Containerfile .` (or equivalent in CI)
-2. **Smoke test** — Container starts without error (when applicable)
-3. **Security scan** — Trivy scan with `continue-on-error: true` (when applicable)
+2. **Contract test** — against the pushed digest
+3. **Boot test** — against the pushed digest (multi-service images)
+4. **Security scan** — Trivy scan with `continue-on-error: true` (when applicable)
 
-All gates must pass before merge or push to registry.
+The build job pushes only immutable tags (the commit SHA, `pr-N`). `latest` and the semver tags move in a separate promote job that needs the gates and copies the tested digest without rebuilding (`docker buildx imagetools create`). A second registry gets the same digest by copy, not by a second build. Promotion MUST NOT move `latest` back to an older commit when a newer one has landed on the branch. An image that downstream images build `FROM` dispatches their rebuild from the promote job, after it is promoted.
 
 ---
 
