@@ -1,6 +1,6 @@
 # Container Image Profile
 
-> **Profile Version:** 1.3.0
+> **Profile Version:** 1.4.0
 > **Applies to:** All `ubi10-*` and standalone container image projects
 
 This profile extends the [universal constitution](../constitution.md) with requirements specific to **UBI-based** container image projects in the crunchtools organization.
@@ -140,6 +140,18 @@ on:
   schedule:
     - cron: '0 6 * * 1'  # Weekly Monday 6 AM UTC
 ```
+
+Rebuilds that are not driven by a commit (`schedule`, `repository_dispatch`, `workflow_dispatch`) MUST bypass the build layer cache. A cached `RUN dnf install` layer is reused as long as the Containerfile and base digest are unchanged, so a cached rebuild ships the same packages and no errata:
+
+```yaml
+      - uses: docker/build-push-action@v7
+        with:
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          no-cache: ${{ github.event_name != 'push' && github.event_name != 'pull_request' }}
+```
+
+Found 2026-10-22: a dispatched rebuild of `ubi10-httpd-php` reused its cached install layer and shipped php 8.3.33 after the CVE-2026-109618/109619 fix (8.3.36) was in the UBI repos.
 
 ---
 

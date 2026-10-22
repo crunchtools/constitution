@@ -116,7 +116,11 @@ cache-from: type=gha
 cache-to: type=gha,mode=max
 ```
 
-The `no-cache: true` flag MUST NOT be used in container build workflows. If a full rebuild is needed (e.g., base image update), use `workflow_dispatch` with a manual trigger or the weekly cron schedule — not by disabling caching for every build.
+Commit-driven builds (`push`, `pull_request`) MUST use the cache; `no-cache: true` MUST NOT be set for every build. Builds no commit triggered (`schedule`, `repository_dispatch`, `workflow_dispatch`) MUST set `no-cache`, because those runs exist to pick up base image and package updates, and with the cache on they reuse the cached package-install layer and ship nothing new:
+
+```yaml
+no-cache: ${{ github.event_name != 'push' && github.event_name != 'pull_request' }}
+```
 
 ### OCI Labels
 
