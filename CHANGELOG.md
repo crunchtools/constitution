@@ -9,7 +9,19 @@ Entries through 1.14.0 are derived from the Ratification History table in
 
 ## [Unreleased]
 
+## [1.27.0] - 2026-10-26
+
 ### Changed
+- **Monitoring Checks (XVI)**: a check whose read is slow or remote (outside
+  API, remote storage) MUST NOT make it inline every run. A collector does the
+  reads with a generous budget and writes a status file atomically; the check
+  judges the file, starts the collector itself when the file is old, and goes
+  UNKNOWN only when the collector is stale. NRPE checks join their daemon's pool
+  by template, never a hand-kept members list. Drift checks are OK within a
+  stateless grace period (default 4h). Planned work schedules Nagios downtime
+  first and cancels it once verified. Reference implementations updated to
+  nagios-agent 7.0.0. Prompted by the 2026-10-24/25 weekend, when planned work
+  buried the Weekend Report's Infrastructure Health section.
 - **Container Image profile 1.5.0**: contract tests (required executables, enabled
   units, nothing that must not ship) are required for every image, and boot tests
   for multi-service images. Both run against the pushed digest on every trigger,
