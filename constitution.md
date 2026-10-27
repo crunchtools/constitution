@@ -1,7 +1,7 @@
 # CrunchTools Constitution
 
-> **Version:** 1.26.0
-> **Ratified:** 2026-10-11
+> **Version:** 1.27.0
+> **Ratified:** 2026-10-26
 > **Status:** Active
 
 This constitution establishes the universal principles that govern all software projects in the [crunchtools](https://github.com/crunchtools) organization. Every repo inherits these rules. Subsystem-specific requirements are defined in profiles.
@@ -581,10 +581,59 @@ job MAY react to a Nagios alert by taking an agentic action, but the alert
 itself must fire the same way every time given the same inputs. A flaky
 detector is worse than no detector — it trains the operator to ignore it.
 
+### Slow or Remote Reads: Collector and Status File
+
+A check whose read can be slow — an outside API, remote storage, anything
+that can approach the NRPE timeout — MUST NOT make that read inline on every
+run. A timed-out read reports nothing about the thing being watched; it only
+reports that the network was slow, and it does so as an UNKNOWN that looks
+like a problem. Split it in two:
+
+- A **collector** script does the reads with a generous budget and a timeout
+  per item, keeps an item's last good answer when one read fails, and writes a
+  status file atomically (temp file, then rename) under the agent's data
+  directory.
+- The **check** judges that file with the same thresholds the live check used.
+  When the file is older than a kick interval, the check starts the collector
+  itself, detached. It reports UNKNOWN "collector stale" only when the file is
+  missing or older than a few check intervals.
+
+The check still decides deterministically and still runs by hand via
+`check_nrpe`. The collector is started by the check, never by a timer, so
+Nagios stays the only clock (see Scheduling above).
+
+### Pool Membership
+
+Every service that runs through an NRPE daemon MUST use that daemon's pool
+template (`nrpe-fast-service` for `check_nrpe_command`, `nrpe-ctr-service`
+for `check_nrpe_ctr`, `-slow` variants for longer intervals). The template
+carries the servicegroup the daemon's liveness dependency covers, so an agent
+restart is one alert instead of one per check. Pools are never a hand-kept
+members list; one drifted 32 checks behind before this rule.
+
+### Drift Grace
+
+A check that compares deployed state to its source of truth (git, a released
+image, a registry) MUST tolerate the in-between state of a deploy: OK while
+the drift is younger than a grace period (default 4h), measured statelessly
+from file or image timestamps, and WARNING after.
+
+### Planned Work
+
+An agent or person about to make checks fail on purpose — a deploy, a
+restart, a long work session — MUST schedule Nagios downtime on the affected
+host or services first, with a comment naming who and why (`Josui: deploying
+<repo> <version> (<ticket>)`), and cancel it when the work is verified. Planned
+work then neither pages nor counts as noise in reports, and a reader can tell
+an intended outage from a real one.
+
 ### Reference Implementations
 
-- `check_backup_freshness.sh` (`crunchtools/nagios`) — live rclone check, no
-  timers or state files.
+- `check_backup_freshness.sh` + `backup-freshness-collect.sh`
+  (`crunchtools/nagios-agent` 7.0.0) — the collector and status-file pattern
+  for remote reads (pCloud via rclone).
+- `check_git_drift.sh` (`crunchtools/nagios-agent`) — stateless drift age with
+  a grace period.
 - `check_syslog_source_freshness.sh` (`crunchtools/syslog`) — per-source log
   staleness, deterministic, standalone.
 - `check_postiz_tokens.sh` / `check_google_oauth.sh` (`crunchtools/nagios`) —
@@ -727,3 +776,4 @@ a public repository. Keep it host-side (for example
 | 1.24.0 | 2026-10-11 | Repos call Gatehouse and Workflow Automation workflows at the major tag (`@v0`, `@v2`), which each release moves, instead of an exact release Dependabot bumps per repo (XII, XV rule 5, Workflow Automation profile 1.1.0). The validator accepts a major tag at or above the supported major; an exact release is still accepted, a branch or commit is not. `fleet-bump.py` rewrites the calls in the same PR that moves `Inherits`. Prompted by 2026-10-10: Ashigaru released 2.3.0, 2.4.0 and 2.5.0 in one day, repos sat one and two releases behind within the hour, and since minor and patch bumps merged themselves the pin delayed a release without reviewing it. The constitution's own pin is unchanged: there the pin is the version a repo is judged by |
 | 1.26.0 | 2026-10-14 | Autonomous Agent profile 1.4.0: an agent reaches a code forge only through the gateway (MCP tools for the API, the git route for clone and push), with no forge CLI, credential or egress host in its container; the gateway limits repositories and pushable branches and refuses the default branch, tags and deletes. Prompted by moving Josui Prime's GitHub access off `gh` and the tunnel onto Trentina, with a token that can bypass the org's rulesets |
 | 1.25.0 | 2026-10-11 | Web Application profile 1.2.0: Hosted Dev Sites (XII). A dev deployment that runs a git checkout holds no agent, editor, source-control client or credential; the agent that edits it runs in its own container with the site's directory mounted, and drives it through files: a save takes effect on its own where the stack allows, touching `control/<name>` restarts the units behind a closed set of names, and `logs/<unit>.log` is a capped copy of each unit's journal. Deploys from such a session go through an audited tool that can restart the production unit, never a host login. Section III adds that a path two containers mount uses `:z` in every unit that mounts it. Prompted by moving the agent out of rotv's dev container, where a second container mounting the site's tree made `:Z` relabel it out from under whichever started first |
+| 1.27.0 | 2026-10-26 | Extended Monitoring Checks (XVI): slow or remote reads use a collector that writes a status file and a check that judges it and starts the collector itself; NRPE checks join their pool by template; drift checks carry a stateless grace period; planned work schedules Nagios downtime first. Also Container Image profile 1.5.0 and Web Application profile 1.3.0 (test the digest you promote). Prompted by the 2026-10-24/25 weekend, when planned work on mcp-trove and Trentina buried the Weekend Report's Infrastructure Health section |
