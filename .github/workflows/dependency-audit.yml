@@ -58,20 +58,18 @@ jobs:
         run: uv sync --locked
       - name: Run pip-audit
         # pip-audit exits 1 when it finds vulnerabilities; audit_alert.py decides
-        # from the report. A missing or unparseable report fails that step, never
-        # reads as clean: that is how twelve copies of this went silent.
+        # from the report and renders the issue's table from it. A missing or
+        # unparseable report fails that step, never reads as clean: that is how
+        # twelve copies of this went silent.
         run: |
           uv pip install pip-audit
           uv run pip-audit --format=json --output=audit-results.json || true
-          uv run pip-audit --format=markdown --output=audit-results.md || true
       - name: Upload audit results
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: security-audit-results
-          path: |
-            audit-results.json
-            audit-results.md
+          path: audit-results.json
           retention-days: 30
       - name: Fail the PR, or update the alert issue
         env:
@@ -84,5 +82,5 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: >-
           python3 .constitution/scripts/audit_alert.py
-          --json audit-results.json --markdown audit-results.md
+          --json audit-results.json
           --event "$EVENT" --repo "$GITHUB_REPOSITORY" --run-url "$RUN_URL"

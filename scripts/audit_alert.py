@@ -43,11 +43,22 @@ def alerts(issues: list[dict]) -> list[dict]:
     return sorted(found, key=lambda issue: issue["number"])
 
 
-def body(markdown: str, run_url: str) -> str:
+def table(found: list[dict]) -> str:
+    """The vulnerable dependencies as a Markdown table, one row per advisory."""
+    rows = [
+        f"| {dep['name']} | {dep['version']} | {vuln['id']} | "
+        f"{', '.join(vuln.get('fix_versions', []))} |"
+        for dep in found
+        for vuln in dep["vulns"]
+    ]
+    return "\n".join(["| Name | Version | ID | Fix Versions |", "| --- | --- | --- | --- |", *rows])
+
+
+def body(found: list[dict], run_url: str) -> str:
     return (
         "## Security Vulnerabilities Detected\n\n"
         f"The [latest dependency scan]({run_url}) found vulnerable dependencies.\n\n"
-        f"{markdown.strip()}\n\n"
+        f"{table(found)}\n\n"
         "This issue is rewritten by every scan of the default branch and closed by the "
         "first clean one. Update the affected packages (Dependabot usually opens the PR).\n"
     )
@@ -71,14 +82,25 @@ def plan(event: str, found: list[dict], open_alerts: list[dict]) -> list[tuple]:
 
 
 def gh(*args: str) -> str:
-    done = subprocess.run(["gh", *args], check=True, capture_output=True, text=True)
+    """Run gh and return stdout; a failure raises with gh's own message."""
+    done = subprocess.run(["gh", *args], capture_output=True, text=True, check=False)
+    if done.returncode != 0:
+        raise RuntimeError(f"gh {' '.join(args[:2])}: {done.stderr.strip()}")
     return done.stdout
+
+
+def ensure_label(repo: str, name: str) -> None:
+    """Create a label the repo lacks. An existing one keeps its colour and description."""
+    try:
+        gh("label", "create", name, "--repo", repo)
+    except RuntimeError as error:
+        if "already exists" not in str(error):
+            raise
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--json", required=True, type=Path)
-    parser.add_argument("--markdown", required=True, type=Path)
     parser.add_argument("--event", required=True)
     parser.add_argument("--repo", required=True)
     parser.add_argument("--run-url", required=True)
@@ -101,19 +123,15 @@ def main() -> int:
         "number,title,author",
     )
     actions = plan(args.event, found, alerts(json.loads(listing)))
-    text = body(args.markdown.read_text() if args.markdown.is_file() else "", args.run_url)
+    text = body(found, args.run_url)
     for action, number in actions:
         print(f"audit: {action} {number or ''}".rstrip())
         if action == "fail":
             print("::error::Vulnerable dependencies; see the audit results artifact.")
             return 1
         if action == "create":
-            for label in LABELS:  # an existing label keeps its colour; only a missing one is made
-                subprocess.run(
-                    ["gh", "label", "create", label, "--repo", args.repo],
-                    capture_output=True,
-                    check=False,
-                )
+            for label in LABELS:
+                ensure_label(args.repo, label)
             gh(
                 "issue",
                 "create",

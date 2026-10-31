@@ -62,7 +62,10 @@ def test_other_events_do_nothing():
     assert A.plan("merge_group", A.vulnerable(DIRTY), []) == []
 
 
-def test_body_links_the_run():
-    text = A.body("| Name | Version |\n", "https://github.com/x/y/actions/runs/1")
+def test_body_links_the_run_and_lists_each_advisory():
+    found = [
+        {"name": "jinja2", "version": "3.1.4", "vulns": [{"id": "A", "fix_versions": ["3.1.5"]}]}
+    ]
+    text = A.body(found, "https://github.com/x/y/actions/runs/1")
     assert "(https://github.com/x/y/actions/runs/1)" in text
-    assert "| Name | Version |" in text
+    assert "| jinja2 | 3.1.4 | A | 3.1.5 |" in text
