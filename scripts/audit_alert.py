@@ -64,7 +64,10 @@ def body(found: list[dict], run_url: str) -> str:
     )
 
 
-def plan(event: str, found: list[dict], open_alerts: list[dict]) -> list[tuple]:
+Action = tuple[str, int | None]
+
+
+def plan(event: str, found: list[dict], open_alerts: list[dict]) -> list[Action]:
     """What to do, as (action, issue number or None) pairs. Pure: no I/O.
 
     `fail` fails the job; `create`, `edit` and `close` act on the alert issue.
@@ -98,6 +101,46 @@ def ensure_label(repo: str, name: str) -> None:
             raise
 
 
+def close(repo: str, number: int, reason: str, comment: str) -> None:
+    gh("issue", "close", str(number), "--repo", repo, "--reason", reason, "--comment", comment)
+
+
+def apply(repo: str, action: str, number: int | None, text: str, run_url: str) -> None:
+    """Carry out one planned action on the alert issue."""
+    match action, number:
+        case "create", None:
+            for label in LABELS:
+                ensure_label(repo, label)
+            gh(
+                "issue",
+                "create",
+                "--repo",
+                repo,
+                "--title",
+                TITLE,
+                "--label",
+                ",".join(LABELS),
+                "--body",
+                text,
+            )
+        case "edit", int():
+            gh("issue", "edit", str(number), "--repo", repo, "--title", TITLE, "--body", text)
+        case "close", int():
+            close(
+                repo,
+                number,
+                "completed",
+                f"The [latest scan]({run_url}) found no vulnerable dependencies.",
+            )
+        case "close-duplicate", int():
+            close(
+                repo,
+                number,
+                "not planned",
+                "Superseded by the oldest open alert, which every scan now rewrites.",
+            )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--json", required=True, type=Path)
@@ -122,54 +165,13 @@ def main() -> int:
         "--json",
         "number,title,author",
     )
-    actions = plan(args.event, found, alerts(json.loads(listing)))
     text = body(found, args.run_url)
-    for action, number in actions:
+    for action, number in plan(args.event, found, alerts(json.loads(listing))):
         print(f"audit: {action} {number or ''}".rstrip())
         if action == "fail":
             print("::error::Vulnerable dependencies; see the audit results artifact.")
             return 1
-        if action == "create":
-            for label in LABELS:
-                ensure_label(args.repo, label)
-            gh(
-                "issue",
-                "create",
-                "--repo",
-                args.repo,
-                "--title",
-                TITLE,
-                "--label",
-                ",".join(LABELS),
-                "--body",
-                text,
-            )
-        elif action == "edit":
-            gh("issue", "edit", str(number), "--repo", args.repo, "--title", TITLE, "--body", text)
-        elif action == "close":
-            gh(
-                "issue",
-                "close",
-                str(number),
-                "--repo",
-                args.repo,
-                "--reason",
-                "completed",
-                "--comment",
-                f"The [latest scan]({args.run_url}) found no vulnerable dependencies.",
-            )
-        elif action == "close-duplicate":
-            gh(
-                "issue",
-                "close",
-                str(number),
-                "--repo",
-                args.repo,
-                "--reason",
-                "not planned",
-                "--comment",
-                "Superseded by the oldest open alert, which every scan now rewrites.",
-            )
+        apply(args.repo, action, number, text, args.run_url)
     return 0
 
 

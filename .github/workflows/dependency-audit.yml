@@ -61,9 +61,8 @@ jobs:
         # from the report and renders the issue's table from it. A missing or
         # unparseable report fails that step, never reads as clean: that is how
         # twelve copies of this went silent.
-        run: |
-          uv pip install pip-audit
-          uv run pip-audit --format=json --output=audit-results.json || true
+        # --with keeps pip-audit out of the project's own synced environment.
+        run: uv run --with pip-audit pip-audit --format=json --output=audit-results.json || true
       - name: Upload audit results
         if: always()
         uses: actions/upload-artifact@v7
