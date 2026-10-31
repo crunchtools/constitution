@@ -24,6 +24,37 @@ dependabot = ["github-actions"]
 # The repo must carry an AGPL-3.0 LICENSE (I). Profiles may turn this off.
 license_agpl = true
 
+# Where a release states its version (II, repos inheriting v1.28.0 or later).
+# Every SemVer value a pattern's first group captures must equal the newest
+# released `## [X.Y.Z]` heading in CHANGELOG.md. A file that is absent is fine.
+[[fleet.version_files]]
+glob = "pyproject.toml"
+pattern = '^version\s*=\s*"([^"]+)"'
+
+[[fleet.version_files]]
+glob = "src/*/__init__.py"
+pattern = '''^__version__\s*=\s*["']([^"']+)["']'''
+
+[[fleet.version_files]]
+glob = "server.json"
+pattern = '"version"\s*:\s*"([^"]+)"'
+
+[[fleet.version_files]]
+# LABEL lines and their continuations; not org.opencontainers.image.version,
+# which CI's metadata action sets.
+glob = "Containerfile*"
+pattern = '^\s*(?:LABEL\s+)?version="([^"]+)"'
+
+[[fleet.version_files]]
+# A FastMCP(version="...") literal; a server that imports __version__ has none.
+glob = "src/*/server.py"
+pattern = '^\s*version\s*=\s*"([^"]+)"'
+
+[[fleet.version_files]]
+# npm writes package.json with two-space indent, so this is the top-level key.
+glob = "package.json"
+pattern = '^  "version"\s*:\s*"([^"]+)"'
+
 # Each profile adds to the fleet rules. Keys:
 #   files            globs that must each match at least one path
 #   dependabot       extra Dependabot ecosystems
@@ -33,6 +64,7 @@ license_agpl = true
 #   containerfile_from  regex a Containerfile FROM line must match
 #   tests_contain    regexes that must each match in a file under test*/**/*.py
 #                    (repos inheriting v1.22.0 or later)
+#   version_sync     false skips the version_files check (v1.28.0 or later)
 
 [profile."MCP Server"]
 files = ["pyproject.toml", "uv.lock", "Containerfile*", "test*/**/*.py"]
@@ -50,6 +82,9 @@ files = ["Containerfile*"]
 
 [profile."Web Application"]
 files = ["Containerfile*"]
+# Its tags are deploy markers (II), cut without moving the changelog or the
+# declared versions, so those are not release claims to hold together.
+version_sync = false
 
 [profile."Autonomous Agent"]
 files = ["Containerfile*"]

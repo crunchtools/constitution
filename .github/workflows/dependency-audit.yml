@@ -1,0 +1,85 @@
+# Reusable dependency CVE scan for uv projects (XV).
+#
+# Callers pin this file to a release tag, which fleet-bump moves with Inherits:
+#
+#   jobs:
+#     dependency-audit:
+#       permissions:
+#         contents: read
+#         issues: write
+#       uses: crunchtools/constitution/.github/workflows/dependency-audit.yml@v1.28.0
+#
+# from a workflow that runs on pull_request, on push to the default branch and on
+# a weekly schedule. A pull request with a vulnerable dependency fails. On the
+# default branch scripts/audit_alert.py keeps one alert issue in step with the
+# scan: created or rewritten while anything is vulnerable, closed by the first
+# clean scan, so a fix closes it minutes after it merges. The script is checked
+# out at this file's release, written below as a literal (`ref:`) for the same
+# reason as validate.yml. Copy examples/security.yml.
+
+name: Dependency audit
+
+on:
+  workflow_call:
+    inputs:
+      python-version:
+        description: Python the project is synced with
+        type: string
+        default: "3.12"
+
+permissions: {}
+
+jobs:
+  audit:
+    name: Dependency CVE Scan
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v7
+        with:
+          repository: crunchtools/constitution
+          ref: v1.28.0
+          path: .constitution
+          persist-credentials: false
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          version: "latest"
+      - name: Set up Python
+        env:
+          PYTHON: ${{ inputs.python-version }}
+        run: uv python install "$PYTHON"
+      - name: Install dependencies
+        run: uv sync --locked
+      - name: Run pip-audit
+        # pip-audit exits 1 when it finds vulnerabilities; audit_alert.py decides
+        # from the report and renders the issue's table from it. A missing or
+        # unparseable report fails that step, never reads as clean: that is how
+        # twelve copies of this went silent.
+        # --with keeps pip-audit out of the project's own synced environment.
+        run: uv run --with pip-audit pip-audit --format=json --output=audit-results.json || true
+      - name: Upload audit results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: security-audit-results
+          path: audit-results.json
+          retention-days: 30
+      - name: Fail the PR, or update the alert issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # A push to another branch is not the default branch's verdict.
+          EVENT: >-
+            ${{ (github.event_name == 'push' &&
+                 github.ref_name != github.event.repository.default_branch)
+                && 'other' || github.event_name }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: >-
+          python3 .constitution/scripts/audit_alert.py
+          --json audit-results.json
+          --event "$EVENT" --repo "$GITHUB_REPOSITORY" --run-url "$RUN_URL"

@@ -1029,6 +1029,63 @@ def check_tests_contain(
     return [f"TESTS: no file under test*/ matches `{pattern}`" for pattern in missing]
 
 
+VERSION_SYNC_SINCE = (1, 28, 0)
+"""First constitution version with the `version_files` requirement."""
+RELEASED = re.compile(r"^##\s*\[(\d+\.\d+\.\d+)\]", re.MULTILINE)
+RELEASE_VALUE = re.compile(r"\d+\.\d+\.\d+(?:[-+][\w.]+)?")
+
+
+def declared_versions(repo_root: Path, rules: list[dict]) -> list[tuple[str, str]]:
+    """Every (path, version) the `version_files` rules find. Non-SemVer values are skipped.
+
+    A placeholder such as `0.0.0.dev0` or `latest` is not a release claim, so it
+    is not held to the changelog.
+    """
+    found = []
+    for rule in rules:
+        pattern = re.compile(rule["pattern"], re.MULTILINE)
+        for path in sorted(repo_root.glob(rule["glob"])):
+            if not path.is_file() or ".git" in path.parts:
+                continue
+            for match in pattern.finditer(path.read_text(errors="ignore")):
+                if RELEASE_VALUE.fullmatch(match.group(1)):
+                    found.append((str(path.relative_to(repo_root)), match.group(1)))
+    return found
+
+
+def check_version_sync(
+    repo_root: Path, inherits: str, profiles: list[str], requirements: dict
+) -> list[str]:
+    """Since 1.28.0: every version a release names agrees with the changelog (II).
+
+    mcp-github's 2.0.0 was bumped in pyproject.toml and __init__.py but not in
+    server.json, the Containerfile label or server.py, so it could not be tagged.
+    Only Gatehouse's model was checking that, and it also raised the rule where it
+    did not apply. The reference is the newest released CHANGELOG heading; with
+    none yet, the declarations must agree with each other. A profile whose tags
+    are deploy markers (II) turns it off with `version_sync = false`.
+    """
+    if (version_tuple(inherits) or ()) < VERSION_SYNC_SINCE:
+        return []
+    rules = [requirements.get("profile", {}).get(p, {}) for p in profiles]
+    if not all(r.get("version_sync", True) for r in rules):
+        return []
+    found = declared_versions(repo_root, requirements.get("fleet", {}).get("version_files", []))
+    changelog = repo_root / "CHANGELOG.md"
+    released = RELEASED.search(changelog.read_text()) if changelog.is_file() else None
+    if released:
+        expected, source = released.group(1), "CHANGELOG.md"
+    elif found:
+        expected, source = found[0][1], found[0][0]
+    else:
+        return []
+    return [
+        f"VERSION: {path} says {version}, {source} says {expected} (II)"
+        for path, version in found
+        if version != expected
+    ]
+
+
 HOST_CONTRACT_SINCE = (1, 20, 0)
 """First constitution version whose XII states the host contract."""
 HOST_LANGUAGES = {"system", "unsupported"}  # pre-commit 4.4 renamed system to unsupported
@@ -1214,6 +1271,7 @@ def validate_manifest(
         violations += check_gate_workflows(repo_root, inherits, requirements)
         violations += check_repo_files(repo_root, profiles, requirements)
         violations += check_tests_contain(repo_root, inherits, profiles, requirements)
+        violations += check_version_sync(repo_root, inherits, profiles, requirements)
         violations += check_visibility(profiles, requirements, slug)
     return violations
 
