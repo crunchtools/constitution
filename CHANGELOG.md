@@ -9,6 +9,11 @@ Entries through 1.14.0 are derived from the Ratification History table in
 
 ## [Unreleased]
 
+### Fixed
+- `scripts/fleet-bump.py` carries on past a repo whose clone or push fails, then
+  exits 1 naming the repos to rerun with `--only`. One TLS timeout ended the
+  1.28.0 bump partway through the fleet.
+
 ## [1.28.0] - 2026-10-31
 
 ### Added

@@ -141,10 +141,18 @@ def main() -> int:
 
     validator = load_validator()
     version = args.version or validator.own_version()
+    failed = []
     with tempfile.TemporaryDirectory() as clone_root:
         for repo in select_repos(args.only):
-            bump_repo(repo["name"], version, Path(clone_root), validator, args.dry_run)
-    return 0
+            # One repo's clone or push timing out must not leave the rest of the fleet behind.
+            try:
+                bump_repo(repo["name"], version, Path(clone_root), validator, args.dry_run)
+            except RuntimeError as error:
+                print(f"{repo['name']}: FAILED: {error}", file=sys.stderr)
+                failed.append(repo["name"])
+    if failed:
+        print(f"rerun with --only {','.join(failed)}", file=sys.stderr)
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":
