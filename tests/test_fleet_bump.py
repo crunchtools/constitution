@@ -121,3 +121,20 @@ def test_bump_moves_the_pre_commit_hook_rev(tmp_path):
     assert config in bump.bump(tmp_path, "1.19.0")
     assert "ruff-pre-commit\n    rev: v0.6.0\n" in config.read_text()
     assert "crunchtools/constitution\n    rev: v1.19.0\n" in config.read_text()
+
+
+def test_one_failed_repo_does_not_stop_the_rest(monkeypatch, capsys):
+    """A TLS timeout cloning one repo used to end the whole 1.28.0 bump."""
+    seen = []
+
+    def flaky(name, *args):
+        seen.append(name)
+        if name == "b":
+            raise RuntimeError("gh repo clone crunchtools/b: TLS handshake timeout")
+
+    monkeypatch.setattr(bump, "select_repos", lambda only: [{"name": n} for n in "abc"])
+    monkeypatch.setattr(bump, "bump_repo", flaky)
+    monkeypatch.setattr(bump.sys, "argv", ["fleet-bump.py", "--version", "1.28.0"])
+    assert bump.main() == 1
+    assert seen == ["a", "b", "c"]
+    assert "rerun with --only b" in capsys.readouterr().err
