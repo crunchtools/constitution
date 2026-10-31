@@ -137,11 +137,17 @@ def test_pin_must_match_inherits(repo):
     assert any("the pin and Inherits move together" in v for v in violations(repo))
 
 
-def test_validate_yml_checks_out_this_release():
+@pytest.mark.parametrize("name", ["validate.yml", "dependency-audit.yml"])
+def test_reusable_workflow_checks_out_this_release(name):
     """A called workflow cannot name its own ref, so the release is a literal (#42)."""
-    workflow = (ROOT / ".github/workflows/validate.yml").read_text()
+    workflow = (ROOT / ".github/workflows" / name).read_text()
     assert f"ref: v{VERSION}\n" in workflow
     assert "job_workflow_sha }}" not in workflow
+
+
+def test_example_security_caller_pins_this_release():
+    example = (ROOT / "examples/security.yml").read_text()
+    assert f"dependency-audit.yml@v{VERSION}\n" in example
 
 
 def test_pinned_mode_rejects_other_version(repo, monkeypatch):
@@ -497,3 +503,12 @@ def test_version_sync_waits_for_inherits(repo):
         path = repo / rel
         path.write_text(path.read_text().replace(f"v{VERSION}", "v1.27.0"))
     assert violations(repo) == []
+
+
+def test_web_application_tags_are_deploy_markers(repo):
+    """II exempts a deploy-tagged web app; its declared versions are not held to the changelog."""
+    in_sync(repo, "2.0.0")
+    write(repo, "package.json", '{\n  "name": "x",\n  "version": "1.16.0"\n}\n')
+    path = repo / ".specify/memory/constitution.md"
+    path.write_text(path.read_text().replace("MCP Server", "Web Application"))
+    assert not any(v.startswith("VERSION:") for v in violations(repo))

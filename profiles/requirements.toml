@@ -64,6 +64,7 @@ pattern = '^  "version"\s*:\s*"([^"]+)"'
 #   containerfile_from  regex a Containerfile FROM line must match
 #   tests_contain    regexes that must each match in a file under test*/**/*.py
 #                    (repos inheriting v1.22.0 or later)
+#   version_sync     false skips the version_files check (v1.28.0 or later)
 
 [profile."MCP Server"]
 files = ["pyproject.toml", "uv.lock", "Containerfile*", "test*/**/*.py"]
@@ -81,6 +82,9 @@ files = ["Containerfile*"]
 
 [profile."Web Application"]
 files = ["Containerfile*"]
+# Its tags are deploy markers (II), cut without moving the changelog or the
+# declared versions, so those are not release claims to hold together.
+version_sync = false
 
 [profile."Autonomous Agent"]
 files = ["Containerfile*"]

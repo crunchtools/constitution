@@ -1,7 +1,7 @@
 # CrunchTools Constitution
 
-> **Version:** 1.27.0
-> **Ratified:** 2026-10-26
+> **Version:** 1.28.0
+> **Ratified:** 2026-10-31
 > **Status:** Active
 
 This constitution establishes the universal principles that govern all software projects in the [crunchtools](https://github.com/crunchtools) organization. Every repo inherits these rules. Subsystem-specific requirements are defined in profiles.
@@ -86,6 +86,10 @@ Every project MUST maintain a `CHANGELOG.md` in the repo root following the [Kee
 - Every version tag MUST have a corresponding entry in `CHANGELOG.md`.
 - The `[Unreleased]` section at the top tracks changes since the last release.
 - GitHub Release notes SHOULD be generated from the `CHANGELOG.md` entry for that version.
+
+### Version Declarations
+
+**Every file that states the project's version MUST state the version of the newest released `CHANGELOG.md` entry.** A release moves all of them in one commit: `pyproject.toml`, `__version__`, `server.json`, the Containerfile `version=` label, a `version=` literal in `server.py`, `package.json`. Better still, state it once and import it. The validator checks the files listed in `profiles/requirements.toml` (`version_files`) for repos inheriting v1.28.0 or later. A profile whose tags are deploy markers turns the check off. mcp-github's 2.0.0 was bumped by hand in two of its five places and could not be tagged, and a fleet scan found eight more repos with a stale label or `server.json`.
 
 ---
 
@@ -502,6 +506,15 @@ and the build broke with zero code changes to point at.
    current, so rule 2 has nothing to update; Dependabot proposes only a new
    major, and that waits for a human like any other.
 
+6. **uv projects scan with the fleet's dependency audit.** `security.yml` calls
+   [`dependency-audit.yml`](.github/workflows/dependency-audit.yml) at the
+   inherited tag (copy [`examples/security.yml`](examples/security.yml)). It
+   fails a pull request with a vulnerable dependency and keeps one alert issue
+   on the default branch: rewritten while anything is vulnerable, closed by
+   the first clean scan. Fifteen per-repo copies had drifted: twelve counted
+   every report as clean, none closed its issue, and gatehouse#96 stayed open
+   five days after its fix merged.
+
 Canonical files: [`examples/dependabot.yml`](examples/dependabot.yml)
 (github-actions only) and [`examples/dependabot-uv.yml`](examples/dependabot-uv.yml)
 (uv and github-actions). Both ignore `crunchtools/constitution`, whose pin
@@ -776,4 +789,5 @@ a public repository. Keep it host-side (for example
 | 1.24.0 | 2026-10-11 | Repos call Gatehouse and Workflow Automation workflows at the major tag (`@v0`, `@v2`), which each release moves, instead of an exact release Dependabot bumps per repo (XII, XV rule 5, Workflow Automation profile 1.1.0). The validator accepts a major tag at or above the supported major; an exact release is still accepted, a branch or commit is not. `fleet-bump.py` rewrites the calls in the same PR that moves `Inherits`. Prompted by 2026-10-10: Ashigaru released 2.3.0, 2.4.0 and 2.5.0 in one day, repos sat one and two releases behind within the hour, and since minor and patch bumps merged themselves the pin delayed a release without reviewing it. The constitution's own pin is unchanged: there the pin is the version a repo is judged by |
 | 1.26.0 | 2026-10-14 | Autonomous Agent profile 1.4.0: an agent reaches a code forge only through the gateway (MCP tools for the API, the git route for clone and push), with no forge CLI, credential or egress host in its container; the gateway limits repositories and pushable branches and refuses the default branch, tags and deletes. Prompted by moving Josui Prime's GitHub access off `gh` and the tunnel onto Trentina, with a token that can bypass the org's rulesets |
 | 1.25.0 | 2026-10-11 | Web Application profile 1.2.0: Hosted Dev Sites (XII). A dev deployment that runs a git checkout holds no agent, editor, source-control client or credential; the agent that edits it runs in its own container with the site's directory mounted, and drives it through files: a save takes effect on its own where the stack allows, touching `control/<name>` restarts the units behind a closed set of names, and `logs/<unit>.log` is a capped copy of each unit's journal. Deploys from such a session go through an audited tool that can restart the production unit, never a host login. Section III adds that a path two containers mount uses `:z` in every unit that mounts it. Prompted by moving the agent out of rotv's dev container, where a second container mounting the site's tree made `:Z` relabel it out from under whichever started first |
+| 1.28.0 | 2026-10-31 | Added Version Declarations to II: every file that states the version states the newest released one, checked by the validator from `version_files` in requirements.toml (Web Application opts out; its tags are deploy markers). Added XV rule 6: uv projects call the reusable `dependency-audit.yml`, which fails vulnerable PRs and keeps one self-closing alert issue. Prompted by the 2026-10-31 weekend report: mcp-github 2.0.0 untaggable, twelve silent CVE gates, gatehouse#96 open after its fix |
 | 1.27.0 | 2026-10-26 | Extended Monitoring Checks (XVI): slow or remote reads use a collector that writes a status file and a check that judges it and starts the collector itself; NRPE checks join their pool by template; drift checks carry a stateless grace period; planned work schedules Nagios downtime first. Also Container Image profile 1.5.0 and Web Application profile 1.3.0 (test the digest you promote). Prompted by the 2026-10-24/25 weekend, when planned work on mcp-trove and Trentina buried the Weekend Report's Infrastructure Health section |

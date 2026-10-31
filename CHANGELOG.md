@@ -9,6 +9,22 @@ Entries through 1.14.0 are derived from the Ratification History table in
 
 ## [Unreleased]
 
+## [1.28.0] - 2026-10-31
+
+### Added
+- **Version Declarations (II)**: every file that states the project's version
+  MUST match the newest released CHANGELOG entry. `validate-constitution.py`
+  checks `[[fleet.version_files]]` in requirements.toml (pyproject.toml,
+  `__version__`, server.json, Containerfile `version=` labels, `server.py`
+  literals, package.json) for repos inheriting v1.28.0. The Web Application
+  profile sets `version_sync = false`: its tags are deploy markers. Prompted by
+  mcp-github 2.0.0, bumped in two of five places and untaggable.
+- **Dependency audit (XV rule 6)**: reusable `.github/workflows/dependency-audit.yml`
+  and `scripts/audit_alert.py`, with `examples/security.yml`. A vulnerable PR
+  fails; on the default branch one alert issue is created or rewritten while
+  anything is vulnerable and closed by the first clean scan. It replaces fifteen
+  drifted copies, twelve of which counted every pip-audit report as clean.
+
 ## [1.27.0] - 2026-10-26
 
 ### Changed

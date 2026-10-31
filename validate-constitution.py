@@ -1053,16 +1053,22 @@ def declared_versions(repo_root: Path, rules: list[dict]) -> list[tuple[str, str
     return found
 
 
-def check_version_sync(repo_root: Path, inherits: str, requirements: dict) -> list[str]:
+def check_version_sync(
+    repo_root: Path, inherits: str, profiles: list[str], requirements: dict
+) -> list[str]:
     """Since 1.28.0: every version a release names agrees with the changelog (II).
 
     mcp-github's 2.0.0 was bumped in pyproject.toml and __init__.py but not in
     server.json, the Containerfile label or server.py, so it could not be tagged.
     Only Gatehouse's model was checking that, and it also raised the rule where it
     did not apply. The reference is the newest released CHANGELOG heading; with
-    none yet, the declarations must agree with each other.
+    none yet, the declarations must agree with each other. A profile whose tags
+    are deploy markers (II) turns it off with `version_sync = false`.
     """
     if (version_tuple(inherits) or ()) < VERSION_SYNC_SINCE:
+        return []
+    rules = [requirements.get("profile", {}).get(p, {}) for p in profiles]
+    if not all(r.get("version_sync", True) for r in rules):
         return []
     found = declared_versions(repo_root, requirements.get("fleet", {}).get("version_files", []))
     changelog = repo_root / "CHANGELOG.md"
@@ -1265,7 +1271,7 @@ def validate_manifest(
         violations += check_gate_workflows(repo_root, inherits, requirements)
         violations += check_repo_files(repo_root, profiles, requirements)
         violations += check_tests_contain(repo_root, inherits, profiles, requirements)
-        violations += check_version_sync(repo_root, inherits, requirements)
+        violations += check_version_sync(repo_root, inherits, profiles, requirements)
         violations += check_visibility(profiles, requirements, slug)
     return violations
 

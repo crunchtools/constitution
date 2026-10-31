@@ -1,0 +1,159 @@
+#!/usr/bin/env python3
+"""Turn a pip-audit report into the repo's one CVE alert issue, or close it (XV).
+
+Run by .github/workflows/dependency-audit.yml after pip-audit. On a pull request
+a vulnerability fails the job. On the default branch the open alert is kept in
+step with the scan: created or rewritten while anything is vulnerable, closed as
+soon as a scan comes back clean.
+
+Before v1.28.0 each repo carried its own copy of this logic. Fifteen copies had
+drifted apart, twelve of them counted every report as clean (they read the JSON
+as a list), and none closed its issue: gatehouse#96 stayed open five days after
+the fix merged. Standard library and the gh CLI only.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+TITLE = "Security Alert: CVEs found in dependencies"
+LABELS = ("security", "dependencies")
+AUTHOR = "github-actions[bot]"
+"""The workflow's own token writes as this account; an issue a person filed is never touched."""
+BRANCH_EVENTS = {"schedule", "push", "workflow_dispatch"}
+
+
+def vulnerable(report: dict) -> list[dict]:
+    """The dependencies with at least one vulnerability. A malformed report raises."""
+    return [dep for dep in report["dependencies"] if dep.get("vulns")]
+
+
+def alerts(issues: list[dict]) -> list[dict]:
+    """Open alerts this workflow wrote, oldest first. Dated titles from the old copies count."""
+    found = [
+        issue
+        for issue in issues
+        if (issue.get("author") or {}).get("login") in (AUTHOR, "app/github-actions")
+        and issue["title"].startswith("Security Alert: CVEs found in dependencies")
+    ]
+    return sorted(found, key=lambda issue: issue["number"])
+
+
+def body(markdown: str, run_url: str) -> str:
+    return (
+        "## Security Vulnerabilities Detected\n\n"
+        f"The [latest dependency scan]({run_url}) found vulnerable dependencies.\n\n"
+        f"{markdown.strip()}\n\n"
+        "This issue is rewritten by every scan of the default branch and closed by the "
+        "first clean one. Update the affected packages (Dependabot usually opens the PR).\n"
+    )
+
+
+def plan(event: str, found: list[dict], open_alerts: list[dict]) -> list[tuple]:
+    """What to do, as (action, issue number or None) pairs. Pure: no I/O.
+
+    `fail` fails the job; `create`, `edit` and `close` act on the alert issue.
+    """
+    if event == "pull_request":
+        return [("fail", None)] if found else []
+    if event not in BRANCH_EVENTS:
+        return []
+    if not found:
+        return [("close", issue["number"]) for issue in open_alerts]
+    if not open_alerts:
+        return [("create", None)]
+    record, *duplicates = open_alerts
+    return [("edit", record["number"]), *(("close-duplicate", i["number"]) for i in duplicates)]
+
+
+def gh(*args: str) -> str:
+    done = subprocess.run(["gh", *args], check=True, capture_output=True, text=True)
+    return done.stdout
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--json", required=True, type=Path)
+    parser.add_argument("--markdown", required=True, type=Path)
+    parser.add_argument("--event", required=True)
+    parser.add_argument("--repo", required=True)
+    parser.add_argument("--run-url", required=True)
+    args = parser.parse_args()
+
+    found = vulnerable(json.loads(args.json.read_text()))
+    print(f"audit: {len(found)} vulnerable dependencies")
+    listing = gh(
+        "issue",
+        "list",
+        "--repo",
+        args.repo,
+        "--state",
+        "open",
+        "--label",
+        ",".join(LABELS),
+        "--limit",
+        "100",
+        "--json",
+        "number,title,author",
+    )
+    actions = plan(args.event, found, alerts(json.loads(listing)))
+    text = body(args.markdown.read_text() if args.markdown.is_file() else "", args.run_url)
+    for action, number in actions:
+        print(f"audit: {action} {number or ''}".rstrip())
+        if action == "fail":
+            print("::error::Vulnerable dependencies; see the audit results artifact.")
+            return 1
+        if action == "create":
+            for label in LABELS:  # an existing label keeps its colour; only a missing one is made
+                subprocess.run(
+                    ["gh", "label", "create", label, "--repo", args.repo],
+                    capture_output=True,
+                    check=False,
+                )
+            gh(
+                "issue",
+                "create",
+                "--repo",
+                args.repo,
+                "--title",
+                TITLE,
+                "--label",
+                ",".join(LABELS),
+                "--body",
+                text,
+            )
+        elif action == "edit":
+            gh("issue", "edit", str(number), "--repo", args.repo, "--title", TITLE, "--body", text)
+        elif action == "close":
+            gh(
+                "issue",
+                "close",
+                str(number),
+                "--repo",
+                args.repo,
+                "--reason",
+                "completed",
+                "--comment",
+                f"The [latest scan]({args.run_url}) found no vulnerable dependencies.",
+            )
+        elif action == "close-duplicate":
+            gh(
+                "issue",
+                "close",
+                str(number),
+                "--repo",
+                args.repo,
+                "--reason",
+                "not planned",
+                "--comment",
+                "Superseded by the oldest open alert, which every scan now rewrites.",
+            )
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
