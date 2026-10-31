@@ -436,3 +436,64 @@ def test_read_only_test_waits_for_inherits(repo):
 def test_unparseable_hook_entry_fails(repo):
     add_hook(repo, 'bash -c "npm test')
     assert any("entry is not shell" in v for v in violations(repo))
+
+
+def release(repo: Path, version: str) -> None:
+    write(
+        repo,
+        "CHANGELOG.md",
+        "# Changelog\nhttps://keepachangelog.com\n## [Unreleased]\n\n"
+        f"## [{version}] - 2026-10-31\n",
+    )
+
+
+def in_sync(repo: Path, version: str) -> None:
+    """mcp-github's layout: every place its 2.0.0 had to move."""
+    release(repo, version)
+    write(repo, "pyproject.toml", f'[project]\nname = "x"\nversion = "{version}"\n')
+    write(repo, "src/x/__init__.py", f'__version__ = "{version}"\n')
+    write(repo, "src/x/server.py", f'mcp = FastMCP(\n    name="x",\n    version="{version}",\n)\n')
+    package = f'{{"version": "{version}"}}'
+    write(repo, "server.json", f'{{"version": "{version}", "packages": [{package}]}}\n')
+    label = f'LABEL name="x" \\\n      version="{version}" \\\n      vendor="y"\n'
+    write(repo, "Containerfile", f"FROM x\n{label}")
+
+
+def test_versions_in_sync_pass(repo):
+    in_sync(repo, "2.0.0")
+    assert violations(repo) == []
+
+
+@pytest.mark.parametrize("rel", ["server.json", "Containerfile", "src/x/server.py"])
+def test_a_version_left_behind_fails(repo, rel):
+    """The three files mcp-github's 2.0.0 bump missed."""
+    in_sync(repo, "2.0.0")
+    path = repo / rel
+    path.write_text(path.read_text().replace("2.0.0", "1.6.0", 1))
+    (only,) = violations(repo)
+    assert only == f"VERSION: {rel} says 1.6.0, CHANGELOG.md says 2.0.0 (II)"
+
+
+def test_imported_version_and_ci_labels_are_not_claims(repo):
+    """server.py importing __version__, and a CI-set image.version, state nothing."""
+    in_sync(repo, "2.0.0")
+    server = "from . import __version__\nmcp = FastMCP(version=__version__)\n"
+    write(repo, "src/x/server.py", server)
+    write(repo, "Containerfile", 'FROM x\nLABEL org.opencontainers.image.version="latest"\n')
+    assert violations(repo) == []
+
+
+def test_without_a_release_the_declarations_must_agree(repo):
+    write(repo, "pyproject.toml", 'version = "0.3.0"\n')
+    write(repo, "package.json", '{\n  "name": "x",\n  "version": "0.2.0"\n}\n')
+    (only,) = violations(repo)
+    assert only == "VERSION: package.json says 0.2.0, pyproject.toml says 0.3.0 (II)"
+
+
+def test_version_sync_waits_for_inherits(repo):
+    in_sync(repo, "2.0.0")
+    write(repo, "server.json", '{"version": "1.6.0"}\n')
+    for rel in (".specify/memory/constitution.md", ".github/workflows/constitution.yml"):
+        path = repo / rel
+        path.write_text(path.read_text().replace(f"v{VERSION}", "v1.27.0"))
+    assert violations(repo) == []
