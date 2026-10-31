@@ -69,3 +69,70 @@ def test_body_links_the_run_and_lists_each_advisory():
     text = A.body(found, "https://github.com/x/y/actions/runs/1")
     assert "(https://github.com/x/y/actions/runs/1)" in text
     assert "| jinja2 | 3.1.4 | A | 3.1.5 |" in text
+
+
+@pytest.fixture
+def calls(monkeypatch):
+    made = []
+    monkeypatch.setattr(A, "gh", lambda *args: made.append(args) or "")
+    return made
+
+
+def test_create_makes_missing_labels_then_the_issue(calls):
+    A.apply("o/r", "create", None, "BODY", "RUN")
+    assert [c[:3] for c in calls[:2]] == [
+        ("label", "create", "security"),
+        ("label", "create", "dependencies"),
+    ]
+    assert calls[2] == (
+        "issue",
+        "create",
+        "--repo",
+        "o/r",
+        "--title",
+        A.TITLE,
+        "--label",
+        "security,dependencies",
+        "--body",
+        "BODY",
+    )
+
+
+def test_edit_rewrites_title_and_body(calls):
+    A.apply("o/r", "edit", 3, "BODY", "RUN")
+    assert calls == [("issue", "edit", "3", "--repo", "o/r", "--title", A.TITLE, "--body", "BODY")]
+
+
+@pytest.mark.parametrize(
+    ("action", "reason", "says"),
+    [
+        ("close", "completed", "(RUN) found no vulnerable"),
+        ("close-duplicate", "not planned", "Superseded"),
+    ],
+)
+def test_closes_carry_their_reason_and_comment(calls, action, reason, says):
+    A.apply("o/r", action, 9, "BODY", "RUN")
+    ((*head, comment),) = calls
+    assert head == ["issue", "close", "9", "--repo", "o/r", "--reason", reason, "--comment"]
+    assert says in comment
+
+
+def test_an_existing_label_is_left_alone(monkeypatch):
+    tried = []
+
+    def fail(*args):
+        tried.append(args)
+        raise RuntimeError("gh label create: label with name already exists")
+
+    monkeypatch.setattr(A, "gh", fail)
+    assert A.ensure_label("o/r", "security") is None
+    assert tried == [("label", "create", "security", "--repo", "o/r")]
+
+
+def test_any_other_label_failure_raises(monkeypatch):
+    def fail(*args):
+        raise RuntimeError("gh label create: HTTP 403")
+
+    monkeypatch.setattr(A, "gh", fail)
+    with pytest.raises(RuntimeError):
+        A.ensure_label("o/r", "security")

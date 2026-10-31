@@ -102,6 +102,7 @@ def ensure_label(repo: str, name: str) -> None:
 
 
 def close(repo: str, number: int, reason: str, comment: str) -> None:
+    """Close an alert issue with GitHub's close reason and a comment saying why."""
     gh("issue", "close", str(number), "--repo", repo, "--reason", reason, "--comment", comment)
 
 
