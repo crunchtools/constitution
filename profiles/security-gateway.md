@@ -1,6 +1,6 @@
 # Security Gateway Profile
 
-> **Profile Version:** 1.0.0
+> **Profile Version:** 1.1.0
 > **Applies to:** Software that stands between AI agents and what they read or call, and decides what reaches them (`crunchtools/trentina`)
 
 A security gateway is not an MCP server that happens to do security. It is a perimeter: other software is safe because of what this software refuses, so a wrong "clean" is the defect that matters and everything here exists to make one hard to ship unnoticed. A gateway speaks MCP, HTTP and whatever else its agents speak; the protocol is its surface, not its identity.
@@ -11,7 +11,8 @@ Sections III to VI of the MCP Server profile (Containerfile Conventions, Testing
 
 ## I. Distribution
 
-- The container image is the only distribution. It is built, tested, scanned and pushed by GitHub Actions; nothing is built or pushed from a workstation.
+- The container image is the only distribution, and GitHub Actions is the only thing that publishes one: it builds, tests, scans and pushes, and no image reaches a registry or a host from a workstation.
+- A workstation MAY build the image as a gate, and SHOULD, because a build is the cheapest place to find a broken one (XII). What a workstation builds is never published, never deployed and never tagged. Drift comes from pushing a hand-built image, not from building one.
 - No PyPI package and no `uvx` entry. A gateway is a model, its parsers, its policy and its process isolation together; a library install is a part of that with the isolation missing.
 - Everything a verdict depends on is in the image and pinned: models by revision, parser libraries by hash. Nothing that decides a verdict is fetched at run time.
 - A release is a tag and a GitHub Release (constitution II). The image carries the version as a label.

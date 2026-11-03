@@ -9,6 +9,20 @@ Entries through 1.14.0 are derived from the Ratification History table in
 
 ## [Unreleased]
 
+## [1.29.0] - 2026-11-03
+
+### Changed
+- **Security Gateway profile 1.1.0**: "nothing is built or pushed from a
+  workstation" becomes "nothing is published from a workstation", and a local
+  build is named as a gate a host SHOULD run before pushing. The rule was
+  written when the image build needed a gated Hugging Face credential; that
+  went with Prompt Guard 2, and the image has been laptop-buildable since.
+  Meanwhile Trentina's CI built the same image three times per pull request and
+  the local loop could not build it once, so a broken image was found at merge
+  or later. `scripts/gates.sh pr` now builds, verifies and scans before the
+  push. Publishing is still CI's alone: drift comes from pushing a hand-built
+  image, not from building one.
+
 ### Fixed
 - `scripts/fleet-bump.py` carries on past a repo whose clone or push fails, then
   exits 1 naming the repos to rerun with `--only`. One TLS timeout ended the
