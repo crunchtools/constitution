@@ -1,7 +1,7 @@
 # CrunchTools Constitution
 
-> **Version:** 1.28.0
-> **Ratified:** 2026-10-31
+> **Version:** 1.29.0
+> **Ratified:** 2026-11-03
 > **Status:** Active
 
 This constitution establishes the universal principles that govern all software projects in the [crunchtools](https://github.com/crunchtools) organization. Every repo inherits these rules. Subsystem-specific requirements are defined in profiles.
@@ -791,3 +791,4 @@ a public repository. Keep it host-side (for example
 | 1.25.0 | 2026-10-11 | Web Application profile 1.2.0: Hosted Dev Sites (XII). A dev deployment that runs a git checkout holds no agent, editor, source-control client or credential; the agent that edits it runs in its own container with the site's directory mounted, and drives it through files: a save takes effect on its own where the stack allows, touching `control/<name>` restarts the units behind a closed set of names, and `logs/<unit>.log` is a capped copy of each unit's journal. Deploys from such a session go through an audited tool that can restart the production unit, never a host login. Section III adds that a path two containers mount uses `:z` in every unit that mounts it. Prompted by moving the agent out of rotv's dev container, where a second container mounting the site's tree made `:Z` relabel it out from under whichever started first |
 | 1.28.0 | 2026-10-31 | Added Version Declarations to II: every file that states the version states the newest released one, checked by the validator from `version_files` in requirements.toml (Web Application opts out; its tags are deploy markers). Added XV rule 6: uv projects call the reusable `dependency-audit.yml`, which fails vulnerable PRs and keeps one self-closing alert issue. Prompted by the 2026-10-31 weekend report: mcp-github 2.0.0 untaggable, twelve silent CVE gates, gatehouse#96 open after its fix |
 | 1.27.0 | 2026-10-26 | Extended Monitoring Checks (XVI): slow or remote reads use a collector that writes a status file and a check that judges it and starts the collector itself; NRPE checks join their pool by template; drift checks carry a stateless grace period; planned work schedules Nagios downtime first. Also Container Image profile 1.5.0 and Web Application profile 1.3.0 (test the digest you promote). Prompted by the 2026-10-24/25 weekend, when planned work on mcp-trove and Trentina buried the Weekend Report's Infrastructure Health section |
+| 1.29.0 | 2026-11-03 | Security Gateway profile 1.1.0: the rule that nothing is built from a workstation becomes a rule that nothing is PUBLISHED from one, and a local build is named as a gate the host SHOULD run. Trentina's `scripts/gates.sh pr` builds, verifies and scans the image before the push, which the old wording forbade while CI built the same image three times per pull request. The credential that once made the build CI-only went with gated Prompt Guard 2 |
