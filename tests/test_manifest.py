@@ -71,8 +71,17 @@ jobs:
     uses: crunchtools/gatehouse/.github/workflows/gourmand.yml@v0.15.2
 """
 
-PRE_COMMIT = """repos:
-  - repo: local
+# The example repo has a pyproject.toml, so since v1.30.0 it is a Python repo
+# and its gates come from python-sdlc. STANDALONE is the shape every other repo
+# keeps. A `repo: local` block follows so a test can append a hook to it.
+SDLC_BLOCK = """  - repo: https://github.com/crunchtools/python-sdlc
+    rev: v0.2.0
+    hooks:
+      - id: sdlc-commit
+      - id: sdlc-push
+"""
+
+STANDALONE_BLOCK = """  - repo: local
     hooks:
       - id: gourmand
         entry: podman run --rm -v .:/src:Z quay.io/crunchtools/gourmand:latest check --full
@@ -80,6 +89,22 @@ PRE_COMMIT = """repos:
       - id: gatehouse
         entry: bash -c 'git diff --cached | podman run -i quay.io/crunchtools/gatehouse --stdin'
         language: system
+"""
+
+PRE_COMMIT = (
+    "default_install_hook_types: [pre-commit, pre-push]\n\nrepos:\n"
+    + SDLC_BLOCK
+    + "  - repo: local\n    hooks:\n"
+)
+
+SDLC_CI = """name: CI
+on: pull_request
+jobs:
+  sdlc:
+    name: sdlc ci
+    runs-on: ubuntu-latest
+    steps:
+      - run: bin/sdlc ci
 """
 
 
@@ -100,6 +125,7 @@ def repo(tmp_path: Path) -> Path:
     write(root, ".github/workflows/gatehouse.yml", GATEHOUSE)
     write(root, ".github/workflows/gatehouse-retriage.yml", RETRIAGE)
     write(root, ".github/workflows/gourmand.yml", GOURMAND)
+    write(root, ".github/workflows/ci.yml", SDLC_CI)
     for name in ("constitution.yml", "dependabot-automerge.yml"):
         text = re.sub(r"@v\d+\.\d+\.\d+", f"@v{VERSION}", (ROOT / "examples" / name).read_text())
         write(root, f".github/workflows/{name}", text)
@@ -108,6 +134,20 @@ def repo(tmp_path: Path) -> Path:
         write(root, rel, "")
     write(root, "tests/test_tools.py", "assert tool.annotations.readOnlyHint is True\n")
     return root
+
+
+def inherit(root: Path, old: str) -> None:
+    """Move the repo back to an older release, with the hooks that release required.
+
+    Before v1.30.0 a Python repo carried the standalone hooks, so a repo
+    pinned to an older release is written that way; hooks a test appended to
+    the `repo: local` block are kept.
+    """
+    for rel in (".specify/memory/constitution.md", ".github/workflows/constitution.yml"):
+        path = root / rel
+        path.write_text(path.read_text().replace(f"v{VERSION}", f"v{old}"))
+    config = root / ".pre-commit-config.yaml"
+    config.write_text(config.read_text().replace(SDLC_BLOCK, STANDALONE_BLOCK))
 
 
 def violations(root: Path, **kwargs) -> list[str]:
@@ -158,9 +198,7 @@ def test_pinned_mode_rejects_other_version(repo, monkeypatch):
 @pytest.mark.parametrize("old", V.VALIDATED_AT_MAIN)
 def test_releases_that_validated_at_main_still_pass(repo, old):
     """v1.19.0's release failed every repo pinned to v1.18.0 (#42)."""
-    for rel in (".specify/memory/constitution.md", ".github/workflows/constitution.yml"):
-        path = repo / rel
-        path.write_text(path.read_text().replace(f"v{VERSION}", f"v{old}"))
+    inherit(repo, old)
     assert violations(repo, pinned=True) == []
 
 
@@ -418,9 +456,7 @@ def test_contained_hook_passes(repo, entry, language):
 def test_host_contract_waits_for_inherits(repo):
     """Version-gated: a repo on an older release is not judged by it."""
     add_hook(repo, "npm run lint")
-    for rel in (".specify/memory/constitution.md", ".github/workflows/constitution.yml"):
-        path = repo / rel
-        path.write_text(path.read_text().replace(f"v{VERSION}", "v1.19.1"))
+    inherit(repo, "1.19.1")
     assert violations(repo) == []
 
 
@@ -433,9 +469,7 @@ def test_mcp_server_needs_read_only_test(repo):
 def test_read_only_test_waits_for_inherits(repo):
     """Version-gated: the drift report judges older pins with this validator."""
     write(repo, "tests/test_tools.py", "")
-    for rel in (".specify/memory/constitution.md", ".github/workflows/constitution.yml"):
-        path = repo / rel
-        path.write_text(path.read_text().replace(f"v{VERSION}", "v1.21.0"))
+    inherit(repo, "1.21.0")
     assert violations(repo) == []
 
 
@@ -499,9 +533,7 @@ def test_without_a_release_the_declarations_must_agree(repo):
 def test_version_sync_waits_for_inherits(repo):
     in_sync(repo, "2.0.0")
     write(repo, "server.json", '{"version": "1.6.0"}\n')
-    for rel in (".specify/memory/constitution.md", ".github/workflows/constitution.yml"):
-        path = repo / rel
-        path.write_text(path.read_text().replace(f"v{VERSION}", "v1.27.0"))
+    inherit(repo, "1.27.0")
     assert violations(repo) == []
 
 
@@ -512,3 +544,106 @@ def test_web_application_tags_are_deploy_markers(repo):
     path = repo / ".specify/memory/constitution.md"
     path.write_text(path.read_text().replace("MCP Server", "Web Application"))
     assert not any(v.startswith("VERSION:") for v in violations(repo))
+
+
+# XII since v1.30.0: a Python repo's checks come from python-sdlc.
+
+
+def test_python_repo_on_python_sdlc_passes(repo):
+    assert violations(repo, pinned=True) == []
+
+
+def test_python_repo_on_the_standalone_hooks_fails(repo):
+    """Required, not optional: the old shape is no longer enough for a Python repo."""
+    write(repo, ".pre-commit-config.yaml", "repos:\n" + STANDALONE_BLOCK)
+    assert any("must pin https://github.com/crunchtools/python-sdlc" in v for v in violations(repo))
+
+
+def test_non_python_repo_keeps_the_standalone_hooks(repo):
+    (repo / "pyproject.toml").unlink()
+    (repo / "uv.lock").unlink()
+    write(repo, ".pre-commit-config.yaml", "repos:\n" + STANDALONE_BLOCK)
+    assert not [v for v in violations(repo) if v.startswith("XII")]
+
+
+def test_a_repo_that_builds_the_image_is_exempt(repo):
+    """gatehouse, gourmand and python-sdlc build what the image contains."""
+    exempt = repo.parent / "gatehouse"
+    repo.rename(exempt)
+    write(exempt, ".pre-commit-config.yaml", "repos:\n" + STANDALONE_BLOCK)
+    assert not [v for v in violations(exempt) if v.startswith("XII")]
+
+
+@pytest.mark.parametrize("rev", ["main", "0.2.0", "a1b2c3d4"])
+def test_python_sdlc_must_be_pinned_at_a_release(repo, rev):
+    write(repo, ".pre-commit-config.yaml", PRE_COMMIT.replace("v0.2.0", rev))
+    [found] = violations(repo)
+    assert f"pinned at `{rev}`" in found
+
+
+@pytest.mark.parametrize("hook", ["sdlc-commit", "sdlc-push"])
+def test_both_hooks_are_required(repo, hook):
+    write(repo, ".pre-commit-config.yaml", PRE_COMMIT.replace(f"      - id: {hook}\n", ""))
+    [found] = violations(repo)
+    assert f"`{hook}` hook" in found
+
+
+def test_a_later_repo_block_cannot_supply_a_missing_hook(repo):
+    write(
+        repo,
+        ".pre-commit-config.yaml",
+        PRE_COMMIT.replace("      - id: sdlc-push\n", "")
+        + "      - id: sdlc-push\n        entry: ./x\n        language: script\n",
+    )
+    assert any("`sdlc-push` hook" in v for v in violations(repo))
+
+
+def test_the_push_hook_must_be_installed(repo):
+    write(
+        repo,
+        ".pre-commit-config.yaml",
+        PRE_COMMIT.replace("[pre-commit, pre-push]", "[pre-commit]"),
+    )
+    [found] = violations(repo)
+    assert "does not name `pre-push`" in found
+
+
+def test_a_block_style_hook_type_list_is_read(repo):
+    write(
+        repo,
+        ".pre-commit-config.yaml",
+        PRE_COMMIT.replace(
+            "default_install_hook_types: [pre-commit, pre-push]",
+            "default_install_hook_types:\n  - pre-commit\n  - pre-push",
+        ),
+    )
+    assert violations(repo, pinned=True) == []
+
+
+def test_ci_must_run_sdlc_ci(repo):
+    (repo / ".github/workflows/ci.yml").unlink()
+    [found] = violations(repo)
+    assert "no CI job named `sdlc ci`" in found
+
+
+@pytest.mark.parametrize(
+    "workflow",
+    [
+        # The workflow's own name, not a job's.
+        "name: sdlc ci\non: pull_request\njobs:\n  t:\n    runs-on: x\n    steps:\n"
+        "      - run: bin/sdlc ci\n",
+        # A step's name.
+        "name: CI\non: pull_request\njobs:\n  t:\n    runs-on: x\n    steps:\n"
+        "      - name: sdlc ci\n        run: bin/sdlc ci\n",
+        # Mentioning the command is not running it.
+        "name: CI\non: pull_request\njobs:\n  t:\n    name: sdlc ci\n    runs-on: x\n"
+        "    steps:\n      - run: echo sdlc ci\n",
+        # The right job name, running something else.
+        "name: CI\non: pull_request\njobs:\n  t:\n    name: sdlc ci\n    runs-on: x\n"
+        "    steps:\n      - run: uv run pytest\n",
+    ],
+)
+def test_only_a_job_named_sdlc_ci_that_runs_it_counts(repo, workflow):
+    write(repo, ".github/workflows/ci.yml", workflow)
+    [found] = violations(repo)
+    assert "no CI job named `sdlc ci`" in found

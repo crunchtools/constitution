@@ -1,7 +1,7 @@
 # CrunchTools Constitution
 
-> **Version:** 1.29.0
-> **Ratified:** 2026-11-03
+> **Version:** 1.30.0
+> **Ratified:** 2026-11-04
 > **Status:** Active
 
 This constitution establishes the universal principles that govern all software projects in the [crunchtools](https://github.com/crunchtools) organization. Every repo inherits these rules. Subsystem-specific requirements are defined in profiles.
@@ -349,9 +349,55 @@ Requiring two gates to run from containers said nothing about the rest. On a fre
 A CI gate that only fires after the push finds problems once they are already someone else's review burden. Both gates therefore also run locally, before the commit exists.
 
 **Rules:**
-- `.pre-commit-config.yaml` MUST carry a hook with `id: gourmand` running `quay.io/crunchtools/gourmand` and a hook with `id: gatehouse` running `quay.io/crunchtools/gatehouse` with `--stdin` over `git diff --cached`, both from their container images. Copy them from `examples/pre-commit.yaml`.
+- A Python repo wires both gates through python-sdlc (below). Every other repo's `.pre-commit-config.yaml` MUST carry a hook with `id: gourmand` running `quay.io/crunchtools/gourmand` and a hook with `id: gatehouse` running `quay.io/crunchtools/gatehouse` with `--stdin` over `git diff --cached`, both from their container images. Copy them from `examples/pre-commit.yaml`.
 - Both hooks block the commit: Gourmand on any violation, Gatehouse on critical/high findings (exit `1`). The Gatehouse hook mounts the repo read-only so its Constitution agent reads the repo's own constitution. Its key comes from `~/.config/mcp-env/gatehouse.env`.
-- `SKIP=gatehouse` is the escape hatch for a false positive. It does not make the finding go away: the same finding reappears on the PR and MUST be answered there (see Triage).
+- `SKIP=gatehouse` (in a Python repo, `SDLC_SKIP=gatehouse`) is the escape hatch for a false positive. It does not make the finding go away: the same finding reappears on the PR and MUST be answered there (see Triage).
+
+### Python repos: python-sdlc
+
+Every Python repo needs the same checks, and each one used to install and pin
+them itself. Across 35 Python repos that produced nine ruff versions, 15 repos
+with no type checker, and 17 dependency scans written so they could not fail.
+And a laptop and CI that install their tools separately disagree: trentina's
+laptop ran a two-week-old Gatehouse while CI ran a fresh one.
+
+So a Python repo runs its checks from one image,
+[`quay.io/crunchtools/python-sdlc`](https://github.com/crunchtools/python-sdlc),
+on the laptop and in CI alike.
+
+**Rules:**
+- A repo with a `pyproject.toml` is a Python repo. It MUST run its checks
+  through python-sdlc, pinned at one exact release (`vX.Y.Z`):
+
+  | Command | Runs | Config block in `pyproject.toml` |
+  |---|---|---|
+  | `sdlc commit` | the `sdlc-commit` pre-commit hook | `[tool.sdlc.commit]` |
+  | `sdlc push` | the `sdlc-push` pre-push hook | `[tool.sdlc.push]` |
+  | `sdlc ci` | the CI job named `sdlc ci` | `[tool.sdlc.ci]` |
+
+- **Commit** takes seconds, works offline and costs nothing: formatting and
+  lint fixes. **Push** renders the verdicts — types, tests, Gourmand,
+  Gatehouse, Semgrep, the dependency audit, this validator, CodeQL — once, over
+  `origin/<default-branch>...HEAD`, and never builds a container. **CI** runs
+  push's checks except Gourmand and Gatehouse, which CI runs through their own
+  workflows (below), plus the repo's own checks, such as building and testing
+  its image.
+- Every check exits `0` passed, `1` found a problem, or `2` could not run.
+  `2` is never treated as a pass.
+- The image carries tools, never a repo's rules. Rulesets, thresholds, ignore
+  files and query packs stay in the repo. A repo's own checks are named in its
+  config block with a `kind` the image implements — never a shell command. A
+  repo that needs something new gets a new kind in the image.
+- `default_install_hook_types` MUST name `pre-commit` and `pre-push`, so
+  `pre-commit install` wires both hooks.
+- A release of Gourmand or Gatehouse triggers a python-sdlc release, and that
+  release opens a version-bump pull request in every Python repo. The laptop
+  then runs the reviewer CI runs.
+- Exempt: `gourmand`, `gatehouse` and `python-sdlc`, which build what the image
+  contains. The list is `sdlc_exempt` in `requirements.toml`.
+- What stays in workflow YAML, because it is not a check: publishing,
+  uploading results to GitHub's security tab, Gatehouse's PR review and
+  triage, and Gourmand's reusable CI job.
 
 ### Gourmand
 
@@ -792,3 +838,4 @@ a public repository. Keep it host-side (for example
 | 1.28.0 | 2026-10-31 | Added Version Declarations to II: every file that states the version states the newest released one, checked by the validator from `version_files` in requirements.toml (Web Application opts out; its tags are deploy markers). Added XV rule 6: uv projects call the reusable `dependency-audit.yml`, which fails vulnerable PRs and keeps one self-closing alert issue. Prompted by the 2026-10-31 weekend report: mcp-github 2.0.0 untaggable, twelve silent CVE gates, gatehouse#96 open after its fix |
 | 1.27.0 | 2026-10-26 | Extended Monitoring Checks (XVI): slow or remote reads use a collector that writes a status file and a check that judges it and starts the collector itself; NRPE checks join their pool by template; drift checks carry a stateless grace period; planned work schedules Nagios downtime first. Also Container Image profile 1.5.0 and Web Application profile 1.3.0 (test the digest you promote). Prompted by the 2026-10-24/25 weekend, when planned work on mcp-trove and Trentina buried the Weekend Report's Infrastructure Health section |
 | 1.29.0 | 2026-11-03 | Security Gateway profile 1.1.0: the rule that nothing is built from a workstation becomes a rule that nothing is PUBLISHED from one, and a local build is named as a gate the host SHOULD run. Trentina's `scripts/gates.sh pr` builds, verifies and scans the image before the push, which the old wording forbade while CI built the same image three times per pull request. The credential that once made the build CI-only went with gated Prompt Guard 2 |
+| 1.30.0 | 2026-11-04 | Python repos run their checks through python-sdlc (XII): one image, pinned at one release, three commands — `sdlc commit` at pre-commit, `sdlc push` at pre-push, `sdlc ci` in CI — each configured by the `pyproject.toml` block of the same name. Commit is seconds and offline; push renders the verdicts and never builds a container; CI runs push's checks except the two reviewers it gets from their own workflows, plus the repo's own. Repo checks are named kinds, never shell. Non-Python repos keep the standalone Gourmand and Gatehouse hooks. The validator requires the shape for repos inheriting v1.30.0, so a Python repo takes this version in the same pull request that converts it. Prompted by an audit of 35 Python repos (nine ruff versions, 15 with no type checker, 17 dependency scans that could not fail) and trentina's laptop running a two-week-old Gatehouse while CI ran a fresh one |

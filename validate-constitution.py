@@ -318,20 +318,84 @@ def _version_tuple(version: str | None) -> tuple[int, ...]:
     return tuple(int(part) for part in version.split(".")) if version else ()
 
 
-def check_quality_gate_wiring(repo_root: Path | None, inherits: str | None) -> list[str]:
-    """XII since 1.17.0: both pre-commit hooks, and the Gatehouse triage job.
+SDLC_SINCE = (1, 30, 0)
+"""First constitution version whose XII requires python-sdlc in a Python repo.
 
-    Reads the real files, like check_gourmand_ci_gate: prose saying a gate
-    exists is exactly what let the gates rot before.
+Gated like GATES_SINCE: a repo becomes subject to it by moving `Inherits`, so a
+Python repo takes v1.30.0 in the same pull request that converts it, and
+`fleet-bump.py` must not carry it to one that has not converted."""
+
+
+def is_sdlc_repo(repo_root: Path, inherits: str | None, requirements: dict) -> bool:
+    """A Python repo (it has a pyproject.toml) that v1.30.0's XII applies to."""
+    fleet = requirements.get("fleet", {})
+    return (
+        _version_tuple(inherits) >= SDLC_SINCE
+        and (repo_root / "pyproject.toml").is_file()
+        and repo_root.name not in fleet.get("sdlc_exempt", [])
+    )
+
+
+def check_sdlc_wiring(repo_root: Path, hooks: str, requirements: dict) -> list[str]:
+    """XII since v1.30.0: python-sdlc at one exact release, both hooks, the CI job."""
+    fleet = requirements.get("fleet", {})
+    url = fleet.get("sdlc_hooks_repo", "https://github.com/crunchtools/python-sdlc")
+    block = re.search(
+        rf"-\s*repo:\s*{re.escape(url)}(?:\.git)?[ \t]*$(.*?)(?=^\s*-\s*repo:|\Z)",
+        hooks,
+        re.S | re.M,
+    )
+    if block is None:
+        return [f"XII: a Python repo's .pre-commit-config.yaml must pin {url}"]
+    violations = []
+    found = re.search(r"^\s*rev:\s*(\S+)", block.group(1), re.M)
+    rev = found.group(1).strip("\"'") if found else ""
+    if not re.fullmatch(r"v\d+\.\d+\.\d+", rev):
+        violations.append(f"XII: {url} is pinned at `{rev or '<nothing>'}`, not a release `vX.Y.Z`")
+    violations += [
+        f"XII: .pre-commit-config.yaml does not enable the `{hook}` hook"
+        for hook in fleet.get("sdlc_hooks", ["sdlc-commit", "sdlc-push"])
+        if not re.search(rf"-\s*id:\s*{re.escape(hook)}[ \t]*$", block.group(1), re.M)
+    ]
+    # Parsed, not matched: the indented block form of this list is as legal as
+    # the inline one, and a line match sees only the first entry.
+    parsed = load_yaml(repo_root / ".pre-commit-config.yaml") or {}
+    declared = parsed.get("default_install_hook_types") or []
+    declared = declared if isinstance(declared, list) else [declared]
+    violations += [
+        f"XII: `default_install_hook_types` does not name `{stage}`, so "
+        f"`pre-commit install` never wires that hook"
+        for stage in ("pre-commit", "pre-push")
+        if stage not in declared
+    ]
+    if not any(_runs_sdlc_ci(load_yaml(f) or {}) for f in workflow_files(repo_root)):
+        violations.append("XII: no CI job named `sdlc ci` runs the `sdlc ci` command")
+    return violations
+
+
+def _runs_sdlc_ci(workflow: dict) -> bool:
+    """A JOB named `sdlc ci` whose steps run the `sdlc ci` command.
+
+    Parsed, not matched: a regex for `name: sdlc ci` is satisfied by a
+    workflow's or a step's name just as well as a job's, and a job carrying the
+    right name while running something else would pass it too.
     """
-    if repo_root is None or _version_tuple(inherits) < GATES_SINCE:
-        return []
-    if not ((repo_root / ".git").exists() or (repo_root / ".specify").is_dir()):
-        return []
+    jobs = workflow.get("jobs") if isinstance(workflow, dict) else None
+    for job in (jobs or {}).values():
+        if not isinstance(job, dict) or job.get("name") != "sdlc ci":
+            continue
+        for step in job.get("steps") or []:
+            run = step.get("run", "") if isinstance(step, dict) else ""
+            # The command word of a line must be `sdlc` (by any path), so
+            # `echo sdlc ci` does not count as running it.
+            if re.search(r"^\s*(?:\S*/)?sdlc\s+ci\b", str(run), re.M):
+                return True
+    return False
 
-    violations: list[str] = []
-    config = repo_root / ".pre-commit-config.yaml"
-    hooks = strip_yaml_comments(config.read_text()) if config.is_file() else ""
+
+def check_standalone_hooks(hooks: str) -> list[str]:
+    """XII since 1.17.0, for a repo that is not a Python repo: one hook per gate."""
+    violations = []
     required_hooks = (
         ("gourmand", "quay.io/crunchtools/gourmand", ""),
         ("gatehouse", "quay.io/crunchtools/gatehouse", r"\S*\s+--stdin"),
@@ -348,6 +412,31 @@ def check_quality_gate_wiring(repo_root: Path | None, inherits: str | None) -> l
                 f"XII: the `{hook_id}` pre-commit hook does not run {image}"
                 + (" with --stdin" if trailing else "")
             )
+    return violations
+
+
+def check_quality_gate_wiring(
+    repo_root: Path | None, inherits: str | None, requirements: dict
+) -> list[str]:
+    """XII since 1.17.0: the local gates, and the Gatehouse triage job.
+
+    Reads the real files, like check_gourmand_ci_gate: prose saying a gate
+    exists is exactly what let the gates rot before. Since v1.30.0 a Python
+    repo's gates come from python-sdlc; every other repo's from the standalone
+    hooks.
+    """
+    if repo_root is None or _version_tuple(inherits) < GATES_SINCE:
+        return []
+    if not ((repo_root / ".git").exists() or (repo_root / ".specify").is_dir()):
+        return []
+
+    violations: list[str] = []
+    config = repo_root / ".pre-commit-config.yaml"
+    hooks = strip_yaml_comments(config.read_text()) if config.is_file() else ""
+    if is_sdlc_repo(repo_root, inherits, requirements):
+        violations += check_sdlc_wiring(repo_root, hooks, requirements)
+    else:
+        violations += check_standalone_hooks(hooks)
 
     triage = re.compile(r"uses:\s*(?:crunchtools/gatehouse|\.)/\.github/workflows/triage\.yml")
     if not any(
@@ -1266,7 +1355,7 @@ def validate_manifest(
     violations += check_manifest_text(text, profiles, requirements)
     if is_repo_checkout(repo_root):
         violations += check_changelog(repo_root)
-        violations += check_quality_gate_wiring(repo_root, inherits)
+        violations += check_quality_gate_wiring(repo_root, inherits, requirements)
         violations += check_host_contract(repo_root, inherits, requirements)
         violations += check_gate_workflows(repo_root, inherits, requirements)
         violations += check_repo_files(repo_root, profiles, requirements)
@@ -1368,7 +1457,7 @@ def validate(
     return (
         check_universal(text, header)
         + check_changelog(repo_root)
-        + check_quality_gate_wiring(repo_root, inherits)
+        + check_quality_gate_wiring(repo_root, inherits, load_requirements())
         + legacy_profile_checks(extract_profile(header), text, repo_root, skill_dir)
     )
 
