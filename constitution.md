@@ -1,7 +1,7 @@
 # CrunchTools Constitution
 
-> **Version:** 1.29.0
-> **Ratified:** 2026-11-03
+> **Version:** 1.30.0
+> **Ratified:** 2026-11-04
 > **Status:** Active
 
 This constitution establishes the universal principles that govern all software projects in the [crunchtools](https://github.com/crunchtools) organization. Every repo inherits these rules. Subsystem-specific requirements are defined in profiles.
@@ -349,9 +349,37 @@ Requiring two gates to run from containers said nothing about the rest. On a fre
 A CI gate that only fires after the push finds problems once they are already someone else's review burden. Both gates therefore also run locally, before the commit exists.
 
 **Rules:**
-- `.pre-commit-config.yaml` MUST carry a hook with `id: gourmand` running `quay.io/crunchtools/gourmand` and a hook with `id: gatehouse` running `quay.io/crunchtools/gatehouse` with `--stdin` over `git diff --cached`, both from their container images. Copy them from `examples/pre-commit.yaml`.
+- `.pre-commit-config.yaml` MUST wire both gates locally, in one of two accepted shapes. Either is compliant and neither is required:
+  - **Standalone images.** A hook with `id: gourmand` running `quay.io/crunchtools/gourmand` and a hook with `id: gatehouse` running `quay.io/crunchtools/gatehouse` with `--stdin` over the diff, both from their container images. Copy them from `examples/pre-commit.yaml`.
+  - **A language SDLC image.** One `repo:` block naming that language's SDLC hooks repo (the list is `sdlc_hooks_repos` in `requirements.toml`), pinned at an exact release, with its `sdlc-gourmand`, `sdlc-gatehouse` and `sdlc-hooks-installed` hooks enabled and `default_install_hook_types` naming both `pre-commit` and `pre-push`. The gates are the same two binaries at pinned versions; what changes is that one `rev:` pins them, and every other tool the language needs, together. See **Language SDLC images** below.
 - Both hooks block the commit: Gourmand on any violation, Gatehouse on critical/high findings (exit `1`). The Gatehouse hook mounts the repo read-only so its Constitution agent reads the repo's own constitution. Its key comes from `~/.config/mcp-env/gatehouse.env`.
 - `SKIP=gatehouse` is the escape hatch for a false positive. It does not make the finding go away: the same finding reappears on the PR and MUST be answered there (see Triage).
+
+### Inner loop and outer loop
+
+A gate that renders a verdict costs seconds to minutes and sometimes money. Run every one of them on every commit and people stop committing; run none of them until CI and the verdict lands after the work is already someone else's review burden. The useful split is not lint against tests. It is **what rewrites your code in under a second** against **what renders a verdict**.
+
+The standalone shape above predates this split and keeps both of its hooks at commit time. It stays compliant. A repo whose gates come from a language SDLC image MUST follow the tiers below, and every repo SHOULD move to them.
+
+**Rules:**
+- The commit tier runs only what is sub-second, offline, free and auto-fixing — formatting and fixable lint. A commit in that shape MUST NOT require the network.
+- Everything that renders a verdict — type checking, tests, slop detection, code review, static analysis, dependency audit, constitution validation — runs once at **pre-push**, over `origin/<default-branch>...HEAD`.
+- The push tier MUST be the same set of gates over the same diff that CI runs on the pull request. This is the rule with teeth: it is what makes a green push tier *predict* a green CI instead of merely hoping for one.
+- Where a local runner distinguishes outcomes, `0` is clean, `1` is the gate found something, and `2` is **the gate could not run**. `2` is never worked around. A gate that cannot run and reports success is worse than no gate, because the pipeline goes green and nobody looks again. Mapping a container runtime's own 125–127 onto `1` is the same defect wearing a different number.
+- `default_install_hook_types` MUST name every tier the repo uses, and a gate MUST check that those hooks are actually installed. `pre-commit install` in an existing clone does not add a stage it did not already wire, so the setting silently does nothing and the entire push tier becomes a no-op nobody notices.
+
+### Language SDLC images
+
+Where a language's gates are the same tools in every repo, they ship as **one fully baked image per language** — `quay.io/crunchtools/<language>-sdlc` — rather than as a tool pinned separately in each repo. Much of crunchtools uses no language-specific SDLC at all, so the standalone Gourmand and Gatehouse images remain, unchanged, and every non-language repo keeps using them.
+
+The failure this answers was measured across 69 checkouts: ruff pinned at nine distinct versions and five line lengths, 15 of 35 Python repos with no type checker at all, and 17 running their dependency audit as `… || true` so the scan could not fail.
+
+**Rules:**
+- A language SDLC image carries every gate for that language at an exact pinned version, Gourmand and Gatehouse included, and carries **no project policy**: rulesets, thresholds, ignore files and query packs stay in the repo being checked. Baking a ruleset means one repo's rule change breaks every other repo on the image.
+- A consuming repo pins the image **once**, through the hooks repo's `rev:`. A second pin naming the image tag in a workflow is the drift this rule exists to delete.
+- **CI pins what the image carries.** Where a repo's local gate runs a baked tool, its CI MUST pin the exact release the image reports. Local and CI disagreeing on one diff is invisible until it costs someone an afternoon: trentina's local hook pinned `gatehouse:latest`, podman's default pull policy is `missing`, and so a two-week-old reviewer judged every commit while CI pulled fresh.
+- A release of a baked tool MUST dispatch a rebuild of the SDLC images that bake it, as the Container Image profile already requires of an image others build `FROM`.
+- Gourmand's **CI** gate stays a call to the reusable `gourmand.yml`. A repo-local CI job running the same binary out of an SDLC image is precisely the copy-paste pattern that let the dead gate regenerate fleet-wide (RT #1468), and baking the binary does not change that. Only the local hook moves.
 
 ### Gourmand
 
@@ -792,3 +820,4 @@ a public repository. Keep it host-side (for example
 | 1.28.0 | 2026-10-31 | Added Version Declarations to II: every file that states the version states the newest released one, checked by the validator from `version_files` in requirements.toml (Web Application opts out; its tags are deploy markers). Added XV rule 6: uv projects call the reusable `dependency-audit.yml`, which fails vulnerable PRs and keeps one self-closing alert issue. Prompted by the 2026-10-31 weekend report: mcp-github 2.0.0 untaggable, twelve silent CVE gates, gatehouse#96 open after its fix |
 | 1.27.0 | 2026-10-26 | Extended Monitoring Checks (XVI): slow or remote reads use a collector that writes a status file and a check that judges it and starts the collector itself; NRPE checks join their pool by template; drift checks carry a stateless grace period; planned work schedules Nagios downtime first. Also Container Image profile 1.5.0 and Web Application profile 1.3.0 (test the digest you promote). Prompted by the 2026-10-24/25 weekend, when planned work on mcp-trove and Trentina buried the Weekend Report's Infrastructure Health section |
 | 1.29.0 | 2026-11-03 | Security Gateway profile 1.1.0: the rule that nothing is built from a workstation becomes a rule that nothing is PUBLISHED from one, and a local build is named as a gate the host SHOULD run. Trentina's `scripts/gates.sh pr` builds, verifies and scans the image before the push, which the old wording forbade while CI built the same image three times per pull request. The credential that once made the build CI-only went with gated Prompt Guard 2 |
+| 1.30.0 | 2026-11-04 | XII accepts a second shape for the local gates and names the rules behind it: a **language SDLC image** (`quay.io/crunchtools/<language>-sdlc`) carrying every gate for that language at an exact pinned version, Gourmand and Gatehouse included, consumed as one `repo:` block with one `rev:`. Adds the **inner/outer loop** tier rule — the commit tier is only what rewrites code in under a second offline, everything that renders a verdict runs once at pre-push over `origin/<default>...HEAD`, and that push tier is the same set over the same diff CI runs, with `2` meaning a gate could not run and never worked around — and the **fully-baked** rule, that a language-specific SDLC ships as one image per language while the standalone tool images stay for everything else. CI pins the exact release the image reports; a release of a baked tool dispatches the SDLC rebuild; Gourmand's CI gate stays the reusable workflow call. The validator accepts either shape and requires neither, so no repo is made non-compliant by this release. Prompted by an audit of 69 checkouts: ruff at nine versions and five line lengths, 15 of 35 Python repos with no type checker, 17 dependency audits run as `… \|\| true`, and trentina's local Gatehouse hook pinned `:latest` against podman's `missing` pull policy, so a two-week-old reviewer judged every commit while CI pulled fresh |

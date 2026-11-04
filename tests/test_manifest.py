@@ -512,3 +512,101 @@ def test_web_application_tags_are_deploy_markers(repo):
     path = repo / ".specify/memory/constitution.md"
     path.write_text(path.read_text().replace("MCP Server", "Web Application"))
     assert not any(v.startswith("VERSION:") for v in violations(repo))
+
+
+# XII since v1.30.0: the second accepted shape for the local gates.
+
+SDLC_PRE_COMMIT = """default_install_hook_types: [pre-commit, pre-merge-commit, pre-push]
+
+repos:
+  - repo: https://github.com/crunchtools/python-sdlc
+    rev: v0.1.0
+    hooks:
+      - id: sdlc-ruff-check
+      - id: sdlc-ruff-format
+      - id: sdlc-hooks-installed
+      - id: sdlc-gourmand
+      - id: sdlc-gatehouse
+"""
+
+
+def test_sdlc_hooks_repo_satisfies_the_gate_rule(repo):
+    """One `repo:` block with one `rev:` is the whole local-gate wiring."""
+    write(repo, ".pre-commit-config.yaml", SDLC_PRE_COMMIT)
+    assert violations(repo, pinned=True) == []
+
+
+def test_standalone_hooks_still_satisfy_the_gate_rule(repo):
+    """The amendment PERMITS the new shape; it does not retire the old one.
+
+    Requiring it would have left 34 unmigrated repos with a failing required
+    check for migration work deferred to its own ticket.
+    """
+    assert violations(repo, pinned=True) == []
+
+
+@pytest.mark.parametrize("hook_id", [*V.SDLC_GATE_HOOKS, V.SDLC_INSTALL_CHECK])
+def test_sdlc_hooks_repo_must_enable_every_required_hook(repo, hook_id):
+    write(repo, ".pre-commit-config.yaml", SDLC_PRE_COMMIT.replace(f"      - id: {hook_id}\n", ""))
+    [found] = violations(repo)
+    assert f"`{hook_id}` hook" in found and "python-sdlc" in found
+
+
+@pytest.mark.parametrize("rev", ["main", "0.1.0", "a1b2c3d4"])
+def test_sdlc_hooks_repo_must_pin_an_exact_release(repo, rev):
+    """That rev pins every tool in the image, so a branch pins nothing."""
+    write(repo, ".pre-commit-config.yaml", SDLC_PRE_COMMIT.replace("v0.1.0", rev))
+    [found] = violations(repo)
+    assert f"pinned at `{rev}`" in found
+
+
+def test_an_unlisted_sdlc_lookalike_is_judged_as_the_standalone_shape(repo):
+    """`sdlc_hooks_repos` is a closed list, not a naming convention."""
+    write(
+        repo,
+        ".pre-commit-config.yaml",
+        SDLC_PRE_COMMIT.replace("crunchtools/python-sdlc", "someone-else/python-sdlc"),
+    )
+    found = violations(repo)
+    assert [v for v in found if "has no `gourmand` hook" in v]
+    assert [v for v in found if "has no `gatehouse` hook" in v]
+
+
+def test_sdlc_shape_must_wire_both_tiers(repo):
+    """A hooks repo cannot set this key, so an unwired tier runs nothing."""
+    write(
+        repo,
+        ".pre-commit-config.yaml",
+        SDLC_PRE_COMMIT.replace(
+            "default_install_hook_types: [pre-commit, pre-merge-commit, pre-push]",
+            "default_install_hook_types: [pre-commit]",
+        ),
+    )
+    [found] = violations(repo)
+    assert "does not name `pre-push`" in found
+
+
+def test_a_later_repo_block_cannot_supply_a_missing_sdlc_gate(repo):
+    """The block ends at the next `repo:`, so a neighbour's hook is not ours."""
+    write(
+        repo,
+        ".pre-commit-config.yaml",
+        SDLC_PRE_COMMIT.replace("      - id: sdlc-gatehouse\n", "")
+        + "  - repo: https://github.com/example/other\n"
+        + "    rev: v1.0.0\n    hooks:\n      - id: sdlc-gatehouse\n",
+    )
+    [found] = violations(repo)
+    assert "`sdlc-gatehouse` hook" in found
+
+
+def test_block_style_tier_list_is_accepted(repo):
+    """`default_install_hook_types` as an indented list is valid YAML too."""
+    write(
+        repo,
+        ".pre-commit-config.yaml",
+        SDLC_PRE_COMMIT.replace(
+            "default_install_hook_types: [pre-commit, pre-merge-commit, pre-push]",
+            "default_install_hook_types:\n  - pre-commit\n  - pre-merge-commit\n  - pre-push",
+        ),
+    )
+    assert violations(repo, pinned=True) == []

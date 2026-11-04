@@ -14,6 +14,12 @@ gatehouse_min = "0.15.0"
 # Files every repo carries (globs relative to the repo root).
 files = ["CHANGELOG.md", ".pre-commit-config.yaml", ".github/dependabot.yml"]
 
+# XII since v1.30.0: the hooks repos a language SDLC image is consumed through.
+# A repo wiring `sdlc-gourmand` and `sdlc-gatehouse` from one of these satisfies
+# the local-gate rule in place of the standalone `id: gourmand` and
+# `id: gatehouse` hooks. Either shape is accepted; neither is required.
+sdlc_hooks_repos = ["https://github.com/crunchtools/python-sdlc"]
+
 # What a developer machine has (XII host contract): the only programs a
 # `language: system` pre-commit hook may start, besides scripts in the repo.
 host_tools = ["git", "podman", "pre-commit", "gh"]

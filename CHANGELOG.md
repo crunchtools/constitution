@@ -9,6 +9,42 @@ Entries through 1.14.0 are derived from the Ratification History table in
 
 ## [Unreleased]
 
+## [1.30.0] - 2026-11-04
+
+### Added
+- **XII accepts a second shape for the local gates.** A **language SDLC image**
+  (`quay.io/crunchtools/<language>-sdlc`) carries every gate for that language
+  at an exact pinned version, Gourmand and Gatehouse included, and a consuming
+  repo wires it as one `repo:` block with one `rev:`. The validator accepts
+  either that or the standalone `id: gourmand` / `id: gatehouse` hooks, and
+  **requires neither**: a shape that was required the day it was tagged would
+  leave every unmigrated repo with a failing required check, for migration work
+  that is deliberately deferred to its own ticket. `sdlc_hooks_repos` in
+  `requirements.toml` is the closed list of repos the second shape may name.
+- **The inner/outer loop tier rule** (XII). The commit tier runs only what is
+  sub-second, offline, free and auto-fixing; everything that renders a verdict
+  runs once at pre-push over `origin/<default-branch>...HEAD`; and that push
+  tier MUST be the same set of gates over the same diff CI runs on the pull
+  request. `0` clean, `1` found something, `2` could not run — and `2` is never
+  worked around, including by mapping a container runtime's own 125–127 onto it.
+  `default_install_hook_types` must name every tier and a gate must check the
+  hooks are installed, because `pre-commit install` in an existing clone adds no
+  stage it did not already wire and the whole push tier silently becomes a no-op.
+- **The fully-baked rule** (XII). A language-specific SDLC ships as one image
+  per language; the standalone tool images stay for everything else, since most
+  of crunchtools uses no language-specific SDLC. Such an image carries tools and
+  no project policy, CI pins the exact release the image reports, and a release
+  of a baked tool dispatches the rebuild of the images that bake it. Gourmand's
+  CI gate stays the reusable `gourmand.yml` call.
+
+Prompted by an audit of all 69 checkouts: ruff pinned at nine distinct versions
+and five line lengths, 15 of 35 Python repos with no type checker at all, 17
+running their dependency audit as `… || true` so the scan could not fail, and
+trentina's local Gatehouse hook pinned `:latest` while podman's default pull
+policy is `missing` — so a two-week-old reviewer judged every local commit
+while CI pulled a fresh one. Local and CI were different reviewers on the same
+diff.
+
 ## [1.29.0] - 2026-11-03
 
 ### Changed

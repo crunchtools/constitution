@@ -318,20 +318,91 @@ def _version_tuple(version: str | None) -> tuple[int, ...]:
     return tuple(int(part) for part in version.split(".")) if version else ()
 
 
-def check_quality_gate_wiring(repo_root: Path | None, inherits: str | None) -> list[str]:
-    """XII since 1.17.0: both pre-commit hooks, and the Gatehouse triage job.
+SDLC_GATE_HOOKS = ("sdlc-gourmand", "sdlc-gatehouse")
+"""The two mandatory gates, as a language SDLC image serves them.
 
-    Reads the real files, like check_gourmand_ci_gate: prose saying a gate
-    exists is exactly what let the gates rot before.
+XII since v1.30.0 accepts two shapes for the local gates: the standalone
+`id: gourmand` and `id: gatehouse` container-image hooks, or one `repo:` block
+pinning a language SDLC image that bakes both. Neither is required. The
+amendment permits rather than requires on purpose: requiring it the day it is
+tagged would leave every repo that has not migrated with a failing required
+check, for migration work that is deliberately deferred."""
+
+SDLC_INSTALL_CHECK = "sdlc-hooks-installed"
+"""The hook that asks git whether the other hooks are installed at all.
+
+Not a gate -- it judges no code. It is required under the SDLC shape because it
+is the one hook whose absence hides the absence of every other: `pre-commit
+install` in an existing clone adds no stage it did not already wire, so an
+unwired `pre-push` turns every verdict-rendering gate into a no-op that reports
+nothing and goes green."""
+
+SDLC_TIERS = ("pre-commit", "pre-push")
+"""The tiers `default_install_hook_types` must name under the SDLC shape.
+
+A hooks repo cannot set this key, so it stays in each consumer's config and is
+the one half of the tier rule a config can be read for. Whether the push tier
+matches what CI runs is not expressible here and is held by the SDLC repo's own
+contract test instead."""
+
+
+def _sdlc_hooks_block(hooks: str, requirements: dict) -> tuple[str, str] | None:
+    """The (url, block text) of the SDLC hooks repo this config pins, if any.
+
+    The URL must be one `requirements.toml` lists, so the second shape is a
+    closed set someone approved rather than any repo whose name ends `-sdlc`.
     """
-    if repo_root is None or _version_tuple(inherits) < GATES_SINCE:
-        return []
-    if not ((repo_root / ".git").exists() or (repo_root / ".specify").is_dir()):
-        return []
+    for url in requirements.get("fleet", {}).get("sdlc_hooks_repos", []):
+        block = re.search(
+            rf"-\s*repo:\s*{re.escape(url)}(?:\.git)?[ \t]*$(.*?)(?=^\s*-\s*repo:|\Z)",
+            hooks,
+            re.S | re.M,
+        )
+        if block:
+            return url, block.group(1)
+    return None
 
-    violations: list[str] = []
-    config = repo_root / ".pre-commit-config.yaml"
-    hooks = strip_yaml_comments(config.read_text()) if config.is_file() else ""
+
+def _check_sdlc_gate_hooks(url: str, block: str, declared: list[str]) -> list[str]:
+    """A pinned SDLC hooks repo: an exact release, every hook, both tiers wired."""
+    violations = []
+    violations += [
+        f"XII: .pre-commit-config.yaml pins {url} but its "
+        f"`default_install_hook_types` does not name `{tier}`, so "
+        f"`pre-commit install` wires no {tier} stage and its gates run nowhere"
+        for tier in SDLC_TIERS
+        if tier not in declared
+    ]
+    found = re.search(r"^\s*rev:\s*(\S+)", block, re.M)
+    rev = found.group(1).strip("\"'") if found else ""
+    if not re.fullmatch(r"v\d+\.\d+\.\d+", rev):
+        violations.append(
+            f"XII: the {url} hooks repo is pinned at `{rev or '<nothing>'}`, not an "
+            f"exact release (`vX.Y.Z`) — that one rev is what pins every tool the "
+            f"image carries"
+        )
+    violations += [
+        f"XII: .pre-commit-config.yaml pins {url} but does not enable its "
+        f"`{hook_id}` hook, so that gate does not run locally"
+        for hook_id in SDLC_GATE_HOOKS
+        if not _enables(block, hook_id)
+    ]
+    if not _enables(block, SDLC_INSTALL_CHECK):
+        violations.append(
+            f"XII: .pre-commit-config.yaml pins {url} but does not enable its "
+            f"`{SDLC_INSTALL_CHECK}` hook, so nothing notices when the hooks "
+            f"themselves were never installed"
+        )
+    return violations
+
+
+def _enables(block: str, hook_id: str) -> bool:
+    return re.search(rf"-\s*id:\s*{re.escape(hook_id)}[ \t]*$", block, re.M) is not None
+
+
+def _check_standalone_gate_hooks(hooks: str) -> list[str]:
+    """The original shape: one hook per gate, each from that gate's own image."""
+    violations = []
     required_hooks = (
         ("gourmand", "quay.io/crunchtools/gourmand", ""),
         ("gatehouse", "quay.io/crunchtools/gatehouse", r"\S*\s+--stdin"),
@@ -341,13 +412,50 @@ def check_quality_gate_wiring(repo_root: Path | None, inherits: str | None) -> l
         if block is None:
             violations.append(
                 f"XII: .pre-commit-config.yaml has no `{hook_id}` hook "
-                f"(copy it from gatehouse examples/pre-commit.yaml)"
+                f"(copy it from gatehouse examples/pre-commit.yaml, or pin a "
+                f"language SDLC hooks repo)"
             )
         elif not re.search(re.escape(image) + trailing, block.group(1)):
             violations.append(
                 f"XII: the `{hook_id}` pre-commit hook does not run {image}"
                 + (" with --stdin" if trailing else "")
             )
+    return violations
+
+
+def check_quality_gate_wiring(
+    repo_root: Path | None, inherits: str | None, requirements: dict
+) -> list[str]:
+    """XII since 1.17.0: both gates as pre-commit hooks, and the triage job.
+
+    Reads the real files, like check_gourmand_ci_gate: prose saying a gate
+    exists is exactly what let the gates rot before.
+
+    Since v1.30.0 the hooks have two accepted shapes, and the file picks its
+    own: a config pinning a listed SDLC hooks repo is judged as that shape,
+    anything else as the standalone one. So a repo with neither is told about
+    the hooks the examples show.
+    """
+    if repo_root is None or _version_tuple(inherits) < GATES_SINCE:
+        return []
+    if not ((repo_root / ".git").exists() or (repo_root / ".specify").is_dir()):
+        return []
+
+    violations: list[str] = []
+    config = repo_root / ".pre-commit-config.yaml"
+    hooks = strip_yaml_comments(config.read_text()) if config.is_file() else ""
+    sdlc = _sdlc_hooks_block(hooks, requirements)
+    if sdlc is None:
+        violations += _check_standalone_gate_hooks(hooks)
+    else:
+        # Parsed, not matched: `default_install_hook_types` is as legal written
+        # as an indented block list as it is inline, and a regex over the line
+        # sees only the first entry of the block form.
+        parsed = (load_yaml(config) or {}) if config.is_file() else {}
+        declared = parsed.get("default_install_hook_types") or []
+        violations += _check_sdlc_gate_hooks(
+            *sdlc, declared if isinstance(declared, list) else [declared]
+        )
 
     triage = re.compile(r"uses:\s*(?:crunchtools/gatehouse|\.)/\.github/workflows/triage\.yml")
     if not any(
@@ -1266,7 +1374,7 @@ def validate_manifest(
     violations += check_manifest_text(text, profiles, requirements)
     if is_repo_checkout(repo_root):
         violations += check_changelog(repo_root)
-        violations += check_quality_gate_wiring(repo_root, inherits)
+        violations += check_quality_gate_wiring(repo_root, inherits, requirements)
         violations += check_host_contract(repo_root, inherits, requirements)
         violations += check_gate_workflows(repo_root, inherits, requirements)
         violations += check_repo_files(repo_root, profiles, requirements)
@@ -1368,7 +1476,7 @@ def validate(
     return (
         check_universal(text, header)
         + check_changelog(repo_root)
-        + check_quality_gate_wiring(repo_root, inherits)
+        + check_quality_gate_wiring(repo_root, inherits, load_requirements())
         + legacy_profile_checks(extract_profile(header), text, repo_root, skill_dir)
     )
 
