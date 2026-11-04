@@ -9,6 +9,7 @@ import pytest
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "fleet-bump.py"
 spec = importlib.util.spec_from_file_location("fleet_bump", SCRIPT)
+assert spec is not None and spec.loader is not None, "cannot load fleet-bump.py"
 bump = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(bump)
 

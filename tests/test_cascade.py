@@ -1,10 +1,14 @@
 """validate-cascade.py: a rebuild trigger counts wherever it is written."""
 
+import base64
 import importlib.util
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location("validate_cascade", ROOT / "validate-cascade.py")
+assert spec is not None and spec.loader is not None, "cannot load validate-cascade.py"
 C = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(C)
 
@@ -28,3 +32,21 @@ def test_a_direct_dispatch_counts():
 def test_a_repo_naming_itself_is_not_an_edge():
     cache = {("parent", "build.yml"): "gh api repos/crunchtools/parent/dispatches\n"}
     assert C.build_dispatch_graph(["parent"], cache)["parent"] == set()
+
+
+def test_fetch_text_says_so_when_the_path_is_a_directory(monkeypatch):
+    """The Contents API returns a list for a directory, a dict for a file.
+
+    fetch_text indexed the result by "content" either way, so a directory path
+    raised an opaque TypeError from the subscript. It now says what happened.
+    """
+    monkeypatch.setattr(C, "gh", lambda path, token: [{"name": "a.yml"}, {"name": "b.yml"}])
+    with pytest.raises(TypeError, match="is not a file"):
+        C.fetch_text("crunchtools", "tig", ".github/workflows", "token")
+
+
+def test_fetch_text_decodes_a_file_response(monkeypatch):
+    monkeypatch.setattr(
+        C, "gh", lambda path, token: {"content": base64.b64encode(b"hello").decode()}
+    )
+    assert C.fetch_text("crunchtools", "tig", "README.md", "token") == "hello"

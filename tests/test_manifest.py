@@ -190,6 +190,20 @@ def test_example_security_caller_pins_this_release():
     assert f"dependency-audit.yml@v{VERSION}\n" in example
 
 
+@pytest.mark.parametrize("bad", ["main", "v1.2", "1.2.3.4", "abc1234", ""])
+def test_malformed_inherits_is_reported_not_raised(bad, monkeypatch):
+    """A manifest whose version does not parse is a violation, not a TypeError.
+
+    `version_tuple` returns None for anything that is not vX.Y.Z, and check_pin
+    compared its result against the validator's own with `>`. Comparing a tuple
+    with None raises, so the check whose job is to report a malformed
+    `Inherits:` crashed on exactly the input it exists to catch.
+    """
+    monkeypatch.setattr(V, "own_version", lambda: "1.30.0")
+    violations = V.check_pin(bad, pinned=True)
+    assert any(v.startswith("PIN:") and "not a vX.Y.Z release" in v for v in violations)
+
+
 def test_pinned_mode_rejects_other_version(repo, monkeypatch):
     monkeypatch.setattr(V, "own_version", lambda: "9.9.9")
     assert any(v.startswith("PIN:") for v in violations(repo, pinned=True))

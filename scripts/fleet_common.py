@@ -4,6 +4,7 @@ import importlib.util
 import json
 import subprocess
 from pathlib import Path
+from typing import Any
 
 ORG = "crunchtools"
 MANIFEST = Path(".specify/memory/constitution.md")
@@ -18,7 +19,7 @@ def gh(*args: str, check: bool = True) -> str:
     return result.stdout if result.returncode == 0 else ""
 
 
-def gh_json(*args: str) -> object:
+def gh_json(*args: str) -> Any:
     """Parsed JSON from gh, or None when the call fails or prints nothing.
 
     Used for best-effort audit reads (a repo setting, an org ruleset the token

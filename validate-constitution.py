@@ -25,6 +25,7 @@ import sys
 import tomllib
 import urllib.request
 from pathlib import Path
+from typing import TypeGuard
 
 VALID_PROFILES = {
     "MCP Server",
@@ -1301,7 +1302,12 @@ def check_pin(inherits: str, pinned: bool) -> list[str]:
     mine = own_version()
     if mine is None:
         return []
-    if version_tuple(inherits) > version_tuple(mine):
+    declared, ours = version_tuple(inherits), version_tuple(mine)
+    if declared is None or ours is None:
+        # An unparseable version is a violation to report, not a crash: the
+        # comparison below is tuple-vs-None and raises TypeError.
+        return [f"PIN: manifest inherits '{inherits}', which is not a vX.Y.Z release"]
+    if declared > ours:
         return [f"PIN: manifest inherits v{inherits}, newer than this validator (v{mine})"]
     if pinned and inherits != mine and inherits not in VALIDATED_AT_MAIN:
         return [
@@ -1325,8 +1331,13 @@ def freshness_warning(inherits: str) -> str | None:
     return None
 
 
-def is_repo_checkout(repo_root: Path | None) -> bool:
-    """False for the factory watchdog's tempfile path, where file checks would misfire."""
+def is_repo_checkout(repo_root: Path | None) -> TypeGuard[Path]:
+    """False for the factory watchdog's tempfile path, where file checks would misfire.
+
+    A TypeGuard, not a bool: every file check below is called inside
+    `if is_repo_checkout(repo_root)`, and the narrowing is what tells a type
+    checker those calls cannot receive None.
+    """
     return repo_root is not None and (
         (repo_root / ".git").exists() or (repo_root / ".specify").is_dir()
     )
