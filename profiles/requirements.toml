@@ -14,6 +14,13 @@ gatehouse_min = "0.15.0"
 # Files every repo carries (globs relative to the repo root).
 files = ["CHANGELOG.md", ".pre-commit-config.yaml", ".github/dependabot.yml"]
 
+# XII since v1.30.0: a repo with a pyproject.toml runs its checks through
+# python-sdlc. These are the hooks repo it pins, the two hooks it must enable,
+# and the repos exempt because they build what the image contains.
+sdlc_hooks_repo = "https://github.com/crunchtools/python-sdlc"
+sdlc_hooks = ["sdlc-commit", "sdlc-push"]
+sdlc_exempt = ["gourmand", "gatehouse", "python-sdlc"]
+
 # What a developer machine has (XII host contract): the only programs a
 # `language: system` pre-commit hook may start, besides scripts in the repo.
 host_tools = ["git", "podman", "pre-commit", "gh"]

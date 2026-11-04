@@ -9,6 +9,35 @@ Entries through 1.14.0 are derived from the Ratification History table in
 
 ## [Unreleased]
 
+## [1.30.0] - 2026-11-04
+
+### Changed
+- **Python repos run their checks through python-sdlc** (XII). A repo with a
+  `pyproject.toml` pins `crunchtools/python-sdlc` at one release and runs
+  three commands from it: `sdlc commit` at pre-commit, `sdlc push` at pre-push
+  and `sdlc ci` in CI, each configured by the `pyproject.toml` block of the same
+  name. Commit takes seconds and works offline; push renders the verdicts and
+  never builds a container; CI runs push's checks except Gourmand and
+  Gatehouse, which it already runs through their own workflows, plus the repo's
+  own checks. A repo's own checks are named kinds the image implements, never
+  shell. Non-Python repos keep the standalone Gourmand and Gatehouse hooks.
+  `gourmand`, `gatehouse` and `python-sdlc` are exempt (`sdlc_exempt`).
+- The validator requires that shape for repos inheriting v1.30.0: the pinned
+  release, the `sdlc-commit` and `sdlc-push` hooks, both stages in
+  `default_install_hook_types`, and a CI job named `sdlc ci`. A Python repo
+  takes this version in the pull request that converts it; `fleet-bump.py`
+  carries it to the others with `--only`.
+
+### Fixed
+- `validate-cascade.py` read only `build.yml` or `container.yml` and stopped at
+  the first, so a rebuild trigger anywhere else was invisible and the check
+  failed repos that had done nothing wrong (trentina, whose trigger moved to
+  `security.yml`). It now reads every workflow it has already fetched.
+
+Prompted by an audit of 35 Python repos — nine ruff versions, 15 with no type
+checker, 17 dependency scans written so they could not fail — and by trentina's
+laptop running a two-week-old Gatehouse while CI ran a fresh one.
+
 ## [1.29.0] - 2026-11-03
 
 ### Changed

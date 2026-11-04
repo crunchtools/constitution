@@ -189,25 +189,34 @@ def build_from_graph(
 
 
 def build_dispatch_graph(
-    org: str, repos: list[str], workflows_cache: dict[tuple[str, str], str], token: str
+    repos: list[str], workflows_cache: dict[tuple[str, str], str]
 ) -> dict[str, set[str]]:
-    """Return parent_repo -> {dispatched_child} from each repo's primary build workflow."""
+    """Return parent_repo -> {dispatched_child} over EVERY workflow in the repo.
+
+    Not just `build.yml` or `container.yml`. This read those two in order and
+    stopped at the first that existed, on the assumption of one primary build
+    workflow per repo -- and trentina broke that assumption the moment #689
+    moved its publish into `security.yml` while `container.yml` stayed behind
+    for `promote`. The dispatch was present and correct, this read the wrong
+    file, and the result was a FAIL naming a repo that had done nothing wrong.
+    A false FAIL in a fleet gate is worse than a narrow one: it teaches the
+    next reader that the red is the gate's fault.
+
+    `scan_published_images` has already fetched and cached every workflow, so
+    reading all of them needs no further request and no token.
+    """
     dispatch_graph: dict[str, set[str]] = defaultdict(set)
+    by_repo: dict[str, list[str]] = defaultdict(list)
+    for (repo, _workflow), text in workflows_cache.items():
+        by_repo[repo].append(text)
     for r in repos:
-        for wf in ("build.yml", "container.yml"):
-            txt = workflows_cache.get((r, wf))
-            if txt is None:
-                txt = fetch_text(org, r, f".github/workflows/{wf}", token)
-            if txt is None:
-                continue
-            for m in DISPATCH_LOOP_RE.finditer(txt):
-                names = m.group(1).split()
-                dispatch_graph[r].update(n for n in names if n)
-            for m in DISPATCH_DIRECT_RE.finditer(txt):
+        for text in by_repo[r]:
+            for m in DISPATCH_LOOP_RE.finditer(text):
+                dispatch_graph[r].update(n for n in m.group(1).split() if n)
+            for m in DISPATCH_DIRECT_RE.finditer(text):
                 dispatch_graph[r].add(m.group(1))
-            # Don't count "self dispatches" (a repo mentioning its own name in a comment)
-            dispatch_graph[r].discard(r)
-            break  # only one primary build workflow per repo
+        # Don't count "self dispatches" (a repo mentioning its own name in a comment)
+        dispatch_graph[r].discard(r)
     return dispatch_graph
 
 
@@ -295,7 +304,7 @@ def main() -> int:
     print(f"  {len(published_images)} crunchtools image names found in workflows", file=sys.stderr)
 
     from_graph, broken_froms = build_from_graph(args.org, repos, repo_set | published_images, token)
-    dispatch_graph = build_dispatch_graph(args.org, repos, workflows_cache, token)
+    dispatch_graph = build_dispatch_graph(repos, workflows_cache)
 
     if args.verbose:
         print_graphs(from_graph, dispatch_graph)
