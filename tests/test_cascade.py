@@ -5,6 +5,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location("validate_cascade", ROOT / "validate-cascade.py")
+assert spec is not None and spec.loader is not None, "cannot load validate-cascade.py"
 C = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(C)
 

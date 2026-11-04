@@ -1,3 +1,19 @@
+# The [project] table exists so `uv lock` can pin the gate's own tools; the
+# validators are standalone scripts run by path, not an installable package,
+# which is what `package = false` says. Without a lockfile naming mypy and
+# pytest the gate exits 2 (python-sdlc, need_lock_dep).
+[project]
+name = "constitution"
+version = "0"
+requires-python = ">=3.12"
+dependencies = []
+
+[tool.uv]
+package = false
+
+[dependency-groups]
+dev = ["mypy>=1.14", "pytest>=8.3", "pyyaml>=6.0.3", "types-PyYAML>=6.0.12"]
+
 # Lint configuration only: the validators are standalone scripts run by path
 # (CI, and the validate-constitution pre-commit hook with `language: script`),
 # not an installable package.
@@ -18,3 +34,15 @@ max-complexity = 15
 
 [tool.ruff.lint.pylint]
 max-branches = 15
+
+# The validators and the fleet scripts, by path.
+[tool.mypy]
+files = ["scripts", "tests", "validate-constitution.py", "validate-cascade.py"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.sdlc.push]
+# No in-repo Semgrep rules: the check exits 2 when .semgrep is absent rather
+# than scanning nothing and calling it a pass.
+skip = ["semgrep"]

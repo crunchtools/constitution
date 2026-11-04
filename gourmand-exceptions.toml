@@ -59,3 +59,14 @@ check = "CH012-copy_paste_detection"
 path = "validate-constitution.py"
 justification = "check_gate_workflows and check_repo_files are both 'collect violations from a requirements table' loops but read different sources (parsed workflow jobs and triggers vs. files, LICENSE, dependabot.yml) against different rules. Merging them would produce one function that branches on what it is checking."
 classification = "by_design"
+
+# Ruff is not missing; it moved. Gourmand's IF001 looks for a literal
+# `ruff-check` hook id, and under python-sdlc (constitution XII, v1.30.0) ruff
+# runs inside the `sdlc-commit` hook, configured by [tool.ruff] in
+# pyproject.toml. Same precedent as trentina.
+[[exceptions]]
+check = "linter_configuration"
+path = ".pre-commit-config.yaml"
+pattern = "ruff-check"
+justification = "ruff runs inside the sdlc-commit hook from python-sdlc (constitution XII v1.30.0), configured by [tool.ruff] in pyproject.toml; Gourmand looks for a literal ruff hook id"
+classification = "by_design"

@@ -7,27 +7,35 @@ on:
     branches: [main]
 
 jobs:
+  sdlc:
+    name: sdlc ci
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      # The release is read from .pre-commit-config.yaml, so one line pins the
+      # launcher, the image and every tool in it, for the laptop and CI both.
+      - name: sdlc ci
+        run: |
+          set -eu
+          rev=$(awk '/repo: https:\/\/github.com\/crunchtools\/python-sdlc/ {f=1; next}
+                     f && /rev:/ {print $2; exit}' .pre-commit-config.yaml)
+          [ -n "$rev" ] || { echo "no python-sdlc rev in .pre-commit-config.yaml" >&2; exit 2; }
+          git clone -q --depth 1 --branch "$rev" https://github.com/crunchtools/python-sdlc "$RUNNER_TEMP/sdlc"
+          $RUNNER_TEMP/sdlc/bin/sdlc ci
+
+  # This repo's own checks: the validator run against fixture constitutions
+  # that must pass and fixture constitutions that must fail. They are tests,
+  # and they belong in tests/ where `sdlc ci` would run them -- written as
+  # shell assertions in YAML they are outside the gate. Porting them is
+  # tracked separately; until then they keep running here.
   validate:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
-
-      - name: Set up Python
-        uses: actions/setup-python@v7
-        with:
-          python-version: '3.12'
-
-      - name: Lint (ruff)
-        run: |
-          pip install ruff==0.16.9
-          ruff check .
-          ruff format --check .
-
-      - name: Tests (pytest)
-        run: |
-          pip install pytest==9.1.1 pyyaml==6.0.3
-          pytest -q tests
 
       - name: Validate test constitutions (should pass)
         run: |

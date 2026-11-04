@@ -99,6 +99,10 @@ def fetch_text(owner: str, repo: str, path: str, token: str) -> str | None:
         if e.code == HTTP_NOT_FOUND:
             return None
         raise
+    if not isinstance(contents, dict):
+        # A list means the path is a directory, not a file. Indexing it by
+        # string raises TypeError, so say what happened instead.
+        raise TypeError(f"{path} in {owner}/{repo} is not a file")
     return base64.b64decode(contents["content"]).decode("utf-8", errors="replace")
 
 
