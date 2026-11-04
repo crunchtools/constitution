@@ -1,6 +1,6 @@
 # CrunchTools Constitution
 
-> **Version:** 1.30.0
+> **Version:** 1.31.0
 > **Ratified:** 2026-11-04
 > **Status:** Active
 
@@ -390,6 +390,16 @@ on the laptop and in CI alike.
   repo that needs something new gets a new kind in the image.
 - `default_install_hook_types` MUST name `pre-commit` and `pre-push`, so
   `pre-commit install` wires both hooks.
+- **`sdlc ci` MUST be a required status check on the default branch**, through
+  an org ruleset rather than per-repo. A check that reports and cannot block is
+  not a gate: auto-merge — both Dependabot's and python-sdlc's own
+  version-bump pull requests — merges on required checks alone, so an advisory
+  `sdlc ci` lets every future bump land whatever its verdict. The ruleset names
+  its repos, so the list is something that can drift: `scripts/fleet-drift.py`
+  checks it against the repos this section applies to, in both directions. A
+  Python repo missing from it has a gate that cannot block; a repo in it that
+  is not a Python repo has a required check that will never report, which
+  blocks every merge there instead.
 - A release of Gourmand or Gatehouse triggers a python-sdlc release, and that
   release opens a version-bump pull request in every Python repo. The laptop
   then runs the reviewer CI runs.
@@ -838,4 +848,5 @@ a public repository. Keep it host-side (for example
 | 1.28.0 | 2026-10-31 | Added Version Declarations to II: every file that states the version states the newest released one, checked by the validator from `version_files` in requirements.toml (Web Application opts out; its tags are deploy markers). Added XV rule 6: uv projects call the reusable `dependency-audit.yml`, which fails vulnerable PRs and keeps one self-closing alert issue. Prompted by the 2026-10-31 weekend report: mcp-github 2.0.0 untaggable, twelve silent CVE gates, gatehouse#96 open after its fix |
 | 1.27.0 | 2026-10-26 | Extended Monitoring Checks (XVI): slow or remote reads use a collector that writes a status file and a check that judges it and starts the collector itself; NRPE checks join their pool by template; drift checks carry a stateless grace period; planned work schedules Nagios downtime first. Also Container Image profile 1.5.0 and Web Application profile 1.3.0 (test the digest you promote). Prompted by the 2026-10-24/25 weekend, when planned work on mcp-trove and Trentina buried the Weekend Report's Infrastructure Health section |
 | 1.29.0 | 2026-11-03 | Security Gateway profile 1.1.0: the rule that nothing is built from a workstation becomes a rule that nothing is PUBLISHED from one, and a local build is named as a gate the host SHOULD run. Trentina's `scripts/gates.sh pr` builds, verifies and scans the image before the push, which the old wording forbade while CI built the same image three times per pull request. The credential that once made the build CI-only went with gated Prompt Guard 2 |
+| 1.31.0 | 2026-11-04 | `sdlc ci` MUST be a required status check on the default branch, through an org ruleset rather than per-repo, and `fleet-drift.py` audits that ruleset's repo list against the repos XII applies to in both directions. Prompted by the v1.30.0 rollout: the conversion left the check advisory in all 33 repos, and auto-merge — Dependabot's and python-sdlc's own bump pull requests — merges on required checks alone, so a red `sdlc ci` would have landed every future bump. The reverse gap is as bad and had a live example: acquacotta's branch protection still required a `Python Tests` check the conversion had deleted, so a check that could never report again blocked every merge until it was found |
 | 1.30.0 | 2026-11-04 | Python repos run their checks through python-sdlc (XII): one image, pinned at one release, three commands — `sdlc commit` at pre-commit, `sdlc push` at pre-push, `sdlc ci` in CI — each configured by the `pyproject.toml` block of the same name. Commit is seconds and offline; push renders the verdicts and never builds a container; CI runs push's checks except the two reviewers it gets from their own workflows, plus the repo's own. Repo checks are named kinds, never shell. Non-Python repos keep the standalone Gourmand and Gatehouse hooks. The validator requires the shape for repos inheriting v1.30.0, so a Python repo takes this version in the same pull request that converts it. Prompted by an audit of 35 Python repos (nine ruff versions, 15 with no type checker, 17 dependency scans that could not fail) and trentina's laptop running a two-week-old Gatehouse while CI ran a fresh one |

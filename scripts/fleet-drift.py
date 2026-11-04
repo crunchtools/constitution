@@ -39,6 +39,10 @@ from fleet_common import MANIFEST, ORG, clone, gh_json, load_validator, select_r
 STALE_DAYS = 14  # constitution.md VII: Dependabot PRs older than this are drift
 AUDIT_WORKERS = 8  # concurrent clones; well under GitHub's secondary rate limits
 
+# XII (v1.31.0): the job name that must be a required check in every Python
+# repo. It is a job NAME, so renaming the job silently stops it gating.
+SDLC_CHECK = "sdlc ci"
+
 REQUIRED_CHECKS = {
     "Protect workflows",
     "Gatehouse triage / Gatehouse triage",
@@ -84,6 +88,49 @@ def ruleset_gaps() -> list[str] | None:
     return [f"org ruleset does not require `{c}`" for c in sorted(REQUIRED_CHECKS - required)]
 
 
+def sdlc_gate_gaps(rows: list[dict]) -> list[str] | None:
+    """Which repos the `sdlc ci` ruleset names, against which ones need it.
+
+    XII (v1.31.0) requires `sdlc ci` to be a REQUIRED check, and the ruleset
+    that does it lists its repos BY NAME -- so the list is a thing that can rot
+    while every repo still looks converted. This is the check that notices.
+
+    Both directions matter. A Python repo missing from the list has a gate that
+    reports and cannot block, which is the state XII was written to end. A repo
+    in the list that is not a Python repo has a required check that will never
+    report, which blocks every merge there forever -- the failure that was
+    sitting in acquacotta's branch protection as a dead `Python Tests` entry.
+    """
+    rulesets = gh_json("api", f"orgs/{ORG}/rulesets")
+    if not isinstance(rulesets, list):
+        return None  # unreadable is unknown, not clean
+    listed: set[str] | None = None
+    for summary in rulesets:
+        ruleset = gh_json("api", f"orgs/{ORG}/rulesets/{summary['id']}") or {}
+        if ruleset.get("enforcement") != "active":
+            continue
+        contexts = {
+            c["context"]
+            for rule in ruleset.get("rules", [])
+            if rule.get("type") == "required_status_checks"
+            for c in rule.get("parameters", {}).get("required_status_checks", [])
+        }
+        if SDLC_CHECK in contexts:
+            names = ruleset.get("conditions", {}).get("repository_name", {})
+            listed = set(names.get("include") or [])
+            break
+    if listed is None:
+        return [f"no active org ruleset requires `{SDLC_CHECK}`"]
+    # Only repos the audit could actually read are judged; a clone that failed
+    # is already reported as its own problem.
+    needs = {r["repo"] for r in rows if r.get("sdlc")}
+    seen = {r["repo"] for r in rows if r.get("sdlc") is not None}
+    return [f"`{SDLC_CHECK}` not required in {r}" for r in sorted(needs - listed)] + [
+        f"`{SDLC_CHECK}` required in {r}, which is not a Python repo"
+        for r in sorted((listed & seen) - needs)
+    ]
+
+
 def audit_checkout(root: Path, row: dict, validator, latest: tuple) -> None:
     """Validate a fresh clone; the clone is deleted as soon as this returns."""
     name = row["repo"]
@@ -103,12 +150,16 @@ def audit_checkout(root: Path, row: dict, validator, latest: tuple) -> None:
         violations = validator.validate(manifest, repo_slug=f"{ORG}/{name}")
         if violations:
             row["problems"].append(f"{len(violations)} violation(s): {violations[0]}")
+        # Asked of the validator, not guessed from a file listing, so one rule
+        # decides what a Python repo is -- including the exempt list.
+        row["sdlc"] = validator.is_sdlc_repo(root, inherits, validator.load_requirements())
 
 
 def audit(repo: dict, validator, latest: tuple, stale_days: int) -> dict:
     """One report row: the repo's pin, profile, and every out-of-policy finding."""
     name = repo["name"]
-    row = {"repo": name, "inherits": "-", "profile": "-", "problems": []}
+    # `sdlc` is None until a clone is read: unknown, not "no".
+    row = {"repo": name, "inherits": "-", "profile": "-", "problems": [], "sdlc": None}
     with tempfile.TemporaryDirectory() as clone_root:
         audit_checkout(clone(name, Path(clone_root)), row, validator, latest)
     settings = gh_json("api", f"repos/{ORG}/{name}") or {}
@@ -138,7 +189,14 @@ def main() -> int:
                 lambda r: audit(r, validator, latest, args.stale_days), select_repos(args.only)
             )
         )
-    org_gaps = ruleset_gaps() if not args.only else []
+    # None from either probe means the token could not read the org rulesets,
+    # which is reported as unknown below. `or []` here would have turned "I did
+    # not look" into "nothing wrong", which is the shape of failure this whole
+    # report exists to catch.
+    org_gaps: list[str] | None = []
+    if not args.only:
+        checks, gates = ruleset_gaps(), sdlc_gate_gaps(rows)
+        org_gaps = None if checks is None or gates is None else checks + gates
 
     failing = [r for r in rows if r["problems"]]
     lines = [

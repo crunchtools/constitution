@@ -9,6 +9,38 @@ Entries through 1.14.0 are derived from the Ratification History table in
 
 ## [Unreleased]
 
+## [1.31.0] - 2026-11-04
+
+### Changed
+
+- **`sdlc ci` must be a REQUIRED status check, not merely a green one (XII).**
+  The v1.30.0 rollout wired the gate into 33 repos and left it advisory in all
+  of them, because the only org ruleset that existed required four other
+  checks and nothing required this one. That is not a small gap: auto-merge —
+  Dependabot's, and python-sdlc's own version-bump pull requests — merges on
+  required checks alone, so a red `sdlc ci` would have let every future bump
+  land regardless of its verdict. "Every repo has a green `sdlc ci`" was
+  satisfiable while red ones merged.
+
+  It is required through an org ruleset rather than per-repo, so there is one
+  object to read instead of 33. That ruleset names its repos, which means the
+  list is a thing that can drift, so `scripts/fleet-drift.py` now audits it
+  against the repos XII applies to — asking the validator's own
+  `is_sdlc_repo()` rather than guessing from a file listing, so one rule
+  decides what a Python repo is, exempt list included.
+
+  The audit runs in BOTH directions, because the reverse gap is as bad and had
+  a live example. A Python repo missing from the list has a gate that reports
+  and cannot block. A repo in the list that is not a Python repo has a required
+  check that will never report, which blocks every merge there forever —
+  exactly what acquacotta's branch protection was doing with a `Python Tests`
+  check the conversion had deleted, found only because a merge would not go
+  through.
+
+  `fleet-drift.py` also keeps the distinction between "nothing wrong" and "I
+  could not look": a token that cannot read the org rulesets reports unknown,
+  not clean.
+
 ## [1.30.0] - 2026-11-04
 
 ### Changed
