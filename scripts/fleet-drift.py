@@ -52,23 +52,28 @@ REQUIRED_CHECKS = {
 }
 
 
-def stale_dependabot_prs(name: str, days: int) -> int:
+def stale_dependabot_prs(name: str, days: int) -> int | None:
+    """How many Dependabot PRs are older than `days`, or None if we could not ask.
+
+    `or []` here would have read a failed query as zero stale PRs, which is the
+    same "I did not look" reported as clean that `ruleset_gaps()` and
+    `sdlc_gate_gaps()` already guard against.
+    """
     cutoff = datetime.now(UTC) - timedelta(days=days)
-    prs = (
-        gh_json(
-            "pr",
-            "list",
-            "-R",
-            f"{ORG}/{name}",
-            "--author",
-            "app/dependabot",
-            "--json",
-            "createdAt",
-            "--limit",
-            "200",
-        )
-        or []
+    prs = gh_json(
+        "pr",
+        "list",
+        "-R",
+        f"{ORG}/{name}",
+        "--author",
+        "app/dependabot",
+        "--json",
+        "createdAt",
+        "--limit",
+        "200",
     )
+    if prs is None:
+        return None
     return sum(1 for pr in prs if datetime.fromisoformat(pr["createdAt"]) < cutoff)
 
 
@@ -200,7 +205,10 @@ def audit(repo: dict, validator, latest: tuple, stale_days: int) -> dict:
     # repo; the workflow's own token sees it as absent. Absent is unknown, not off.
     if settings.get("allow_auto_merge") is False:
         row["problems"].append("allow_auto_merge off")
-    if stale := stale_dependabot_prs(name, stale_days):
+    stale = stale_dependabot_prs(name, stale_days)
+    if stale is None:
+        row["problems"].append("Dependabot PRs could not be listed")
+    elif stale:
         row["problems"].append(f"{stale} Dependabot PR(s) older than {stale_days}d")
     return row
 

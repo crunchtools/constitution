@@ -19,6 +19,14 @@ Entries through 1.14.0 are derived from the Ratification History table in
   one-minor-grace rule, which lapses as soon as the gap closes to one minor.
   `mcp-atlassian` on v1.29.0 is the live case. Scripts only; no repo pins this.
 
+### Fixed
+
+- `stale_dependabot_prs()` returned 0 when the `gh pr list` behind it failed,
+  so a query that could not run read as "no stale PRs". It returns `None` now
+  and the row says so. Same shape as the `or {}` bugs already fixed in
+  `ruleset_gaps()` and `sdlc_gate_gaps()`: the one failure this report exists
+  to prevent is a green nobody earned.
+
 ## [1.31.0] - 2026-11-04
 
 ### Changed

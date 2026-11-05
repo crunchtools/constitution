@@ -216,3 +216,28 @@ def test_a_current_pin_that_is_somehow_not_sdlc_is_left_alone(tmp_path):
     """At or above SDLC_SINCE the validator's own XII rules do the judging."""
     row = _audited(tmp_path, _Validator("1.30.0", sdlc=False))
     assert PROBLEM not in row["problems"]
+
+
+# ------------------------------------- a Dependabot query that could not run
+#
+# `or []` turned a failed `gh pr list` into zero stale PRs. Same shape as the
+# ruleset probes above: the report's whole job is not to call a green it never
+# earned.
+
+
+@pytest.mark.parametrize(
+    ("answer", "expected"),
+    [
+        (None, "Dependabot PRs could not be listed"),
+        ([], None),
+        ([{"createdAt": "2020-01-01T00:00:00Z"}], "1 Dependabot PR(s) older than 14d"),
+    ],
+)
+def test_an_unreadable_dependabot_query_is_not_zero(monkeypatch, answer, expected):
+    monkeypatch.setattr(drift, "clone", lambda name, dest: dest)
+    monkeypatch.setattr(drift, "audit_checkout", lambda *a: None)
+    monkeypatch.setattr(
+        drift, "gh_json", lambda *a: answer if a[0] == "pr" else {"allow_auto_merge": True}
+    )
+    row = drift.audit({"name": "example"}, None, (1, 31, 0), drift.STALE_DAYS)
+    assert row["problems"] == ([expected] if expected else [])
