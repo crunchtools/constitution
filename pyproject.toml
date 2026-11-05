@@ -43,6 +43,20 @@ files = ["scripts", "tests", "validate-constitution.py", "validate-cascade.py"]
 testpaths = ["tests"]
 
 [tool.sdlc.push]
-# No in-repo Semgrep rules: the check exits 2 when .semgrep is absent rather
-# than scanning nothing and calling it a pass.
-skip = ["semgrep"]
+# semgrep: no in-repo rules, and the check exits 2 when .semgrep is absent
+# rather than scanning nothing and calling it a pass.
+#
+# constitution: this is the one repo where that check cannot work. It clones
+# the constitution at the version `Inherits:` names and validates against it --
+# and in THIS repo that version is the one the pull request is creating, so the
+# tag does not exist yet:
+#
+#     GATE CANNOT RUN: cannot clone the constitution at v1.31.0:
+#     fatal: Remote branch v1.31.0 not found in upstream origin
+#
+# Skipping it loses nothing, because ci.yml validates this repo's own manifest
+# with the CANDIDATE validator from the working tree -- which is strictly
+# better than judging a manifest that declares v1.31.0 with v1.30.0's rules.
+# That is the same reasoning the manifest already records for the required
+# check: "a PR is never judged by the validator it changes".
+skip = ["semgrep", "constitution"]

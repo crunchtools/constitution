@@ -38,6 +38,13 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v7
 
+      # This repo, judged by the validator in this pull request rather than by
+      # the last release. `sdlc ci` skips its `constitution` check here because
+      # that one clones the version `Inherits:` names, which this change is
+      # creating; this step is what keeps the repo validated anyway.
+      - name: Validate this repo's own manifest (candidate validator)
+        run: python validate-constitution.py .specify/memory/constitution.md --verbose
+
       - name: Validate test constitutions (should pass)
         run: |
           echo "=== Valid MCP Server ==="
