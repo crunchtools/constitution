@@ -27,12 +27,12 @@ their own pinned validation.
 """
 
 import argparse
-from fnmatch import fnmatch
 import os
 import sys
 import tempfile
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
+from fnmatch import fnmatch
 from pathlib import Path
 
 from fleet_common import MANIFEST, ORG, clone, gh_json, load_validator, select_repos
@@ -170,7 +170,22 @@ def audit_checkout(root: Path, row: dict, validator, latest: tuple) -> None:
             row["problems"].append(f"{len(violations)} violation(s): {violations[0]}")
         # Asked of the validator, not guessed from a file listing, so one rule
         # decides what a Python repo is -- including the exempt list.
-        row["sdlc"] = validator.is_sdlc_repo(root, inherits, validator.load_requirements())
+        requirements = validator.load_requirements()
+        row["sdlc"] = validator.is_sdlc_repo(root, inherits, requirements)
+        # is_sdlc_repo() is gated on `inherits >= SDLC_SINCE`, which is right for
+        # the validator -- a repo is judged by the constitution it pinned. But it
+        # means a Python repo that never took XII answers False here, so
+        # sdlc_gate_gaps() does not ask for its gate and the report reads clean.
+        # Today the only thing catching that is the one-minor-grace rule above,
+        # and it stops catching it the moment the gap is less than two minors.
+        exempt = requirements.get("fleet", {}).get("sdlc_exempt", [])
+        if (
+            not row["sdlc"]
+            and (root / "pyproject.toml").is_file()
+            and name not in exempt
+            and (version is None or version < validator.SDLC_SINCE)
+        ):
+            row["problems"].append("Python repo not under XII (pin predates it)")
 
 
 def audit(repo: dict, validator, latest: tuple, stale_days: int) -> dict:

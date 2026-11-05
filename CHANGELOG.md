@@ -9,6 +9,16 @@ Entries through 1.14.0 are derived from the Ratification History table in
 
 ## [Unreleased]
 
+### Added
+
+- `scripts/fleet-drift.py` reports a Python repo whose pin predates XII.
+  `is_sdlc_repo()` is gated on `inherits >= v1.30.0`, which is right for the
+  validator -- a repo is judged by the constitution it pinned -- but it means
+  an unconverted Python repo answers False, so `sdlc_gate_gaps()` never asks
+  for its gate and the report reads clean. The only thing catching it was the
+  one-minor-grace rule, which lapses as soon as the gap closes to one minor.
+  `mcp-atlassian` on v1.29.0 is the live case. Scripts only; no repo pins this.
+
 ## [1.31.0] - 2026-11-04
 
 ### Changed
