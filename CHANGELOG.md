@@ -9,6 +9,25 @@ Entries through 1.14.0 are derived from the Ratification History table in
 
 ## [Unreleased]
 
+### Changed
+
+- XII's commit tier is formatting, lint fixes **and Gourmand's structural
+  review**. Gourmand's findings are deterministic -- the same tree gives the
+  same answer, with no model and no network -- so finding them at push, where
+  each rejection costs a six-to-eight minute cycle, was paying the wrong price
+  for an answer a three-second check gives. Measured in full mode, warm: 1.7s
+  on python-sdlc, 3.2s on trentina. It stays in push as well, because a commit
+  can be made with `--no-verify`.
+
+  Prose only; the machine check inspects which hooks exist, not which checks a
+  tier runs, so no repo's validation changes. python-sdlc 0.4.0 ships the
+  default. Semgrep deliberately stays out of the commit tier: 27s, and it exits
+  2 on a repo with no `.semgrep`, which as a default would break the commit
+  hook fleet-wide.
+
+  Prompted by crunchtools/trentina#706, where one of five pushes -- four of
+  them rejected, about 28 minutes of gate time -- was a Gourmand finding.
+
 ### Added
 
 - `scripts/fleet-drift.py` reports a Python repo whose pin predates XII.

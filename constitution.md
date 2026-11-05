@@ -375,13 +375,13 @@ on the laptop and in CI alike.
   | `sdlc push` | the `sdlc-push` pre-push hook | `[tool.sdlc.push]` |
   | `sdlc ci` | the CI job named `sdlc ci` | `[tool.sdlc.ci]` |
 
-- **Commit** takes seconds, works offline and costs nothing: formatting and
-  lint fixes. **Push** renders the verdicts — types, tests, Gourmand,
-  Gatehouse, Semgrep, the dependency audit, this validator, CodeQL — once, over
-  `origin/<default-branch>...HEAD`, and never builds a container. **CI** runs
-  push's checks except Gourmand and Gatehouse, which CI runs through their own
-  workflows (below), plus the repo's own checks, such as building and testing
-  its image.
+- **Commit** takes seconds, works offline and costs nothing: formatting, lint
+  fixes, and Gourmand's structural review. **Push** renders the verdicts —
+  types, tests, Gourmand, Gatehouse, Semgrep, the dependency audit, this
+  validator, CodeQL — once, over `origin/<default-branch>...HEAD`, and never
+  builds a container. **CI** runs push's checks except Gourmand and Gatehouse,
+  which CI runs through their own workflows (below), plus the repo's own
+  checks, such as building and testing its image.
 - Every check exits `0` passed, `1` found a problem, or `2` could not run.
   `2` is never treated as a pass.
 - The image carries tools, never a repo's rules. Rulesets, thresholds, ignore
