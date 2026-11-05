@@ -106,7 +106,12 @@ def sdlc_gate_gaps(rows: list[dict]) -> list[str] | None:
         return None  # unreadable is unknown, not clean
     listed: set[str] | None = None
     for summary in rulesets:
-        ruleset = gh_json("api", f"orgs/{ORG}/rulesets/{summary['id']}") or {}
+        ruleset = gh_json("api", f"orgs/{ORG}/rulesets/{summary['id']}")
+        if not isinstance(ruleset, dict):
+            # A detail fetch that failed is unknown, not "not the one we want".
+            # `or {}` here would let a transient error read as "no ruleset
+            # requires this check", or silently skip the one that does.
+            return None
         if ruleset.get("enforcement") != "active":
             continue
         contexts = {
@@ -117,7 +122,12 @@ def sdlc_gate_gaps(rows: list[dict]) -> list[str] | None:
         }
         if SDLC_CHECK in contexts:
             names = ruleset.get("conditions", {}).get("repository_name", {})
-            listed = set(names.get("include") or [])
+            # `exclude` wins over `include`, as GitHub applies it: a repo named
+            # in both is NOT covered, and counting it as covered would report a
+            # gate that does not exist.
+            listed = set(names.get("include") or []) - set(names.get("exclude") or [])
+            if "~ALL" in (names.get("include") or []):
+                listed |= {r["repo"] for r in rows} - set(names.get("exclude") or [])
             break
     if listed is None:
         return [f"no active org ruleset requires `{SDLC_CHECK}`"]
