@@ -27,6 +27,7 @@ their own pinned validation.
 """
 
 import argparse
+from fnmatch import fnmatch
 import os
 import sys
 import tempfile
@@ -122,12 +123,19 @@ def sdlc_gate_gaps(rows: list[dict]) -> list[str] | None:
         }
         if SDLC_CHECK in contexts:
             names = ruleset.get("conditions", {}).get("repository_name", {})
-            # `exclude` wins over `include`, as GitHub applies it: a repo named
-            # in both is NOT covered, and counting it as covered would report a
-            # gate that does not exist.
-            listed = set(names.get("include") or []) - set(names.get("exclude") or [])
-            if "~ALL" in (names.get("include") or []):
-                listed |= {r["repo"] for r in rows} - set(names.get("exclude") or [])
+            # Decided per repo rather than by set arithmetic on the lists,
+            # because GitHub matches these as PATTERNS, not literals: an
+            # exclusion of `mcp-*` covers mcp-slack, and `~ALL` stands for
+            # every repo. Subtracting the strings would have silently ignored
+            # both. `exclude` wins over `include`, as GitHub applies it.
+            include = names.get("include") or []
+            exclude = names.get("exclude") or []
+            listed = {
+                r["repo"]
+                for r in rows
+                if any(p == "~ALL" or fnmatch(r["repo"], p) for p in include)
+                and not any(fnmatch(r["repo"], p) for p in exclude)
+            }
             break
     if listed is None:
         return [f"no active org ruleset requires `{SDLC_CHECK}`"]

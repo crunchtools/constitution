@@ -87,6 +87,33 @@ def test_exclude_wins_over_include(monkeypatch):
     assert drift.sdlc_gate_gaps(ROWS) == [f"`{drift.SDLC_CHECK}` not required in not_converted"]
 
 
+def test_all_covers_every_audited_repo(monkeypatch):
+    """`~ALL` is a pattern meaning every repo, not a repository called ~ALL."""
+    monkeypatch.setattr(drift, "gh_json", _rulesets(["~ALL"]))
+    # Everything is covered, so the only gap is the non-Python repo that is now
+    # carrying a required check it can never report.
+    assert drift.sdlc_gate_gaps(ROWS) == [
+        f"`{drift.SDLC_CHECK}` required in not_python, which is not a Python repo"
+    ]
+
+
+def test_all_still_honours_exclusions(monkeypatch):
+    monkeypatch.setattr(drift, "gh_json", _rulesets(["~ALL"], ["not_python", "not_converted"]))
+    assert drift.sdlc_gate_gaps(ROWS) == [f"`{drift.SDLC_CHECK}` not required in not_converted"]
+
+
+@pytest.mark.parametrize("pattern", ["not_*", "*converted", "not_converted"])
+def test_exclusions_are_patterns_not_literals(monkeypatch, pattern):
+    """GitHub matches these as globs. Subtracting strings ignored `mcp-*`."""
+    monkeypatch.setattr(drift, "gh_json", _rulesets(["~ALL"], [pattern, "not_python"]))
+    assert f"`{drift.SDLC_CHECK}` not required in not_converted" in drift.sdlc_gate_gaps(ROWS)
+
+
+def test_inclusions_are_patterns_too(monkeypatch):
+    monkeypatch.setattr(drift, "gh_json", _rulesets(["conv*"]))
+    assert drift.sdlc_gate_gaps(ROWS) == [f"`{drift.SDLC_CHECK}` not required in not_converted"]
+
+
 def test_a_repo_whose_clone_failed_is_not_judged(monkeypatch):
     """`sdlc` is None for a repo the audit could not read; it has its own problem."""
     monkeypatch.setattr(drift, "gh_json", _rulesets(["converted", "not_converted", "unreadable"]))
