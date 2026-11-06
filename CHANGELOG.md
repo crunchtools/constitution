@@ -46,6 +46,23 @@ Entries through 1.14.0 are derived from the Ratification History table in
   one-minor-grace rule, which lapses as soon as the gap closes to one minor.
   `mcp-atlassian` on v1.29.0 is the live case. Scripts only; no repo pins this.
 
+## [1.32.0] - 2026-11-06
+
+### Changed
+
+- **XII: triage.** A Gatehouse finding written against a commit that is no
+  longer on the pull request MUST NOT block the merge. A force-push that
+  rebuilds the branch orphans both the reviewed code and every `fixed in <sha>`
+  answer naming it, so the gate could never be satisfied again by any reply. The
+  review of the new head is the one that applies. A finding whose original
+  commit cannot be determined still MUST be answered — unprovable is not
+  orphaned, and the gate fails closed.
+
+  ashigaru#131 is the case that prompted it: two findings answered at 09:00
+  against `fd0b608e`, the branch rebuilt at 13:13, and the answers then naming
+  `a11d6ee`, a commit in no repository, while Gatehouse's own fresh review of
+  the new head passed clean.
+
 ## [1.31.0] - 2026-11-04
 
 ### Changed
