@@ -1,6 +1,6 @@
 # Container Image Profile
 
-> **Profile Version:** 1.5.0
+> **Profile Version:** 1.5.1
 > **Applies to:** All `ubi10-*` and standalone container image projects
 
 This profile extends the [universal constitution](../constitution.md) with requirements specific to **UBI-based** container image projects in the crunchtools organization.
@@ -183,7 +183,7 @@ Every container image build must pass:
 3. **Boot test** — against the pushed digest (multi-service images)
 4. **Security scan** — Trivy scan with `continue-on-error: true` (when applicable)
 
-The build job pushes only the commit SHA tag (and `pr-N` on pull requests, which moves with each push); the gates and the promotion always address the image by the digest the build reported, never by tag. `latest` and the semver tags move in a separate promote job that needs the gates and copies the tested digest without rebuilding (`docker buildx imagetools create`). A second registry gets the same digest by copy, not by a second build. Promotion MUST NOT move `latest` back to an older commit when a newer one has landed on the branch. An image that downstream images build `FROM` dispatches their rebuild from the promote job, after it is promoted.
+The build job pushes only the commit SHA tag (and `pr-N` on pull requests, which moves with each push); the gates and the promotion always address the image by the digest the build reported, never by tag. `latest` and the semver tags move in a separate promote job that needs the gates and copies the tested digest without rebuilding (`skopeo copy --all --preserve-digests`). Not `docker buildx imagetools create`: given a single image manifest it writes a new one-entry manifest list, so the tag resolves to a digest no gate ever tested. After each copy the job MUST confirm the tag resolves to the promoted digest (reading it with `imagetools inspect` is fine) and MUST fail if it does not; `--preserve-digests` refuses a copy that would change the manifest, and the check catches everything else. A second registry gets the same digest by copy, not by a second build. Promotion MUST NOT move `latest` back to an older commit when a newer one has landed on the branch. An image that downstream images build `FROM` dispatches their rebuild from the promote job, after it is promoted.
 
 ---
 
