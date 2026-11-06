@@ -11,6 +11,14 @@ Entries through 1.14.0 are derived from the Ratification History table in
 
 ### Changed
 
+- Container Image profile 1.5.1: promotion names `skopeo copy --all
+  --preserve-digests` instead of `docker buildx imagetools create`, and
+  requires the tag be verified against the promoted digest after each copy.
+  `imagetools create` wraps a single-architecture manifest in a new one-entry
+  manifest list, so the promoted tag gets a digest nothing tested. Corrects
+  guidance, no requirement changes. A repo whose promote job uses
+  `imagetools create` is affected. Evidence: `crunchtools/trentina` #689, #692.
+
 - XII's commit tier is formatting, lint fixes **and Gourmand's structural
   review**. Gourmand's findings are deterministic -- the same tree gives the
   same answer, with no model and no network -- so finding them at push, where
