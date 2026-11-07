@@ -9,7 +9,36 @@ Entries through 1.14.0 are derived from the Ratification History table in
 
 ## [Unreleased]
 
+## [1.33.0] - 2026-11-07
+
 ### Changed
+
+- **`latest` is the newest RELEASE, not the newest build of the default branch**,
+  and `main` is the tag for the default branch. Container Image profile 1.6.0,
+  Web Application profile 1.4.0. A unit that wants continuous delivery MUST name
+  `main`; `latest` is not that tag.
+
+  The old rule said what it meant and still surprised everyone, because a unit
+  file saying `:latest` has never meant "whatever landed on main" to the person
+  who wrote it. On 2026-11-07 the gap cost an outage: unreleased trentina 6.11.0
+  — there is no `v6.11.0` tag, the newest release is v6.10.0 — reached production
+  at 02:01:53 through `podman-auto-update`, climbed to the unit's 4g cap and was
+  SIGKILLed. Nothing had asked for it and nothing was watching. 44 of the 51
+  auto-updating units on gloval pull `:latest`.
+
+  A repo that cuts no releases, where the weekly errata rebuild of the default
+  branch is the only thing that ever moves, MUST point its units at `main`.
+  Leaving such a repo on `latest` freezes its errata on a release nothing
+  supersedes, which trades a loud failure for a silent one. postfix, syslog,
+  nagios and gha-runner are the live cases. Evidence: RT#1559.
+
+- **The Gourmand gate pins `quay.io/crunchtools/gourmand:main`**, not `:latest`.
+  Gourmand has one tag, v1.0.0, and main has moved far past it, so under the new
+  rule `:latest` would hold the fleet's Code Quality gate at v1.0.0 for good.
+  RT #1482 already caused that break once from the other direction, when tagging
+  v1.0.0 moved `:latest` backwards and the gate failed in every repo pinned to
+  it. `:main` is what the gate has actually tracked since; it now says so. Every
+  repo whose CI job names `gourmand:latest` is affected.
 
 - Container Image profile 1.5.1: promotion names `skopeo copy --all
   --preserve-digests` instead of `docker buildx imagetools create`, and
