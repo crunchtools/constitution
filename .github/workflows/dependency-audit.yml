@@ -7,7 +7,7 @@
 #       permissions:
 #         contents: read
 #         issues: write
-#       uses: crunchtools/constitution/.github/workflows/dependency-audit.yml@v1.32.0
+#       uses: crunchtools/constitution/.github/workflows/dependency-audit.yml@v1.33.0
 #
 # from a workflow that runs on pull_request, on push to the default branch and on
 # a weekly schedule. A pull request with a vulnerable dependency fails. On the
@@ -43,7 +43,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           repository: crunchtools/constitution
-          ref: v1.32.0
+          ref: v1.33.0
           path: .constitution
           persist-credentials: false
       - name: Install uv
