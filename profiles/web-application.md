@@ -1,6 +1,6 @@
 # Web Application Profile
 
-> **Profile Version:** 1.3.0
+> **Profile Version:** 1.4.0
 > **Applies to:** End-user web applications deployed as containers (acquacotta, rotv)
 
 This profile extends the [universal constitution](../constitution.md) with requirements specific to web application projects in the crunchtools organization. Web applications differ from Container Image projects in that they contain application code, manage stateful data, run multiple services, and require application-level testing.
@@ -114,8 +114,24 @@ quay.io/crunchtools/<name>
 ```
 
 Tags:
-- `latest` — always points to the most recent build from the default branch
+- `latest` — the newest **release**. It moves on a version tag and never on a push
+  to the default branch. A consumer that pulls `latest` is asking for the newest
+  thing that was deliberately shipped, which is what a unit file saying `:latest`
+  has always meant to the person who wrote it.
+- `main` — the newest build of the default branch. A unit that wants continuous
+  delivery MUST say so by naming this tag; `latest` is not that tag.
+- `<version>` and `<major>.<minor>` — the release. Immutable once published.
 - `<sha>` — git commit SHA for traceability
+
+A repo that cuts no releases, where the weekly errata rebuild of the default
+branch is the only thing that ever moves, MUST point its units at `main`.
+Leaving such a repo on `latest` freezes its errata, because `latest` would sit
+on a release nothing supersedes — a silent failure in place of a loud one.
+
+Until constitution 1.33.0 `latest` tracked the default branch. On 2026-11-07
+that put unreleased trentina 6.11.0 into production at 02:01 through
+`podman-auto-update`, where it climbed to the unit's 4g cap and was SIGKILLed.
+Nothing had asked for it and nothing was watching (RT#1559).
 
 ---
 
@@ -174,7 +190,7 @@ Every web application change must pass:
 
 1. **Build** — Container image builds successfully
 2. **Application health test** — Application starts and responds (HTTP 200 or equivalent)
-3. **Promote** — The tested digest is copied to `latest`; nothing reaches `latest` untested
+3. **Promote** — The tested digest is copied to `main`, and to `latest` and the semver tags on a release tag; nothing reaches any of them untested
 
 Additional recommended gates:
 - Database connectivity test (when applicable)

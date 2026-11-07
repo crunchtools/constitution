@@ -1,6 +1,6 @@
 # Container Image Profile
 
-> **Profile Version:** 1.5.1
+> **Profile Version:** 1.6.0
 > **Applies to:** All `ubi10-*` and standalone container image projects
 
 This profile extends the [universal constitution](../constitution.md) with requirements specific to **UBI-based** container image projects in the crunchtools organization.
@@ -124,8 +124,24 @@ quay.io/crunchtools/<name>
 ```
 
 Tags:
-- `latest` — always points to the most recent build from the default branch
+- `latest` — the newest **release**. It moves on a version tag and never on a push
+  to the default branch. A consumer that pulls `latest` is asking for the newest
+  thing that was deliberately shipped, which is what a unit file saying `:latest`
+  has always meant to the person who wrote it.
+- `main` — the newest build of the default branch. A unit that wants continuous
+  delivery MUST say so by naming this tag; `latest` is not that tag.
+- `<version>` and `<major>.<minor>` — the release. Immutable once published.
 - `<sha>` — git commit SHA for traceability
+
+A repo that cuts no releases, where the weekly errata rebuild of the default
+branch is the only thing that ever moves, MUST point its units at `main`.
+Leaving such a repo on `latest` freezes its errata, because `latest` would sit
+on a release nothing supersedes — a silent failure in place of a loud one.
+
+Until constitution 1.33.0 `latest` tracked the default branch. On 2026-11-07
+that put unreleased trentina 6.11.0 into production at 02:01 through
+`podman-auto-update`, where it climbed to the unit's 4g cap and was SIGKILLed.
+Nothing had asked for it and nothing was watching (RT#1559).
 
 GHCR dual-push is optional for container image projects (required for MCP servers per the MCP Server profile, but not mandated here).
 
@@ -183,7 +199,7 @@ Every container image build must pass:
 3. **Boot test** — against the pushed digest (multi-service images)
 4. **Security scan** — Trivy scan with `continue-on-error: true` (when applicable)
 
-The build job pushes only the commit SHA tag (and `pr-N` on pull requests, which moves with each push); the gates and the promotion always address the image by the digest the build reported, never by tag. `latest` and the semver tags move in a separate promote job that needs the gates and copies the tested digest without rebuilding (`skopeo copy --all --preserve-digests`). Not `docker buildx imagetools create`: given a single image manifest it writes a new one-entry manifest list, so the tag resolves to a digest no gate ever tested. After each copy the job MUST confirm the tag resolves to the promoted digest (reading it with `imagetools inspect` is fine) and MUST fail if it does not; `--preserve-digests` refuses a copy that would change the manifest, and the check catches everything else. A second registry gets the same digest by copy, not by a second build. Promotion MUST NOT move `latest` back to an older commit when a newer one has landed on the branch. An image that downstream images build `FROM` dispatches their rebuild from the promote job, after it is promoted.
+The build job pushes only the commit SHA tag (and `pr-N` on pull requests, which moves with each push); the gates and the promotion always address the image by the digest the build reported, never by tag. `main`, `latest` and the semver tags move in a separate promote job that needs the gates and copies the tested digest without rebuilding (`skopeo copy --all --preserve-digests`). Not `docker buildx imagetools create`: given a single image manifest it writes a new one-entry manifest list, so the tag resolves to a digest no gate ever tested. After each copy the job MUST confirm the tag resolves to the promoted digest (reading it with `imagetools inspect` is fine) and MUST fail if it does not; `--preserve-digests` refuses a copy that would change the manifest, and the check catches everything else. A second registry gets the same digest by copy, not by a second build. Promotion MUST NOT move a floating tag back to an older commit when a newer one has landed: `main` is guarded against a re-dispatched or scheduled rebuild of an older commit, and `latest` against a re-run of an older release tag. An image that downstream images build `FROM` dispatches their rebuild from the promote job, after it is promoted.
 
 ---
 
@@ -218,7 +234,7 @@ env:
   IMAGE_NAME: crunchtools/<name>
 ```
 
-The workflow builds the Containerfile, tags with `latest` and commit SHA, and pushes to Quay.io.
+The workflow builds the Containerfile, tags with `main` and commit SHA, and pushes to Quay.io. `latest` moves on a release tag only.
 
 ---
 
