@@ -9,6 +9,30 @@ Entries through 1.14.0 are derived from the Ratification History table in
 
 ## [Unreleased]
 
+## [1.34.0] - 2026-11-07
+
+### Changed
+
+- **Container Image profile 1.7.0 names the one exception to 1.33.0's rule.** A
+  cascade image — the `ubi10-*` chain, the `*-base` images — cuts no release and
+  so has no newest release to name. Its `latest` tracks the default branch, and
+  MUST: the root's weekly rebuild moves the tag and dispatches
+  `parent-image-updated` down the chain, and that is how a base-image erratum
+  reaches every child. Freezing those tags on a `v1.0.0` nothing supersedes
+  would stop errata fleet-wide.
+
+  The exception is bounded by the CONSUMER, not the repo. A cascade image MUST
+  also publish the branch tag, and a systemd unit that runs one directly MUST
+  name that tag or pin a digest, never `latest`. Four units on gloval
+  (`crunchtools.com`, `educatedconfusion.com`, `learn.fatherlinux.com`,
+  `us.crunchtools.com`) run `ubi10-httpd-php*` directly and are the live cases.
+
+  Found by auditing 1.33.0's blast radius before rolling it out: `FROM
+  quay.io/crunchtools/ubi10-core:latest` appears in factory, immich, postiz,
+  rotv, proxy, rt, spanish and every link of the ubi10 chain. A blanket flip
+  would have frozen the base image every one of them builds on, which is a CVE
+  regression rather than an inconvenience. Evidence: RT#1559.
+
 ## [1.33.0] - 2026-11-07
 
 ### Changed

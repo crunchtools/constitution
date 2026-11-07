@@ -1,6 +1,6 @@
 # Container Image Profile
 
-> **Profile Version:** 1.6.0
+> **Profile Version:** 1.7.0
 > **Applies to:** All `ubi10-*` and standalone container image projects
 
 This profile extends the [universal constitution](../constitution.md) with requirements specific to **UBI-based** container image projects in the crunchtools organization.
@@ -142,6 +142,25 @@ Until constitution 1.33.0 `latest` tracked the default branch. On 2026-11-07
 that put unreleased trentina 6.11.0 into production at 02:01 through
 `podman-auto-update`, where it climbed to the unit's 4g cap and was SIGKILLed.
 Nothing had asked for it and nothing was watching (RT#1559).
+
+### The cascade is the one exception
+
+An image whose consumer is another image's `FROM` — the `ubi10-*` chain and the
+`*-base` images — cuts no release and so has no newest release to name. Its
+`latest` tracks the default branch, and MUST, because that is how a base-image
+erratum reaches every child: the root's weekly rebuild moves the tag and
+dispatches `parent-image-updated` down the chain, and each child's own gates test
+the new base before anything of its own is promoted. Freezing those tags on a
+`v1.0.0` nothing supersedes would stop errata fleet-wide, which is the opposite
+of what this rule is for.
+
+The exception is bounded by the CONSUMER, not by the repo. A systemd unit that
+runs one of these images directly is not a cascade consumer, so a cascade image
+MUST also publish the branch tag, and a unit running it MUST name that tag or
+pin a digest — never `latest`, which in this family means something it means
+nowhere else. Four units on gloval run `ubi10-httpd-php*` directly and are the
+live cases. A child's `FROM` SHOULD name the branch tag too, for the same reason:
+`FROM …:main` says what it is doing where `FROM …:latest` only looks like it.
 
 GHCR dual-push is optional for container image projects (required for MCP servers per the MCP Server profile, but not mandated here).
 
