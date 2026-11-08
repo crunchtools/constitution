@@ -9,9 +9,11 @@ Entries through 1.14.0 are derived from the Ratification History table in
 
 ## [Unreleased]
 
+## [1.35.0] - 2026-11-08
+
 ### Changed
 
-- **XII adds exit `3`, could not run, deferred to CI (1.35.0).** Granted per
+- **XII adds exit `3`, could not run, deferred to CI.** Granted per
   check by python-sdlc, today only CodeQL, on the push tier outside CI, only
   when the check is also in `[tool.sdlc.ci]`, the repo's CI runs `bin/sdlc ci`,
   and the tool itself broke. Anywhere else `3` is `2`. It is printed loudly and
