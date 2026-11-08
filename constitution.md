@@ -1,6 +1,6 @@
 # CrunchTools Constitution
 
-> **Version:** 1.34.0
+> **Version:** 1.35.0
 > **Ratified:** 2026-11-04
 > **Status:** Active
 
@@ -383,7 +383,16 @@ on the laptop and in CI alike.
   which CI runs through their own workflows (below), plus the repo's own
   checks, such as building and testing its image.
 - Every check exits `0` passed, `1` found a problem, or `2` could not run.
-  `2` is never treated as a pass.
+  `2` is never treated as a pass and is never worked around.
+- `3` means could not run, deferred to CI. Not a pass, not a refusal: it
+  prints loudly, names `sdlc ci` as the judge of that commit, and is recorded
+  in `last-push.json`. python-sdlc grants it per check — never a tool's own
+  status, and today only CodeQL has it — and only when every one of these
+  holds: the tier is `push`, the run is outside CI, that check is also in
+  `[tool.sdlc.ci]`, the repo's CI actually runs `sdlc ci` (a workflow line
+  that runs `bin/sdlc ci`, not a comment or job name), and the tool itself
+  broke. A configuration error stays `2`. Anywhere else, `3` is `2`. A check
+  that defers more than rarely is a bug to fix, not a tier.
 - The image carries tools, never a repo's rules. Rulesets, thresholds, ignore
   files and query packs stay in the repo. A repo's own checks are named in its
   config block with a `kind` the image implements — never a shell command. A
@@ -857,5 +866,6 @@ a public repository. Keep it host-side (for example
 | 1.32.0 | 2026-11-06 | XII triage: a finding written against a commit no longer on the pull request MUST NOT block, while one whose original commit cannot be determined still MUST be answered. Prompted by ashigaru#131, which could never go green: both findings were answered, the branch was then rebuilt on a moved default branch, and the answers named a commit that existed in no repository. Every repo whose default branch moves during a fix round hits this, which is every repo under Dependabot |
 | 1.33.0 | 2026-11-07 | `latest` means the newest RELEASE, not the newest build of the default branch, and `main` is the tag for the default branch (Container Image profile 1.6.0, Web Application profile 1.4.0). A repo that cuts no releases points its units at `main`, so its weekly errata rebuild still reaches production. Prompted by RT#1559: unreleased trentina 6.11.0 reached production at 02:01 through `podman-auto-update` because `:latest` tracked main, climbed to the unit's 4g cap and was SIGKILLed. 44 units across gloval pull `:latest`, and every one of their authors meant "the newest release". The Gourmand gate moves to `quay.io/crunchtools/gourmand:main`, which is what it has always actually tracked |
 | 1.34.0 | 2026-11-07 | Container Image profile 1.7.0 names the one exception to 1.33.0's rule: a cascade image (`ubi10-*`, `*-base`) cuts no release, so its `latest` tracks the default branch and MUST, because the root's weekly rebuild plus `parent-image-updated` is how a base erratum reaches every child. The exception is bounded by the CONSUMER: a cascade image MUST also publish the branch tag, and a systemd unit running one directly MUST name that tag or pin a digest. Prompted by auditing 1.33.0's blast radius — `FROM quay.io/crunchtools/ubi10-core:latest` appears in factory, immich, postiz, rotv, proxy, rt, spanish and the whole ubi10 chain, and flipping those would have frozen the base every child builds on |
+| 1.35.0 | 2026-11-08 | XII adds exit `3`, could not run, deferred to CI, narrowed: granted per check by python-sdlc (today only CodeQL), push tier only, outside CI, only when the check is also in `[tool.sdlc.ci]`, the repo's CI runs `sdlc ci`, and the tool itself broke. Anywhere else `3` is `2`. Prompted by python-sdlc#33: the only way past a broken gate was `--no-verify`, which drops every local gate. |
 | 1.31.0 | 2026-11-04 | `sdlc ci` MUST be a required status check on the default branch, through an org ruleset rather than per-repo, and `fleet-drift.py` audits that ruleset's repo list against the repos XII applies to in both directions. Prompted by the v1.30.0 rollout: the conversion left the check advisory in all 33 repos, and auto-merge — Dependabot's and python-sdlc's own bump pull requests — merges on required checks alone, so a red `sdlc ci` would have landed every future bump. The reverse gap is as bad and had a live example: acquacotta's branch protection still required a `Python Tests` check the conversion had deleted, so a check that could never report again blocked every merge until it was found |
 | 1.30.0 | 2026-11-04 | Python repos run their checks through python-sdlc (XII): one image, pinned at one release, three commands — `sdlc commit` at pre-commit, `sdlc push` at pre-push, `sdlc ci` in CI — each configured by the `pyproject.toml` block of the same name. Commit is seconds and offline; push renders the verdicts and never builds a container; CI runs push's checks except the two reviewers it gets from their own workflows, plus the repo's own. Repo checks are named kinds, never shell. Non-Python repos keep the standalone Gourmand and Gatehouse hooks. The validator requires the shape for repos inheriting v1.30.0, so a Python repo takes this version in the same pull request that converts it. Prompted by an audit of 35 Python repos (nine ruff versions, 15 with no type checker, 17 dependency scans that could not fail) and trentina's laptop running a two-week-old Gatehouse while CI ran a fresh one |
