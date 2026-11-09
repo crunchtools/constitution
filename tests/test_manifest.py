@@ -697,9 +697,15 @@ async def read_capped(response: httpx.Response) -> bytes:
         size += len(chunk)
         # Decoded total and compressed stream are separate limits; neither
         # stands in for the other.
-        if size > MAX_RESPONSE_SIZE or response.num_bytes_downloaded > MAX_RESPONSE_SIZE:
+        if size > MAX_RESPONSE_SIZE:
             raise RuntimeError(
-                f"{safe_url(response.request.url)} returned over {MAX_RESPONSE_SIZE} bytes"
+                f"{safe_url(response.request.url)} decoded body reached {size} bytes, "
+                f"over {MAX_RESPONSE_SIZE}"
+            )
+        if response.num_bytes_downloaded > MAX_RESPONSE_SIZE:
+            raise RuntimeError(
+                f"{safe_url(response.request.url)} wire stream reached "
+                f"{response.num_bytes_downloaded} bytes, over {MAX_RESPONSE_SIZE}"
             )
         chunks.append(chunk)
     return b"".join(chunks)
