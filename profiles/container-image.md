@@ -1,6 +1,6 @@
 # Container Image Profile
 
-> **Profile Version:** 1.7.0
+> **Profile Version:** 1.8.0
 > **Applies to:** All `ubi10-*` and standalone container image projects
 
 This profile extends the [universal constitution](../constitution.md) with requirements specific to **UBI-based** container image projects in the crunchtools organization.
@@ -52,6 +52,20 @@ secrets: |
   activation_key=${{ secrets.RHSM_ACTIVATION_KEY }}
   org_id=${{ secrets.RHSM_ORG_ID }}
 ```
+
+---
+
+### Runtime secrets (1.8.0)
+
+The build-time pattern above keeps secrets out of the image; this keeps them
+out of every committed file. A running container receives a credential as a
+`*_FILE` path or from a file decrypted at unit start onto tmpfs (sops + age on
+Crunchtools hosts, `/run/srv-secrets/<service>/`), never as a value in a
+committed `.env`, unit or config file, public or private (constitution XVII).
+An image that reads a secret MUST accept the `*_FILE` form. The
+`Refuse plaintext secrets` step of the required `Code Quality (Gourmand)` job
+enforces it on every change; a test fixture marks its line
+`gatehouse: allow-secret`.
 
 ---
 

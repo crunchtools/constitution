@@ -9,6 +9,20 @@ Entries through 1.14.0 are derived from the Ratification History table in
 
 ## [Unreleased]
 
+## [1.37.0] - 2026-11-09
+
+### Added
+
+- **No plaintext secret in any committed file, public or private (XVII).** A
+  credential arrives as a `*_FILE` path or a runtime decrypt (sops + age to
+  tmpfs on Crunchtools hosts), and host config commits its secrets encrypted
+  rather than plaintext in a private repo. Enforced by the `Refuse plaintext
+  secrets` step of the required `Code Quality (Gourmand)` job (gatehouse
+  0.25.0), which every repo already calls at `@v0`, so no repo needs an edit.
+  A fixture line opts out with `gatehouse: allow-secret`. Container Image
+  profile 1.8.0 states the runtime half. Prompted by crunchtools/trentina#766
+  and #769.
+
 ## [1.36.0] - 2026-11-08
 
 ### Added
