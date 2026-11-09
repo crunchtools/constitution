@@ -1119,6 +1119,122 @@ def check_tests_contain(
     return [f"TESTS: no file under test*/ matches `{pattern}`" for pattern in missing]
 
 
+HTTP_CLIENT_SINCE = (1, 36, 0)
+"""First constitution version with the `http_client` requirement."""
+
+# Only a repo that speaks HTTP itself is judged. `urllib.request` is in the list
+# because mcp-trove reaches Ollama with it, and a survey that greps only for the
+# third-party clients misses that: RT #1601's own table did.
+HTTP_IMPORT = re.compile(
+    r"^\s*(?:import|from)\s+(?:httpx2?|aiohttp|requests|urllib\.request)\b", re.MULTILINE
+)
+# Reading a body in bounded pieces. A cap taken from `content-length` alone is not
+# one: the header is optional, so a chunked reply walks straight past it.
+BOUNDED_READ = re.compile(r"\ba?iter_bytes\b|\ba?iter_raw\b|\bnum_bytes_downloaded\b")
+# Both halves of how an agent string is written: the header literal
+# `"User-Agent"` and the `USER_AGENT` constant that holds its value.
+USER_AGENT_HEADER = re.compile(r"User[-_]Agent", re.IGNORECASE)
+# The version in the agent string must come from somewhere that cannot drift from
+# the release. Either spelling is fine and both are in use: mcp-wordpress reads
+# `importlib.metadata.version(dist)`, mcp-feed-reader `from . import __version__`,
+# and II's version_sync already holds `__version__` to the changelog.
+VERSION_SOURCE = re.compile(r"importlib\.metadata|__version__|\bversion\(")
+OVERSIZE_TEST = re.compile(r"too.?large|too.?big|oversiz|MAX_RESPONSE", re.IGNORECASE)
+# The full URL httpx knows, not a path the client passed itself. The base URL is
+# the part that was wrong in RT #1596 -- an `http` base that 301s to `https`
+# returns an HTML body and reproduces the same error byte for byte -- so a
+# message naming only the path cannot tell the two apart.
+RESPONSE_URL = re.compile(r"\b(?:request|response)\.url\b")
+
+
+def _python_sources(repo_root: Path, pattern: str) -> list[str]:
+    """The text of every Python file matching a glob, unreadable ones skipped."""
+    return [
+        path.read_text(errors="ignore")
+        for path in sorted(repo_root.glob(pattern))
+        if path.is_file()
+    ]
+
+
+def check_http_client(
+    repo_root: Path, inherits: str, profiles: list[str], requirements: dict
+) -> list[str]:
+    """Since 1.36.0: an outbound HTTP client says what it is and bounds what it reads.
+
+    Two gaps, one place (RT #1601). A client that sends httpx's default
+    `python-httpx/<version>` is answered by bot protection with a challenge page
+    instead of data -- that is what broke the Educated Confusion half of
+    mcp-wordpress (RT #1596) and read as a parse error, because nothing in the
+    message said which site or what came back. And a cap read from the
+    `content-length` header is not a cap: the header is optional, so a chunked
+    reply is unbounded. mcp-wordpress promised "responses above 10 MB are
+    rejected" while doing exactly that.
+
+    Skipped unless something under `src/` imports an HTTP client, so a server that
+    speaks no HTTP passes and stays passing.
+
+    Of the profile's three MUSTs this check reaches the agent string, the bounded
+    read, and one element of the third: that an error names the full URL. The
+    content-type, the body snippet, and the redaction Layer 1 requires of both
+    are prose, held by review and by the repo's own test -- a regex cannot tell
+    a message that quotes a body from one that mentions the word, and it cannot
+    tell a redacted URL from a raw one.
+
+    These are tripwires over source text, like the `readOnlyHint` one the profile
+    already uses. Three ways they pass something they should not, all of them
+    known and none of them a reason to drop the check:
+
+      1. Presence, not behaviour. A `User-Agent` string and an `aiter_bytes` call
+         in the same repo do not prove either one is on the path a tool takes.
+         The tests this check also demands are what hold the behaviour.
+      2. Per repo, not per read path. mcp-github satisfies the bounded-read
+         pattern through its log-tail download while its JSON path is still
+         header-only. A repo with two read paths has to be read, not grepped.
+      3. A comment matches. Prose about a User-Agent counts as one.
+
+    The scan earns its place anyway by catching the one fake a test name cannot:
+    a test called `test_response_too_large` passes happily against a cap that only
+    reads `content-length`.
+    """
+    if (version_tuple(inherits) or ()) < HTTP_CLIENT_SINCE:
+        return []
+    rules = [requirements.get("profile", {}).get(p, {}) for p in profiles]
+    if not any(rule.get("http_client") for rule in rules):
+        return []
+
+    sources = _python_sources(repo_root, "src/**/*.py")
+    if not any(HTTP_IMPORT.search(text) for text in sources):
+        return []
+
+    violations: list[str] = []
+    if not any(USER_AGENT_HEADER.search(t) and VERSION_SOURCE.search(t) for t in sources):
+        violations.append(
+            "HTTP: no file under src/ holds a `User-Agent` alongside the version source "
+            "it is built from (`importlib.metadata`, `__version__`), so requests go out "
+            "as `python-httpx/<version>`. Define the agent string in the same module that "
+            "reads the version (Layer 3)"
+        )
+    if not any(BOUNDED_READ.search(t) for t in sources):
+        violations.append(
+            "HTTP: no file under src/ reads a response in bounded pieces "
+            "(`aiter_bytes`, `iter_bytes`, `num_bytes_downloaded`); a `content-length` "
+            "check is not a ceiling, a chunked reply carries no such header (Layer 3)"
+        )
+    if not any(RESPONSE_URL.search(t) for t in sources):
+        violations.append(
+            "HTTP: no file under src/ names `request.url` or `response.url` in an error, so a "
+            "failure cannot say which site answered; a path the client passed itself does not "
+            "distinguish the base URL that was wrong (Layer 3)"
+        )
+
+    tests = _python_sources(repo_root, "test*/**/*.py")
+    if not any(USER_AGENT_HEADER.search(t) for t in tests):
+        violations.append("HTTP: no test under test*/ asserts the outgoing `User-Agent`")
+    if not any(OVERSIZE_TEST.search(t) for t in tests):
+        violations.append("HTTP: no test under test*/ rejects an oversized response body")
+    return violations
+
+
 VERSION_SYNC_SINCE = (1, 28, 0)
 """First constitution version with the `version_files` requirement."""
 RELEASED = re.compile(r"^##\s*\[(\d+\.\d+\.\d+)\]", re.MULTILINE)
@@ -1371,6 +1487,7 @@ def validate_manifest(
         violations += check_gate_workflows(repo_root, inherits, requirements)
         violations += check_repo_files(repo_root, profiles, requirements)
         violations += check_tests_contain(repo_root, inherits, profiles, requirements)
+        violations += check_http_client(repo_root, inherits, profiles, requirements)
         violations += check_version_sync(repo_root, inherits, profiles, requirements)
         violations += check_visibility(profiles, requirements, slug)
     return violations

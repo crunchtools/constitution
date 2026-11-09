@@ -1,6 +1,6 @@
 # MCP Server Profile
 
-> **Profile Version:** 1.7.1
+> **Profile Version:** 1.8.0
 > **Applies to:** All `mcp-*-crunchtools` projects
 
 This profile extends the [universal constitution](../constitution.md) with requirements specific to MCP (Model Context Protocol) servers in the crunchtools organization.
@@ -45,6 +45,53 @@ For any credential environment variable `FOO_TOKEN`, the server MUST also suppor
 - Mandatory TLS certificate validation (configurable for self-hosted CAs)
 - Request timeouts and response size limits
 - URL-encoded path parameters to prevent path traversal
+
+**The outbound HTTP contract.** Three MUSTs for any client that leaves the
+process. All three come from one afternoon: mcp-wordpress returned
+`invalid_json` on every Educated Confusion call while the site was healthy, and
+nothing in the error said which site had answered or with what (RT #1596).
+
+- **Say what you are.** The client MUST send
+  `User-Agent: <dist-name>/<version> (+<repo url>)`, with the version read from
+  package metadata so it cannot drift from `pyproject.toml`. Either spelling
+  works and both are in the fleet: `importlib.metadata.version(dist)`, or
+  `from . import __version__`, which II's version sync already holds to the
+  changelog. httpx's default is `python-httpx/<version>`; Cloudflare's bot
+  protection answers that with an HTML challenge page instead of the API, and
+  Wikimedia's User-Agent policy refuses it outright. A nameless request is also
+  unattributable in someone else's access log, which is the other half of being
+  a good citizen on a site you do not own.
+- **Bound what you read.** A response body MUST be read with a hard byte
+  ceiling enforced *while reading* — accumulate `aiter_bytes()` and abort the
+  moment the running total passes the cap. A `content-length` check MAY reject
+  early and MUST NOT be the only check: the header is optional, so a chunked
+  reply walks past it and the cap becomes a promise the code does not keep.
+  Measuring at the transport instead is not equivalent either, because it
+  counts wire bytes and a compressed body expands past the cap after the count.
+- **Say what came back.** An error raised from an HTTP response MUST name the
+  method, the full URL, the status, the content-type and a short snippet of the
+  body. That one line is the difference between "invalid JSON" and "Cloudflare
+  returned a 403 challenge page", and it is what makes the next WAF block,
+  proxy error or `http` → `https` redirect diagnose itself. Layer 1 still
+  applies to every word of it: a URL is reported with its userinfo dropped and
+  its credential-shaped query parameters redacted, and the snippet carries no
+  secret the response returned. Auth belongs in a header (above), so a URL that
+  would leak one is already a violation — but a signed or pre-authenticated
+  link is not, and neither is a base URL someone configured as
+  `https://bot:password@host/`, which carries the secret before the path where
+  redacting query parameters never reaches it.
+
+Each MUST carries a test, and the tests drive a real transport
+(`httpx.MockTransport`) rather than mocking the client's own method — a mocked
+`_request` mocks away the thing under test.
+
+`constitution.yml` reaches the first two MUSTs, one element of the third — that
+an error names the full URL — and the presence of a test for each. Only by
+pattern, so it reads whether the contract was written, not whether it is on the
+path a tool actually takes. The content-type, the body snippet and the
+redaction above are prose: a regex cannot tell a message that quotes a body
+from one that mentions the word, nor a redacted URL from a raw one. The tests
+are what hold the behaviour.
 
 **Layer 4 — Dangerous Operation Prevention:**
 - No filesystem access, shell execution, or code evaluation
