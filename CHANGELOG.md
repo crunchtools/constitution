@@ -14,7 +14,8 @@ Entries through 1.14.0 are derived from the Ratification History table in
 ### Added
 
 - **MCP Server profile 1.8.0 states the outbound HTTP contract**, and
-  `http_client = true` checks it. Three MUSTs, all from one afternoon: a client
+  `http_client = true` checks most of it. Three MUSTs, all from one afternoon: a
+  client
   MUST send `User-Agent: <dist>/<version> (+<repo url>)` with the version read
   from package metadata; it MUST read a body with a byte ceiling enforced
   *while reading*, because `content-length` is optional and a chunked reply
@@ -33,10 +34,14 @@ Entries through 1.14.0 are derived from the Ratification History table in
 
   The check is version-gated, so no repo's CI changes until that repo moves its
   own pin, and it is skipped entirely unless something under `src/` imports an
-  HTTP client. It is a pattern scan, and both the check's docstring and the
-  profile name the three ways it passes something it should not: presence is
-  not behaviour, it judges a repo rather than each read path, and a comment
-  matches. The tests it also demands are what hold the behaviour.
+  HTTP client. It reaches the agent string, the bounded read, one element of the
+  third MUST (that an error names the full URL), and the presence of a test for
+  each. The content-type and the body snippet stay prose, held by review and by
+  the repo's own test: a regex cannot tell a message that quotes a body from one
+  that mentions the word. It is a pattern scan either way, and both the check's
+  docstring and the profile name the three ways it passes something it should
+  not: presence is not behaviour, it judges a repo rather than each read path,
+  and a comment matches. The tests it also demands are what hold the behaviour.
 
 ## [1.35.0] - 2026-11-08
 

@@ -72,14 +72,23 @@ nothing in the error said which site had answered or with what (RT #1596).
   method, the full URL, the status, the content-type and a short snippet of the
   body. That one line is the difference between "invalid JSON" and "Cloudflare
   returned a 403 challenge page", and it is what makes the next WAF block,
-  proxy error or `http` → `https` redirect diagnose itself.
+  proxy error or `http` → `https` redirect diagnose itself. Layer 1 still
+  applies to every word of it: a query string is reported with its credentials
+  redacted, and the snippet carries no secret the response returned. Auth
+  belongs in a header (above), so a URL that would leak one is already a
+  violation — but a signed or pre-authenticated link is not, and that is the
+  case to redact.
 
 Each MUST carries a test, and the tests drive a real transport
 (`httpx.MockTransport`) rather than mocking the client's own method — a mocked
-`_request` mocks away the thing under test. `constitution.yml` checks for all
-of this, but only by pattern: it reads whether the contract was written, not
-whether it is on the path a tool actually takes. The tests are what hold the
-behaviour.
+`_request` mocks away the thing under test.
+
+`constitution.yml` reaches the first two MUSTs, one element of the third — that
+an error names the full URL — and the presence of a test for each. Only by
+pattern, so it reads whether the contract was written, not whether it is on the
+path a tool actually takes. The content-type and the body snippet are prose: a
+regex cannot tell a message that quotes a body from one that mentions the word.
+The tests are what hold the behaviour.
 
 **Layer 4 — Dangerous Operation Prevention:**
 - No filesystem access, shell execution, or code evaluation

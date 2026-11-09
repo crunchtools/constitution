@@ -683,7 +683,7 @@ async def read_capped(response: httpx.Response) -> bytes:
     async for chunk in response.aiter_bytes():
         size += len(chunk)
         if size > MAX_RESPONSE_SIZE:
-            raise RuntimeError("Response too large")
+            raise RuntimeError(f"{response.request.url} returned over {MAX_RESPONSE_SIZE} bytes")
         chunks.append(chunk)
     return b"".join(chunks)
 """
@@ -701,6 +701,8 @@ async def read(response: httpx.Response) -> bytes:
     return response.content
 """
 
+# What the check greps for in the fixture repo, not a suite anyone runs: the
+# point is that a test file mentioning each half of the contract exists.
 CLIENT_TESTS = """def test_user_agent_names_the_product(transport):
     assert request.headers["User-Agent"].startswith("example-server/")
 
@@ -740,6 +742,14 @@ def test_header_only_ceiling_is_reported(repo):
     """mcp-wordpress's gap: a cap read from `content-length` and nothing else."""
     add_client(repo, NAMELESS_CLIENT)
     assert any("`content-length` check is not a ceiling" in v for v in http_violations(repo))
+
+
+def test_error_that_cannot_name_the_site_is_reported(repo):
+    """RT #1596's other half: an `http` base that 301s to `https` returns HTML and
+    reproduces the same error byte for byte, so a message naming only the path
+    cannot tell the two apart."""
+    add_client(repo, COMPLIANT_CLIENT.replace("response.request.url", "'the API'"))
+    assert any("which site answered" in v for v in http_violations(repo))
 
 
 def test_hardcoded_version_in_the_agent_is_reported(repo):

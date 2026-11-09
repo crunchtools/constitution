@@ -1140,6 +1140,11 @@ USER_AGENT_HEADER = re.compile(r"User[-_]Agent", re.IGNORECASE)
 # and II's version_sync already holds `__version__` to the changelog.
 VERSION_SOURCE = re.compile(r"importlib\.metadata|__version__|\bversion\(")
 OVERSIZE_TEST = re.compile(r"too.?large|too.?big|oversiz|MAX_RESPONSE", re.IGNORECASE)
+# The full URL httpx knows, not a path the client passed itself. The base URL is
+# the part that was wrong in RT #1596 -- an `http` base that 301s to `https`
+# returns an HTML body and reproduces the same error byte for byte -- so a
+# message naming only the path cannot tell the two apart.
+RESPONSE_URL = re.compile(r"\b(?:request|response)\.url\b")
 
 
 def _python_sources(repo_root: Path, pattern: str) -> list[str]:
@@ -1167,6 +1172,12 @@ def check_http_client(
 
     Skipped unless something under `src/` imports an HTTP client, so a server that
     speaks no HTTP passes and stays passing.
+
+    Of the profile's three MUSTs this check reaches the agent string, the bounded
+    read, and one element of the third: that an error names the full URL. The
+    content-type and the body snippet the third MUST also requires are prose,
+    held by review and by the repo's own test -- a regex cannot tell a message
+    that quotes a body from one that mentions the word.
 
     These are tripwires over source text, like the `readOnlyHint` one the profile
     already uses. Three ways they pass something they should not, all of them
@@ -1207,6 +1218,12 @@ def check_http_client(
             "HTTP: no file under src/ reads a response in bounded pieces "
             "(`aiter_bytes`, `iter_bytes`, `num_bytes_downloaded`); a `content-length` "
             "check is not a ceiling, a chunked reply carries no such header (Layer 3)"
+        )
+    if not any(RESPONSE_URL.search(t) for t in sources):
+        violations.append(
+            "HTTP: no file under src/ names `request.url` or `response.url` in an error, so a "
+            "failure cannot say which site answered; a path the client passed itself does not "
+            "distinguish the base URL that was wrong (Layer 3)"
         )
 
     tests = _python_sources(repo_root, "test*/**/*.py")
