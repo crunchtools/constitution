@@ -515,10 +515,14 @@ anything that must exist before first boot. Everything else — sysctls, systemd
 drop-ins, `*.conf.d/` overrides, tuning of any kind — goes in `/etc`.
 
 **Container images: configuration lives in `/srv/<service>/config/` on the
-host**, bind-mounted into the container read-only:
+host**, bind-mounted into the container read-only. Secrets are the exception
+to the path, not the rule: their only committed form is encrypted, so the unit
+reads them from `/run/srv-secrets/<service>/`, where they are put on tmpfs at
+unit start (XVII):
 
 ```
--v /srv/postiz.crunchtools.com/config/postiz.env:/etc/postiz/env:ro,Z
+-v /srv/postiz.crunchtools.com/config/temporal/config.yaml:/etc/temporal/config.yaml:ro,Z
+--env-file /run/srv-secrets/postiz.crunchtools.com/postiz.env
 ```
 
 This keeps the image generic and reusable across deployments, and keeps secrets
@@ -790,7 +794,8 @@ Test data captured from a real system — log lines, API responses, chat events
 
 Real values live in host configuration under `/srv/<service>/config/`,
 bind-mounted read-only into the container, exactly as Section XIV requires for
-configuration generally. This section adds where the *repository* copy goes:
+configuration generally; a secret among them is committed encrypted and
+mounted from `/run/srv-secrets/<service>/`. This section adds where the *repository* copy goes:
 
 1. **The public repo carries the shape, not the values.** Commit a
    `<name>.conf.example` alongside the consuming code, documenting the file

@@ -11,6 +11,12 @@ Entries through 1.14.0 are derived from the Ratification History table in
 
 ### Changed
 
+- **XIV and XVII name `/run/srv-secrets/<service>/` as a secret's mount
+  source.** 1.37.0 moved secrets there, but XIV's only example still mounted
+  `postiz.env` from `/srv/<service>/config/`. As a result, Gatehouse's
+  constitution reviewer flagged every unit that had been brought in line with
+  1.37.0 (tig#55, nagios-agent#154). This is a clarification, a patch bump.
+
 - **MCP Server profile: bound the wire as well as the decoded body.** The
   "Bound what you read" MUST now names both limits: the decoded total and the
   compressed stream (`response.num_bytes_downloaded`), and what each is for.
