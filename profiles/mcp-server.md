@@ -68,6 +68,15 @@ nothing in the error said which site had answered or with what (RT #1596).
   reply walks past it and the cap becomes a promise the code does not keep.
   Measuring at the transport instead is not equivalent either, because it
   counts wire bytes and a compressed body expands past the cap after the count.
+  Bound both limits in the same loop. The decoded total (`len(body) +
+  len(chunk)`) is what the caller will hold in memory, so it is the ceiling on
+  the body. `response.num_bytes_downloaded` is the compressed stream, so it is
+  the ceiling on what the wire may deliver; `aiter_bytes()` yields decoded
+  bytes and decompresses each wire chunk before the total is measured, so
+  without the wire check a crafted ratio makes one oversized allocation on the
+  way to being refused. Neither limit substitutes for the other: the decoded
+  cap alone leaves the wire unbounded, and the wire cap alone lets a compressed
+  body expand past it.
 - **Say what came back.** An error raised from an HTTP response MUST name the
   method, the full URL, the status, the content-type and a short snippet of the
   body. That one line is the difference between "invalid JSON" and "Cloudflare

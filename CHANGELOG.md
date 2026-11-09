@@ -9,6 +9,14 @@ Entries through 1.14.0 are derived from the Ratification History table in
 
 ## [Unreleased]
 
+### Changed
+
+- **MCP Server profile: bound the wire as well as the decoded body.** The
+  "Bound what you read" MUST now names both limits: the decoded total and the
+  compressed stream (`response.num_bytes_downloaded`), and what each is for.
+  A decoded-only cap lets one highly compressed wire chunk expand before it is
+  refused.
+
 ## [1.37.0] - 2026-11-09
 
 ### Added
