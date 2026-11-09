@@ -86,9 +86,10 @@ Each MUST carries a test, and the tests drive a real transport
 `constitution.yml` reaches the first two MUSTs, one element of the third — that
 an error names the full URL — and the presence of a test for each. Only by
 pattern, so it reads whether the contract was written, not whether it is on the
-path a tool actually takes. The content-type and the body snippet are prose: a
-regex cannot tell a message that quotes a body from one that mentions the word.
-The tests are what hold the behaviour.
+path a tool actually takes. The content-type, the body snippet and the
+redaction above are prose: a regex cannot tell a message that quotes a body
+from one that mentions the word, nor a redacted URL from a raw one. The tests
+are what hold the behaviour.
 
 **Layer 4 — Dangerous Operation Prevention:**
 - No filesystem access, shell execution, or code evaluation

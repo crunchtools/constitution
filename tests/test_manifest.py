@@ -670,11 +670,21 @@ def test_only_a_job_named_sdlc_ci_that_runs_it_counts(repo, workflow):
 COMPLIANT_CLIENT = """import httpx
 from importlib.metadata import version
 
+# Layer 1 applies to an error message too, so the example shows the redaction
+# the profile asks for rather than the raw URL: the sweep copies this shape.
+REDACTED = frozenset({"access_token", "auth", "key", "password", "sig", "token"})
+
 USER_AGENT = (
     f"example-server/{version('example-server')} "
     "(+https://github.com/crunchtools/example-server)"
 )
 MAX_RESPONSE_SIZE = 10 * 1024 * 1024
+
+
+def safe_url(url: httpx.URL) -> httpx.URL:
+    for name in REDACTED & set(url.params):
+        url = url.copy_set_param(name, "***")
+    return url
 
 
 async def read_capped(response: httpx.Response) -> bytes:
@@ -683,7 +693,9 @@ async def read_capped(response: httpx.Response) -> bytes:
     async for chunk in response.aiter_bytes():
         size += len(chunk)
         if size > MAX_RESPONSE_SIZE:
-            raise RuntimeError(f"{response.request.url} returned over {MAX_RESPONSE_SIZE} bytes")
+            raise RuntimeError(
+                f"{safe_url(response.request.url)} returned over {MAX_RESPONSE_SIZE} bytes"
+            )
         chunks.append(chunk)
     return b"".join(chunks)
 """
@@ -748,7 +760,12 @@ def test_error_that_cannot_name_the_site_is_reported(repo):
     """RT #1596's other half: an `http` base that 301s to `https` returns HTML and
     reproduces the same error byte for byte, so a message naming only the path
     cannot tell the two apart."""
-    add_client(repo, COMPLIANT_CLIENT.replace("response.request.url", "'the API'"))
+    add_client(
+        repo,
+        COMPLIANT_CLIENT.replace("response.request.url", "'the API'").replace(
+            "def safe_url(url: httpx.URL) -> httpx.URL:", "def safe_url(url: object) -> object:"
+        ),
+    )
     assert any("which site answered" in v for v in http_violations(repo))
 
 

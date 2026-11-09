@@ -1175,9 +1175,10 @@ def check_http_client(
 
     Of the profile's three MUSTs this check reaches the agent string, the bounded
     read, and one element of the third: that an error names the full URL. The
-    content-type and the body snippet the third MUST also requires are prose,
-    held by review and by the repo's own test -- a regex cannot tell a message
-    that quotes a body from one that mentions the word.
+    content-type, the body snippet, and the redaction Layer 1 requires of both
+    are prose, held by review and by the repo's own test -- a regex cannot tell
+    a message that quotes a body from one that mentions the word, and it cannot
+    tell a redacted URL from a raw one.
 
     These are tripwires over source text, like the `readOnlyHint` one the profile
     already uses. Three ways they pass something they should not, all of them
