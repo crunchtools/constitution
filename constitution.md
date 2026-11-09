@@ -1,6 +1,6 @@
 # CrunchTools Constitution
 
-> **Version:** 1.36.0
+> **Version:** 1.37.0
 > **Ratified:** 2026-11-04
 > **Status:** Active
 
@@ -795,10 +795,15 @@ configuration generally. This section adds where the *repository* copy goes:
 1. **The public repo carries the shape, not the values.** Commit a
    `<name>.conf.example` alongside the consuming code, documenting the file
    format, its deploy path and its mount point, with placeholder values.
-2. **The real file is committed to a private repository.** Host config is
-   still config: it needs review, history and a copy that survives the host.
-   "It has secrets in it" is a reason to put it in a *private* repo, not a
-   reason to leave it untracked on one machine.
+2. **The real file is committed to a private repository, encrypted.** Host
+   config is still config: it needs review, history and a copy that survives
+   the host. "It has secrets in it" is a reason to put it in a *private* repo,
+   not a reason to leave it untracked on one machine — and since 1.37.0 a
+   secret in it is committed encrypted, never as plaintext, because a private
+   repo is still read by every agent and tool with access to it. On
+   Crunchtools hosts that is sops with an age key per host: the committed file
+   is `<name>.sops.<ext>`, and the plaintext exists only on tmpfs, decrypted at
+   unit start. A service reads it there, or through a `*_FILE` path.
 3. **Code and config reference an opaque key, never the value.** A check takes
    a domain or an account key and resolves the identifier host-side from its
    own config file. This keeps the consuming config publishable by
@@ -819,6 +824,20 @@ value removed in a later commit is still in the history, and scrubbing it means
 a force-push and rotating whatever leaked. When a value does reach a public
 repo, treat it as disclosed: rotate the credential, and do not rely on deleting
 the commit.
+
+**No plaintext secret in any committed file, public or private (1.37.0).** A
+credential reaches a service as a `*_FILE` path or through a runtime decrypt
+(sops + age to tmpfs on Crunchtools hosts), never as a value in a committed
+file. This is machine-checked: the `Refuse plaintext secrets` step of the
+required `Code Quality (Gourmand)` job (`crunchtools/gatehouse`
+`gourmand.yml@v0`) fails any change that ADDS a line carrying a known
+credential shape (Google, Anthropic, OpenRouter, GitHub, GitLab, AWS, Slack
+keys and bare JWTs), naming the file, line and key, never the value. A test
+fixture line that must carry such a shape is marked `gatehouse: allow-secret`
+on that line; disabling the step for a repo is an emergency measure, not an
+exception. It lives in the shared job rather than per repo because a rule
+copied into one repo does not propagate: trentina#79 became RT#1564 and a full
+outage that way.
 
 The list of private terms to scan for is itself private data — it names the
 hosts, agents and people this section protects — so it MUST NOT be committed to
@@ -868,5 +887,6 @@ a public repository. Keep it host-side (for example
 | 1.34.0 | 2026-11-07 | Container Image profile 1.7.0 names the one exception to 1.33.0's rule: a cascade image (`ubi10-*`, `*-base`) cuts no release, so its `latest` tracks the default branch and MUST, because the root's weekly rebuild plus `parent-image-updated` is how a base erratum reaches every child. The exception is bounded by the CONSUMER: a cascade image MUST also publish the branch tag, and a systemd unit running one directly MUST name that tag or pin a digest. Prompted by auditing 1.33.0's blast radius — `FROM quay.io/crunchtools/ubi10-core:latest` appears in factory, immich, postiz, rotv, proxy, rt, spanish and the whole ubi10 chain, and flipping those would have frozen the base every child builds on |
 | 1.35.0 | 2026-11-08 | XII adds exit `3`, could not run, deferred to CI, narrowed: granted per check by python-sdlc (today only CodeQL), push tier only, outside CI, only when the check is also in `[tool.sdlc.ci]`, the repo's CI runs `sdlc ci`, and the tool itself broke. Anywhere else `3` is `2`. Prompted by python-sdlc#33: the only way past a broken gate was `--no-verify`, which drops every local gate. |
 | 1.36.0 | 2026-11-08 | MCP Server profile 1.8.0 states the outbound HTTP contract (Layer 3): a client MUST send `User-Agent: <dist>/<version> (+<repo url>)` with the version read from package metadata, MUST read a response body with a byte ceiling enforced while reading rather than from the optional `content-length` header, and MUST raise an error that names the method, URL, status, content-type and a body snippet. `http_client = true` checks the first two, that an error names the full URL, and the tests behind them, in any repo that imports an HTTP client; the content-type and the snippet stay prose. Prompted by RT#1596: 16 of 18 HTTP-speaking servers went out as `python-httpx/<version>`, Cloudflare's bot protection answered that with a challenge page instead of the WordPress REST API, and the error named neither the site nor the body, so it read as a parse error. The same audit found every existing cap reading `content-length` alone — including mcp-wordpress, whose own constitution promised "responses above 10 MB are rejected" |
+| 1.37.0 | 2026-11-09 | XVII: no plaintext secret in any committed file, public or private. A credential arrives as a `*_FILE` path or a runtime decrypt (sops + age to tmpfs on Crunchtools hosts), and host config commits its secrets encrypted. Machine-checked by the `Refuse plaintext secrets` step in the required `Code Quality (Gourmand)` job (gatehouse 0.25.0), which every repo already calls at `@v0`; fixtures opt out per line with `gatehouse: allow-secret`. Container Image profile 1.8.0 states the runtime half. Prompted by crunchtools/trentina#766/#769: three credential leaks in six weeks, every one from a plaintext value in a committed or host config file |
 | 1.31.0 | 2026-11-04 | `sdlc ci` MUST be a required status check on the default branch, through an org ruleset rather than per-repo, and `fleet-drift.py` audits that ruleset's repo list against the repos XII applies to in both directions. Prompted by the v1.30.0 rollout: the conversion left the check advisory in all 33 repos, and auto-merge — Dependabot's and python-sdlc's own bump pull requests — merges on required checks alone, so a red `sdlc ci` would have landed every future bump. The reverse gap is as bad and had a live example: acquacotta's branch protection still required a `Python Tests` check the conversion had deleted, so a check that could never report again blocked every merge until it was found |
 | 1.30.0 | 2026-11-04 | Python repos run their checks through python-sdlc (XII): one image, pinned at one release, three commands — `sdlc commit` at pre-commit, `sdlc push` at pre-push, `sdlc ci` in CI — each configured by the `pyproject.toml` block of the same name. Commit is seconds and offline; push renders the verdicts and never builds a container; CI runs push's checks except the two reviewers it gets from their own workflows, plus the repo's own. Repo checks are named kinds, never shell. Non-Python repos keep the standalone Gourmand and Gatehouse hooks. The validator requires the shape for repos inheriting v1.30.0, so a Python repo takes this version in the same pull request that converts it. Prompted by an audit of 35 Python repos (nine ruff versions, 15 with no type checker, 17 dependency scans that could not fail) and trentina's laptop running a two-week-old Gatehouse while CI ran a fresh one |
