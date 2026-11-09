@@ -1,6 +1,6 @@
 # MCP Server Profile
 
-> **Profile Version:** 1.8.0
+> **Profile Version:** 1.9.0
 > **Applies to:** All `mcp-*-crunchtools` projects
 
 This profile extends the [universal constitution](../constitution.md) with requirements specific to MCP (Model Context Protocol) servers in the crunchtools organization.
@@ -76,7 +76,12 @@ nothing in the error said which site had answered or with what (RT #1596).
   without the wire check a crafted ratio makes one oversized allocation on the
   way to being refused. Neither limit substitutes for the other: the decoded
   cap alone leaves the wire unbounded, and the wire cap alone lets a compressed
-  body expand past it.
+  body expand past it. The wire check narrows the residual to one chunk's
+  expansion; it does not remove it, because httpx decodes a chunk before
+  yielding it. The cap bounds the body, not the peak: returning `bytes(body)`
+  copies the accumulated buffer, so the peak is briefly twice the cap, once,
+  after the read has succeeded. That is the stated cost of handing callers an
+  immutable `bytes` rather than an aliased `bytearray`.
 - **Say what came back.** An error raised from an HTTP response MUST name the
   method, the full URL, the status, the content-type and a short snippet of the
   body. That one line is the difference between "invalid JSON" and "Cloudflare

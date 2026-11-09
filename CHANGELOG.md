@@ -15,7 +15,10 @@ Entries through 1.14.0 are derived from the Ratification History table in
   "Bound what you read" MUST now names both limits: the decoded total and the
   compressed stream (`response.num_bytes_downloaded`), and what each is for.
   A decoded-only cap lets one highly compressed wire chunk expand before it is
-  refused.
+  refused. The wire check narrows that residual to one chunk rather than
+  removing it, and the prose states that the final `bytes(body)` copy makes the
+  peak twice the cap. Profile minor bump to 1.9.0: a repo that satisfies 1.8.0
+  can fail the new wording.
 
 ## [1.37.0] - 2026-11-09
 
