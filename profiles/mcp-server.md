@@ -73,11 +73,13 @@ nothing in the error said which site had answered or with what (RT #1596).
   body. That one line is the difference between "invalid JSON" and "Cloudflare
   returned a 403 challenge page", and it is what makes the next WAF block,
   proxy error or `http` → `https` redirect diagnose itself. Layer 1 still
-  applies to every word of it: a query string is reported with its credentials
-  redacted, and the snippet carries no secret the response returned. Auth
-  belongs in a header (above), so a URL that would leak one is already a
-  violation — but a signed or pre-authenticated link is not, and that is the
-  case to redact.
+  applies to every word of it: a URL is reported with its userinfo dropped and
+  its credential-shaped query parameters redacted, and the snippet carries no
+  secret the response returned. Auth belongs in a header (above), so a URL that
+  would leak one is already a violation — but a signed or pre-authenticated
+  link is not, and neither is a base URL someone configured as
+  `https://bot:password@host/`, which carries the secret before the path where
+  redacting query parameters never reaches it.
 
 Each MUST carries a test, and the tests drive a real transport
 (`httpx.MockTransport`) rather than mocking the client's own method — a mocked

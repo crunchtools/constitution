@@ -682,6 +682,9 @@ MAX_RESPONSE_SIZE = 10 * 1024 * 1024
 
 
 def safe_url(url: httpx.URL) -> httpx.URL:
+    # Userinfo first: `https://bot:password@host/...` carries the secret before
+    # the path, where redacting query parameters never reaches it.
+    url = url.copy_with(userinfo=b"")
     for name in REDACTED & set(url.params):
         url = url.copy_set_param(name, "***")
     return url
