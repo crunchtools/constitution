@@ -661,3 +661,105 @@ def test_only_a_job_named_sdlc_ci_that_runs_it_counts(repo, workflow):
     write(repo, ".github/workflows/ci.yml", workflow)
     [found] = violations(repo)
     assert "no CI job named `sdlc ci`" in found
+
+
+# The outbound HTTP contract (MCP Server profile 1.8.0, RT #1601). The fixture
+# repo carries no `src/`, so the check skips it and every test above stays green;
+# each test here adds a client and breaks one thing about it.
+
+COMPLIANT_CLIENT = """import httpx
+from importlib.metadata import version
+
+USER_AGENT = (
+    f"example-server/{version('example-server')} "
+    "(+https://github.com/crunchtools/example-server)"
+)
+MAX_RESPONSE_SIZE = 10 * 1024 * 1024
+
+
+async def read_capped(response: httpx.Response) -> bytes:
+    chunks: list[bytes] = []
+    size = 0
+    async for chunk in response.aiter_bytes():
+        size += len(chunk)
+        if size > MAX_RESPONSE_SIZE:
+            raise RuntimeError("Response too large")
+        chunks.append(chunk)
+    return b"".join(chunks)
+"""
+
+# What 16 of 18 servers looked like before RT #1601: httpx's default agent, and a
+# ceiling that trusts a header the reply need not send.
+NAMELESS_CLIENT = """import httpx
+
+MAX_RESPONSE_SIZE = 10 * 1024 * 1024
+
+
+async def read(response: httpx.Response) -> bytes:
+    if int(response.headers.get("content-length", 0)) > MAX_RESPONSE_SIZE:
+        raise RuntimeError("Response too large")
+    return response.content
+"""
+
+CLIENT_TESTS = """def test_user_agent_names_the_product(transport):
+    assert request.headers["User-Agent"].startswith("example-server/")
+
+
+def test_response_too_large_is_rejected(transport):
+    pass
+"""
+
+
+def add_client(root: Path, source: str, *, tests: str | None = CLIENT_TESTS) -> None:
+    write(root, "src/example_server/client.py", source)
+    if tests is not None:
+        write(root, "tests/test_client.py", tests)
+
+
+def http_violations(root: Path) -> list[str]:
+    return [v for v in violations(root) if v.startswith("HTTP:")]
+
+
+def test_http_contract_skipped_without_an_http_import(repo):
+    """A server that speaks no HTTP passes, and keeps passing."""
+    write(repo, "src/example_server/tools.py", "def list_entries() -> list[str]:\n    return []\n")
+    assert violations(repo, pinned=True) == []
+
+
+def test_compliant_client_passes(repo):
+    add_client(repo, COMPLIANT_CLIENT)
+    assert violations(repo, pinned=True) == []
+
+
+def test_nameless_client_is_reported(repo):
+    add_client(repo, NAMELESS_CLIENT)
+    assert any("python-httpx" in v for v in http_violations(repo))
+
+
+def test_header_only_ceiling_is_reported(repo):
+    """mcp-wordpress's gap: a cap read from `content-length` and nothing else."""
+    add_client(repo, NAMELESS_CLIENT)
+    assert any("`content-length` check is not a ceiling" in v for v in http_violations(repo))
+
+
+def test_hardcoded_version_in_the_agent_is_reported(repo):
+    """An agent string that cannot track the release is not an identification."""
+    add_client(repo, 'HEADERS = {"User-Agent": "example-server/1.2.3"}\nimport httpx\n')
+    assert any("version source it is built from" in v for v in http_violations(repo))
+
+
+def test_untested_contract_is_reported(repo):
+    """Written is not proven: the scan sees presence, the tests hold behaviour."""
+    add_client(repo, COMPLIANT_CLIENT, tests=None)
+    found = http_violations(repo)
+    assert any("asserts the outgoing `User-Agent`" in v for v in found)
+    assert any("rejects an oversized response body" in v for v in found)
+
+
+def test_contract_not_checked_before_1_36_0(repo):
+    """A repo's CI does not change until that repo moves its own pin."""
+    for rel in (".specify/memory/constitution.md", ".github/workflows/constitution.yml"):
+        path = repo / rel
+        path.write_text(path.read_text().replace(f"v{VERSION}", "v1.35.0"))
+    add_client(repo, NAMELESS_CLIENT, tests=None)
+    assert http_violations(repo) == []

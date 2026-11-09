@@ -9,6 +9,35 @@ Entries through 1.14.0 are derived from the Ratification History table in
 
 ## [Unreleased]
 
+## [1.36.0] - 2026-11-08
+
+### Added
+
+- **MCP Server profile 1.8.0 states the outbound HTTP contract**, and
+  `http_client = true` checks it. Three MUSTs, all from one afternoon: a client
+  MUST send `User-Agent: <dist>/<version> (+<repo url>)` with the version read
+  from package metadata; it MUST read a body with a byte ceiling enforced
+  *while reading*, because `content-length` is optional and a chunked reply
+  walks past a header check; and it MUST raise an error naming the method, URL,
+  status, content-type and a body snippet.
+
+  Prompted by RT#1596. mcp-wordpress returned `invalid_json` on every Educated
+  Confusion call while the site was healthy: httpx sends
+  `python-httpx/<version>` by default, that zone's bot protection answers it
+  with a 403 challenge page, and the error named neither the site nor what came
+  back, so it read as a parse error. 16 of the 18 HTTP-speaking servers were
+  nameless, and Wikimedia's User-Agent policy refuses a nameless agent
+  outright. The same audit found every existing size cap reading
+  `content-length` and nothing else — mcp-wordpress among them, whose own
+  constitution promised "responses above 10 MB are rejected".
+
+  The check is version-gated, so no repo's CI changes until that repo moves its
+  own pin, and it is skipped entirely unless something under `src/` imports an
+  HTTP client. It is a pattern scan, and both the check's docstring and the
+  profile name the three ways it passes something it should not: presence is
+  not behaviour, it judges a repo rather than each read path, and a comment
+  matches. The tests it also demands are what hold the behaviour.
+
 ## [1.35.0] - 2026-11-08
 
 ### Changed

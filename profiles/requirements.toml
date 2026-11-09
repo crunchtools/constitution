@@ -72,6 +72,11 @@ pattern = '^  "version"\s*:\s*"([^"]+)"'
 #   tests_contain    regexes that must each match in a file under test*/**/*.py
 #                    (repos inheriting v1.22.0 or later)
 #   version_sync     false skips the version_files check (v1.28.0 or later)
+#   http_client      true requires the outbound HTTP contract of Layer 3: a
+#                    User-Agent that names the product and its version, and a
+#                    response read with a ceiling enforced while reading, each
+#                    with a test. Only judged when the repo imports an HTTP
+#                    client at all (v1.36.0 or later)
 
 [profile."MCP Server"]
 files = ["pyproject.toml", "uv.lock", "Containerfile*", "test*/**/*.py"]
@@ -79,6 +84,9 @@ dependabot = ["uv"]
 # The read-only partition test (profile Layer 2 and IV). A tripwire: the test
 # itself, in the repo's own gate, is what holds the classification.
 tests_contain = ["readOnlyHint"]
+# The outbound HTTP contract (profile Layer 3). Every server here calls something
+# over the network, and 16 of 18 went out nameless until RT #1601.
+http_client = true
 
 [profile."CLI Tool"]
 files = ["pyproject.toml", "uv.lock", "Containerfile*", "test*/**/*.py"]
