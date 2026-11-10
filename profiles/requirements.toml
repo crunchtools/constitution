@@ -28,6 +28,18 @@ host_tools = ["git", "podman", "pre-commit", "gh"]
 # Dependabot ecosystems every repo keeps current (XV).
 dependabot = ["github-actions"]
 
+# Since v1.38.0 (RT#1564): a Containerfile that resolves Python dependencies
+# (`pip install .`, `-e .`, `.[extra]`, or `-r <file>`) must install them from
+# the committed uv.lock -- with `--no-deps` so pip cannot re-resolve past it, and
+# with a lock reference (`COPY uv.lock`, `uv export --frozen`, `uv sync
+# --frozen`). Without it the image ships a fresh resolve of pyproject's
+# upper-boundless floors, a dependency set no test ran against. Keyed here rather
+# than per-profile because Forked MCP Server and Container Image both build
+# Python images, and gated by this key's presence (first shipped at 1.38.0)
+# rather than by Inherits, so fleet-drift at the latest validator reports every
+# offender regardless of its pin.
+locked_python_install = true
+
 # The repo must carry an AGPL-3.0 LICENSE (I). Profiles may turn this off.
 license_agpl = true
 

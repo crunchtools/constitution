@@ -801,3 +801,109 @@ def test_contract_not_checked_before_1_36_0(repo):
         path.write_text(path.read_text().replace(f"v{VERSION}", "v1.35.0"))
     add_client(repo, NAMELESS_CLIENT, tests=None)
     assert http_violations(repo) == []
+
+
+# --- Locked container install (XV container clause, RT#1564, v1.38.0) ---------
+
+LOCK_STAGE = """FROM quay.io/hummingbird/python:3.14-builder AS lock
+USER 0
+RUN pip install --no-cache-dir uv==0.13.7
+WORKDIR /lock
+COPY pyproject.toml uv.lock ./
+RUN uv export --frozen --no-dev --no-emit-project --format requirements-txt -o /requirements.txt
+
+FROM quay.io/hummingbird/python:3.14-builder AS builder
+WORKDIR /app
+COPY --from=lock /requirements.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir --no-deps -r /tmp/requirements.txt
+COPY pyproject.toml README.md ./
+COPY src/ ./src/
+RUN pip install --no-cache-dir --no-deps .
+"""
+
+
+def container_violations(root: Path) -> list[str]:
+    return [v for v in violations(root) if v.startswith("CONTAINER:")]
+
+
+def set_containerfile(root: Path, text: str) -> None:
+    write(root, "Containerfile", text)
+
+
+def test_lock_stage_containerfile_passes(repo):
+    """The reference lock-stage pattern installs from uv.lock and is clean."""
+    set_containerfile(repo, LOCK_STAGE)
+    assert container_violations(repo) == []
+
+
+def test_bare_pip_install_dot_fails(repo):
+    """`pip install .` resolves pyproject's floors fresh -- the RT#1564 bug."""
+    set_containerfile(repo, "FROM base AS b\nRUN pip install --no-cache-dir .\n")
+    found = container_violations(repo)
+    assert any("without --no-deps" in v for v in found)
+
+
+def test_requirements_install_without_no_deps_fails(repo):
+    """`-r <file>` with no --no-deps still re-resolves (mcp-syslog, acquacotta)."""
+    set_containerfile(repo, "FROM b\nRUN pip3 install --no-cache-dir -r requirements.txt\n")
+    assert any("without --no-deps" in v for v in container_violations(repo))
+
+
+def test_editable_quoted_extras_target_fails(repo):
+    """A quoted editable-with-extras target is caught (memory: -e \".[sqlite]\")."""
+    set_containerfile(repo, 'FROM b\nRUN pip3.14 install --no-cache-dir -e ".[sqlite]"\n')
+    assert any("without --no-deps" in v for v in container_violations(repo))
+
+
+def test_bare_path_target_fails(repo):
+    """A path install is a resolve (google-workspace-mcp: pip install /build/src)."""
+    set_containerfile(repo, "FROM b\nRUN /app/venv/bin/pip install --no-cache-dir /build/src\n")
+    assert any("without --no-deps" in v for v in container_violations(repo))
+
+
+def test_named_package_install_passes(repo):
+    """A named, pinned package resolves nothing the repo locks (python-sdlc)."""
+    set_containerfile(
+        repo,
+        "FROM b\nRUN uv pip install --no-cache-dir uv==0.13.7\n"
+        'RUN uv pip install --no-cache-dir "pyyaml==6.0.3"\n',
+    )
+    assert container_violations(repo) == []
+
+
+def test_value_flag_path_is_not_a_target(repo):
+    """`--python /x/py` is a flag value, not an install target (hermes)."""
+    set_containerfile(
+        repo,
+        "FROM b\nRUN uv sync --frozen --no-install-project\n"
+        'RUN uv pip install --no-cache-dir --python /app/.venv/bin/python "pypdf==6.21.4"\n',
+    )
+    assert container_violations(repo) == []
+
+
+def test_no_deps_but_no_lock_reference_fails(repo):
+    """--no-deps alone is not enough: the image must install FROM the lock."""
+    set_containerfile(repo, "FROM b\nCOPY src/ ./src/\nRUN pip install --no-cache-dir --no-deps .\n")
+    found = container_violations(repo)
+    assert any("never installs from the committed uv.lock" in v for v in found)
+
+
+def test_comment_naming_lock_does_not_satisfy(repo):
+    """A `# uv.lock` comment is not installing from it (google-workspace-mcp)."""
+    set_containerfile(
+        repo,
+        "FROM b\n# upstream uses uv with uv.lock; pip install . is equivalent\n"
+        "RUN pip install --no-cache-dir .\n",
+    )
+    found = container_violations(repo)
+    assert any("without --no-deps" in v for v in found)
+    assert any("never installs from the committed uv.lock" in v for v in found)
+
+
+def test_container_check_off_without_requirements_key(repo, monkeypatch):
+    """A pinned checkout whose requirements.toml predates the key is left alone."""
+    raised = V.load_requirements()
+    raised = {**raised, "fleet": {k: v for k, v in raised["fleet"].items() if k != "locked_python_install"}}
+    monkeypatch.setattr(V, "load_requirements", lambda: raised)
+    set_containerfile(repo, "FROM b\nRUN pip install --no-cache-dir .\n")
+    assert container_violations(repo) == []

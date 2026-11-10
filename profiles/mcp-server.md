@@ -212,17 +212,31 @@ Allowed builder/runtime combinations:
 | `registry.access.redhat.com/ubi10/ubi` | `quay.io/hummingbird/python:3.14` | **Prohibited** |
 
 ```dockerfile
-# Stage 1: Builder (has shell, dnf, build tools)
+# Stage 1: Lock (turn uv.lock into the exact dependency set to install)
+FROM quay.io/hummingbird/python:3.14-fips-builder AS lock
+USER 0
+RUN pip install --no-cache-dir uv==0.13.7
+WORKDIR /lock
+COPY pyproject.toml uv.lock ./
+RUN uv export --frozen --no-dev --no-emit-project \
+      --format requirements-txt -o /requirements.txt
+
+# Stage 2: Builder (has shell, dnf, build tools)
 FROM quay.io/hummingbird/python:3.14-fips-builder AS builder
 USER 0
 WORKDIR /app
 RUN python3 -m venv /app/venv
 ENV PATH="/app/venv/bin:$PATH"
+# Dependencies come from uv.lock, not a fresh resolve of pyproject's floors
+# (RT#1564). --no-deps on both installs is load-bearing: it stops pip re-resolving
+# past the versions the lock already pinned.
+COPY --from=lock /requirements.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir --no-deps -r /tmp/requirements.txt
 COPY pyproject.toml README.md ./
 COPY src/ ./src/
-RUN pip install --no-cache-dir .
+RUN pip install --no-cache-dir --no-deps .
 
-# Stage 2: Runtime (distroless — no shell, no package manager)
+# Stage 3: Runtime (distroless — no shell, no package manager)
 FROM quay.io/hummingbird/python:3.14-fips
 COPY --from=builder /app/venv /app/venv
 ENV PATH="/app/venv/bin:$PATH"
