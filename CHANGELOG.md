@@ -9,6 +9,27 @@ Entries through 1.14.0 are derived from the Ratification History table in
 
 ## [Unreleased]
 
+## [1.38.0] - 2026-11-10
+
+### Added
+
+- **XV.7: a container installs its Python dependencies from the committed lock
+  (RT#1564).** `pip install .` reads only `pyproject.toml`'s upper-boundless
+  floors, so the image shipped a dependency set no test ever ran against —
+  `mcp-gemini` shipped `google-genai` 3.0.0 against a locked 2.34.0 and every
+  tool failed with CI green. A new machine-checked rule (`check_locked_install`)
+  fails any Containerfile that resolves Python dependencies (installs `.`,
+  `-e .`, `.[extra]`, a path, or `-r <file>`) without `--no-deps`, or that
+  commits `uv.lock` but never installs from it (`COPY uv.lock`, `uv export
+  --frozen`, `uv sync --frozen`, `uv sync --locked`). Keyed on the new `[fleet]
+  locked_python_install` requirement rather than on `Inherits`, so fleet-drift
+  reports every offender fleet-wide at the latest validator while a repo pinned
+  to an older release is left alone until it bumps. Named-package installs
+  (`pip install foo==X`, `uv tool install`) and `COPY --from` of a built venv
+  are deliberate blind spots. The `mcp-server` and `cli-tool` profile templates,
+  which showed the bad `RUN pip install --no-cache-dir .`, now show the
+  lock-stage pattern — a validator may not fail the constitution's own example.
+
 ### Changed
 
 - **XIV and XVII name `/run/srv-secrets/<service>/` as a secret's mount

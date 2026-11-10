@@ -1,6 +1,6 @@
 # CrunchTools Constitution
 
-> **Version:** 1.37.0
+> **Version:** 1.38.0
 > **Ratified:** 2026-11-04
 > **Status:** Active
 
@@ -589,6 +589,23 @@ and the build broke with zero code changes to point at.
    the first clean scan. Fifteen per-repo copies had drifted: twelve counted
    every report as clean, none closed its issue, and gatehouse#96 stayed open
    five days after its fix merged.
+
+7. **A container installs its Python dependencies from the committed lock.**
+   `pip install .` reads only `pyproject.toml`, whose floors carry no upper
+   bound, so the image ships whatever the index held at build time — a
+   dependency set no test, no lockfile and no PR ever saw. Rules 1–3 pin and
+   audit `uv.lock`, and CI and pre-commit install from it, but the artifact
+   that actually runs is the least-pinned thing the repo produces. On
+   2026-11-07 `mcp-gemini` shipped `google-genai` 3.0.0 while its lock and CI
+   held 2.34.0; 3.0 had inverted its HTTP dependency, every tool failed, and
+   every check stayed green. A Containerfile that resolves Python dependencies
+   (installs `.`, `-e .`, `.[extra]`, a path, or `-r <file>`) MUST install them
+   from the lock — export it with `uv export --frozen`, `uv sync --frozen`, or `uv sync --locked`,
+   and pass `--no-deps` on the install so pip cannot re-resolve past the pinned
+   set. This is machine-checked (RT#1564): fleet-drift runs the latest
+   validator against every repo regardless of its pin, so a Containerfile that
+   resolves dependencies outside the lock is reported fleet-wide, and a repo at
+   this release or later fails its own `sdlc constitution`.
 
 Canonical files: [`examples/dependabot.yml`](examples/dependabot.yml)
 (github-actions only) and [`examples/dependabot-uv.yml`](examples/dependabot-uv.yml)

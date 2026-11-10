@@ -1235,6 +1235,167 @@ def check_http_client(
     return violations
 
 
+# A pip/uv install INVOCATION. `uv tool install` is deliberately not matched: it
+# installs a standalone tool (ruff, semgrep), not the project's dependency set,
+# so python-sdlc's image -- which only ever runs `uv tool install` and a named
+# `uv pip install "pyyaml=="` -- is not judged here.
+_PIP_INSTALL = re.compile(r"\b(?:pip[0-9.]*|uv\s+pip|python[0-9.]*\s+-m\s+pip)\s+install\b")
+_NO_DEPS = re.compile(r"(?<![\w-])--no-deps(?![\w-])")
+# How a Containerfile may legitimately install the locked set.
+_LOCK_REFERENCE = re.compile(
+    r"uv\.lock|uv\s+export\b[^\n]*--frozen|uv\s+sync\b[^\n]*--(?:frozen|locked)"
+)
+
+
+# Flags that consume the FOLLOWING token as their value, so that value is not a
+# positional install target. `--python /app/.venv/bin/python` is the trap: its
+# path value reads as a project path unless the flag is known to swallow it
+# (hermes). `-e`/`--editable` is deliberately NOT here -- its value IS the target
+# and must be inspected. `=`-joined forms (`--prefix=/usr`) are one token and
+# need no entry.
+_VALUE_FLAGS = frozenset(
+    {
+        "-p", "--python", "--python-version", "--python-platform", "--prefix",
+        "-t", "--target", "--root", "--src", "--index-url", "--extra-index-url",
+        "--index", "--default-index", "-f", "--find-links", "-c", "--constraint",
+        "--cache-dir", "--exclude-newer", "--exclude-newer-package", "--link-mode",
+        "-C", "--config-setting", "--config-settings", "--no-binary", "--only-binary",
+        "--platform", "--abi", "--implementation", "--report", "--hash", "-o",
+        "--output-file",
+    }
+)
+
+
+def _resolving_install(command: str) -> bool:
+    """True when `command` is a pip/uv-pip install that RESOLVES a dependency
+    graph rather than installing a named, already-pinned artifact.
+
+    A resolving target is the project itself (`.`, `-e .`, `.[extra]`, quoted or
+    not -- memory writes `-e ".[sqlite]"`), a local path (`/build/src`,
+    `./pkg` -- google-workspace-mcp installs `/build/src`), or a requirements
+    file (`-r <file>`). A named package (`httpx==1.0`, `uv==0.13.7` in the lock
+    stage, `"pip>=26.2.2"`) resolves nothing the repo locks and returns False --
+    the accepted blind spot that also lets mcp-notebooklm pass until it declares
+    a pyproject. Tokenised rather than regexed because the target may be quoted,
+    carry extras, be an absolute path, or follow any run of flags, and because a
+    value-flag's own path argument (`--python /…/python`) must not be read as the
+    target.
+    """
+    match = _PIP_INSTALL.search(command)
+    if not match:
+        return False
+    tokens = command[match.end() :].split()
+    i = 0
+    while i < len(tokens):
+        token = tokens[i]
+        if token in ("-r", "--requirement") or token.startswith("--requirement="):
+            return True
+        if token in _VALUE_FLAGS:
+            i += 2  # skip the flag and the value token it consumes
+            continue
+        if token in ("-e", "--editable") or token.startswith("-"):
+            i += 1  # a flag (and -e's target is the next token, judged on its own)
+            continue
+        base = token.strip("\"'").split("[", 1)[0]
+        if base in (".", "..") or base.startswith(("./", "../", "/")):
+            return True
+        i += 1
+    return False
+
+
+def _containerfile_commands(text: str) -> list[str]:
+    """Logical shell commands in a Containerfile: `#` lines dropped, `\\`
+    continuations joined, each RUN body split on `&&` and `;`.
+
+    Without this a comment that names uv.lock reads as compliance (hermes and
+    google-workspace-mcp both carry one), and a chained
+    `pip install . && pip uninstall -y pip` (shiva) is seen as one line, so a
+    `--no-deps` on a later clause would mask its absence on the install itself.
+    """
+    joined: list[str] = []
+    buf = ""
+    for raw in text.splitlines():
+        if re.match(r"\s*#", raw):
+            continue
+        stripped = raw.rstrip()
+        if stripped.endswith("\\"):
+            buf += stripped[:-1] + " "
+            continue
+        buf += stripped
+        joined.append(buf)
+        buf = ""
+    if buf:
+        joined.append(buf)
+    commands: list[str] = []
+    for logical in joined:
+        commands.extend(part.strip() for part in re.split(r"&&|;", logical) if part.strip())
+    return commands
+
+
+def check_locked_install(repo_root: Path, requirements: dict) -> list[str]:
+    """Since 1.38.0 (RT#1564): a container installs its Python dependencies from
+    the committed `uv.lock`, not a fresh resolve of pyproject's floors.
+
+    `pip install .` reads only pyproject.toml, whose floors carry no upper bound,
+    so the image ships whatever PyPI held that morning -- a dependency set no test
+    ever ran against. mcp-gemini shipped google-genai 3.0.0 while CI tested 2.34.0
+    and every tool failed with CI green throughout. The lock is committed and
+    Dependabot-maintained; the fix is to install from it with `--no-deps` on both
+    the dependency and the project install, so pip cannot re-resolve around it.
+
+    GATING, and why it is NOT the `*_SINCE`-on-`Inherits` pattern the other
+    since-gated checks use. The rule's purpose is fleet-wide drift detection, and
+    `fleet-drift.py` runs the LATEST validator but reads each repo's OWN
+    `Inherits` (fleet-drift.py line 160). An `Inherits`-gated check would skip
+    every repo still pinned below 1.38 -- i.e. exactly the repos the drift sweep
+    exists to find -- and so could never report the drift. Instead this is gated
+    on the `locked_python_install` key in the validator's own requirements.toml,
+    which first appears at 1.38.0, the same way `check_repo_files` reads the fleet
+    `files` and `dependabot` requirements. A repo whose pinned per-repo CI clones
+    an older constitution gets a requirements.toml without the key and is left
+    alone until it bumps; the latest validator (fleet-drift, or a bumped repo)
+    applies it to the whole fleet at once.
+
+    Known, accepted blind spots, none a reason to drop the check: a named-package
+    install (`pip install foo==X`, `uv tool install`); a `COPY --from` of another
+    image's already-built venv; and a hand-written requirements.txt installed
+    with `--no-deps` where the repo commits no uv.lock. The first is why
+    mcp-notebooklm passes until it declares a pyproject.
+    """
+    if not requirements.get("fleet", {}).get("locked_python_install"):
+        return []
+    containerfiles = sorted(repo_root.glob("Containerfile*"))
+    if not containerfiles:
+        return []
+    has_lock = (repo_root / "uv.lock").is_file()
+
+    violations: list[str] = []
+    for path in containerfiles:
+        commands = _containerfile_commands(path.read_text(errors="ignore"))
+        resolving = [command for command in commands if _resolving_install(command)]
+        # (A) A resolving install that lacks --no-deps re-resolves the graph,
+        # which is what reaches past the lock.
+        for command in resolving:
+            if not _NO_DEPS.search(command):
+                violations.append(
+                    f"CONTAINER: {path.name} installs dependencies without --no-deps "
+                    f"(`{command[:70].strip()}`); install from uv.lock so pip cannot "
+                    f"re-resolve what the lock already pinned (RT#1564)"
+                )
+        # (B) The repo locks its dependencies but this image never installs from
+        # the lock, so the shipped artifact is a fresh resolve of the floors. The
+        # lock reference is sought in the real commands, never a `#` comment, so a
+        # Containerfile cannot claim compliance in prose (google-workspace-mcp's
+        # comment names uv.lock while it installs `/build/src`).
+        if resolving and has_lock and not any(_LOCK_REFERENCE.search(c) for c in commands):
+            violations.append(
+                f"CONTAINER: {path.name} resolves Python dependencies but never installs "
+                f"from the committed uv.lock (no `COPY uv.lock`, `uv export --frozen`, or "
+                f"`uv sync --frozen`); it ships versions no test ran against (RT#1564)"
+            )
+    return violations
+
+
 VERSION_SYNC_SINCE = (1, 28, 0)
 """First constitution version with the `version_files` requirement."""
 RELEASED = re.compile(r"^##\s*\[(\d+\.\d+\.\d+)\]", re.MULTILINE)
@@ -1486,6 +1647,7 @@ def validate_manifest(
         violations += check_host_contract(repo_root, inherits, requirements)
         violations += check_gate_workflows(repo_root, inherits, requirements)
         violations += check_repo_files(repo_root, profiles, requirements)
+        violations += check_locked_install(repo_root, requirements)
         violations += check_tests_contain(repo_root, inherits, profiles, requirements)
         violations += check_http_client(repo_root, inherits, profiles, requirements)
         violations += check_version_sync(repo_root, inherits, profiles, requirements)
