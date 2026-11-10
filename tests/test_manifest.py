@@ -907,3 +907,31 @@ def test_container_check_off_without_requirements_key(repo, monkeypatch):
     monkeypatch.setattr(V, "load_requirements", lambda: raised)
     set_containerfile(repo, "FROM b\nRUN pip install --no-cache-dir .\n")
     assert container_violations(repo) == []
+
+
+def test_chained_install_clauses_are_split(repo):
+    """A bad clause chained after a good one with `&&` is still caught: the
+    parser splits RUN bodies, so --no-deps on the first clause cannot mask the
+    second. A lock stage is present so only condition A is in play."""
+    set_containerfile(
+        repo,
+        "FROM b AS lock\nCOPY pyproject.toml uv.lock ./\nRUN uv export --frozen -o /r.txt\n"
+        "FROM b\nCOPY --from=lock /r.txt /tmp/r.txt\n"
+        "RUN pip install --no-cache-dir --no-deps -r /tmp/r.txt && pip install --no-cache-dir .\n",
+    )
+    found = container_violations(repo)
+    assert any("without --no-deps" in v and "pip install --no-cache-dir ." in v for v in found)
+    assert not any("-r /tmp/r.txt" in v for v in found)  # the good clause is not flagged
+
+
+def test_backslash_continuation_is_joined(repo):
+    """`--no-deps` on a continued physical line still attaches to the install:
+    the parser joins `\\` continuations before matching, so this is clean."""
+    set_containerfile(
+        repo,
+        "FROM b AS lock\nCOPY pyproject.toml uv.lock ./\nRUN uv export --frozen -o /r.txt\n"
+        "FROM b\nCOPY --from=lock /r.txt /tmp/r.txt\n"
+        "RUN pip install --no-cache-dir \\\n    --no-deps \\\n    -r /tmp/r.txt\n"
+        "RUN pip install --no-cache-dir --no-deps .\n",
+    )
+    assert container_violations(repo) == []

@@ -21,7 +21,7 @@ Entries through 1.14.0 are derived from the Ratification History table in
   fails any Containerfile that resolves Python dependencies (installs `.`,
   `-e .`, `.[extra]`, a path, or `-r <file>`) without `--no-deps`, or that
   commits `uv.lock` but never installs from it (`COPY uv.lock`, `uv export
-  --frozen`, `uv sync --frozen`). Keyed on the new `[fleet]
+  --frozen`, `uv sync --frozen`, `uv sync --locked`). Keyed on the new `[fleet]
   locked_python_install` requirement rather than on `Inherits`, so fleet-drift
   reports every offender fleet-wide at the latest validator while a repo pinned
   to an older release is left alone until it bumps. Named-package installs

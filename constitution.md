@@ -600,7 +600,7 @@ and the build broke with zero code changes to point at.
    held 2.34.0; 3.0 had inverted its HTTP dependency, every tool failed, and
    every check stayed green. A Containerfile that resolves Python dependencies
    (installs `.`, `-e .`, `.[extra]`, a path, or `-r <file>`) MUST install them
-   from the lock — export it with `uv export --frozen` or `uv sync --frozen`,
+   from the lock — export it with `uv export --frozen`, `uv sync --frozen`, or `uv sync --locked`,
    and pass `--no-deps` on the install so pip cannot re-resolve past the pinned
    set. This is machine-checked (RT#1564): fleet-drift runs the latest
    validator against every repo regardless of its pin, so a Containerfile that
