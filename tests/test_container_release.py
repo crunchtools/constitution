@@ -11,7 +11,9 @@ import http.server
 import importlib.util
 import json
 import socket
+import subprocess
 import sys
+import tempfile
 import threading
 from pathlib import Path
 
@@ -375,3 +377,57 @@ def test_the_cli_passes_cascade_through(w, monkeypatch):
     ]
     assert CR.main(args) == 0
     assert w.tags["latest"] == d
+
+
+# ---------------------------------------------------------------- MCP over stdio
+
+# A real process speaking MCP on stdio, so _exchange is tested against pipes,
+# not mocks. MODE picks the behaviour.
+STDIO_SERVER = r"""
+import json, sys, time
+mode = sys.argv[1]
+if mode == "exit":
+    print("boom", file=sys.stderr)
+    sys.exit(3)
+for line in sys.stdin:
+    msg = json.loads(line)
+    if "id" not in msg:
+        continue
+    if mode == "silent":
+        time.sleep(30)
+    print("a log line on stdout", flush=True)
+    result = {"tools": [{"name": "t"}]} if msg["method"] == "tools/list" else {
+        "serverInfo": {"name": "fake", "version": "1"}}
+    print(json.dumps({"jsonrpc": "2.0", "id": msg["id"], "result": result}), flush=True)
+"""
+
+
+def stdio(mode, timeout=10):
+    with tempfile.TemporaryFile(mode="w+") as errlog:
+        proc = subprocess.Popen(
+            [sys.executable, "-c", STDIO_SERVER, mode],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=errlog,
+            text=True,
+        )
+        try:
+            return CR._exchange(proc, errlog, timeout)
+        finally:
+            proc.kill()
+            proc.wait()
+
+
+def test_stdio_exchange_skips_log_lines_and_lists_tools():
+    replies = stdio("ok")
+    assert CR._tools(replies[1], replies[2]) == ["t"]
+
+
+def test_stdio_server_that_exits_is_refused_with_its_stderr():
+    with pytest.raises(CR.Refused, match="boom"):
+        stdio("exit")
+
+
+def test_stdio_server_that_never_answers_is_refused_at_the_deadline():
+    with pytest.raises(CR.Refused, match="within 1s"):
+        stdio("silent", timeout=1)

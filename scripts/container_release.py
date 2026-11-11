@@ -384,6 +384,12 @@ def _exchange(proc: subprocess.Popen, errlog: Any, timeout: int) -> dict[int, di
 
 
 def boot_mcp_stdio(spec: Boot) -> list[str]:
+    """Run the image with stdin attached and speak MCP over stdio.
+
+    Sends initialize, notifications/initialized and tools/list; returns the
+    tool names. Refused when the server exits, stays silent past
+    `spec.timeout`, fails initialize, or lists no tools.
+    """
     # stderr goes to a file: a chatty server must not fill a pipe nobody reads.
     with tempfile.TemporaryFile(mode="w+") as errlog:
         proc = subprocess.Popen(
@@ -438,6 +444,12 @@ def _in_container(spec: Boot, check: Callable[[str], list[str]], *run: str) -> l
 
 
 def boot_mcp_http(spec: Boot) -> list[str]:
+    """Run the image detached and speak MCP over streamable HTTP on `spec.port`.
+
+    Retries connection errors and HTTP error statuses (NotReady) until
+    `spec.timeout`, then initializes and lists tools; returns the tool names.
+    """
+
     def check(_name: str) -> list[str]:
         deadline = time.monotonic() + spec.timeout
         while True:
@@ -472,6 +484,12 @@ def _tools(init: dict, listed: dict) -> list[str]:
 
 
 def boot_systemd(spec: Boot) -> list[str]:
+    """Boot the image with systemd as PID 1.
+
+    Passes when `systemctl is-system-running` reaches `running` within
+    `spec.timeout` and every unit in `spec.units` is active; returns the units.
+    """
+
     def system_state(name: str) -> str:
         # Poll, not --wait: an exec before systemd's bus is up returns nothing.
         deadline = time.monotonic() + spec.timeout
@@ -504,6 +522,11 @@ def boot_systemd(spec: Boot) -> list[str]:
 
 
 def boot_healthcheck(spec: Boot) -> list[str]:
+    """Run the image and wait for its own HEALTHCHECK to pass.
+
+    Refused at once if the image declares no HEALTHCHECK, or if it is not
+    healthy within `spec.timeout`.
+    """
     declared = _podman(
         "image", "inspect", "--format", "{{json .Config.Healthcheck}}", spec.image
     ).stdout.strip()
@@ -566,7 +589,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         if a.action == "boot":
             spec = Boot(
-                a.image, a.env, a.run_args, a.cmd, a.units.split(), a.port, a.path, a.timeout
+                image=a.image,
+                env=a.env,
+                run_args=a.run_args,
+                cmd=a.cmd,
+                units=a.units.split(),
+                port=a.port,
+                path=a.path,
+                timeout=a.timeout,
             )
             BOOTS[a.profile](spec)
         else:
