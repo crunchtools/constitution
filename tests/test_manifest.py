@@ -201,12 +201,22 @@ def test_the_gates_job_holds_no_secrets():
     assert "secrets." not in gates
 
 
-def test_downstream_dispatch_names_the_event_the_profile_documents():
-    """Children listen for one event name; the workflow and the profile must agree."""
-    workflow = (ROOT / ".github/workflows/container-release.yml").read_text()
+def test_container_release_inputs_parse_and_dispatch_the_configured_event():
+    """Parsed, not grepped: every input has one type, and the dispatch step sends
+    the `downstream-event` input, which defaults to the profile's event name."""
+    import yaml
+
+    workflow = yaml.safe_load((ROOT / ".github/workflows/container-release.yml").read_text())
+    inputs = workflow[True]["workflow_call"]["inputs"]
+    assert all("type" in spec for spec in inputs.values())
+    assert inputs["downstream"] == {**inputs["downstream"], "type": "string", "default": ""}
+    assert inputs["downstream-event"]["default"] == "parent-image-updated"
+    steps = workflow["jobs"]["promote"]["steps"]
+    dispatch = next(s for s in steps if "dispatches" in s.get("run", ""))
+    assert dispatch["env"]["EVENT"] == "${{ inputs.downstream-event }}"
+    assert '-f "event_type=$EVENT"' in dispatch["run"]
+    assert '"$EVENT" = parent-image-updated' in dispatch["run"]  # the self-loop guard
     profile = (ROOT / "profiles/container-image.md").read_text()
-    assert '-f "event_type=$EVENT"' in workflow
-    assert "default: parent-image-updated" in workflow
     assert "`parent-image-updated`" in profile
 
 

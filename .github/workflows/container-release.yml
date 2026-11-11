@@ -106,6 +106,8 @@ on:
           name the ubi10 chain already listens for) with client_payload.source
           set to this repo; a child triggers on `repository_dispatch: types:
           [parent-image-updated]`.
+        type: string
+        default: ""
       downstream-event:
         description: >-
           The repository_dispatch event sent to `downstream`. Use a distinct
@@ -114,8 +116,6 @@ on:
           sending that to its own repo would rebuild the base forever.
         type: string
         default: parent-image-updated
-        type: string
-        default: ""
       constitution-ref:
         description: "Internal: the canary tests the candidate scripts. Leave empty."
         type: string
