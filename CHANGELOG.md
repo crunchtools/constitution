@@ -9,6 +9,25 @@ Entries through 1.14.0 are derived from the Ratification History table in
 
 ## [Unreleased]
 
+## [1.39.1] - 2026-11-11
+
+### Fixed
+
+- **The container release rule flags publishing, not building.** 1.39.0
+  failed any workflow job that ran `docker build`, which caught rotv's
+  integration-test job: it builds a `BUILD_ENV=test` image locally, runs the
+  suite against it, and pushes nothing. VII governs which bytes reach a
+  registry tag, so a job is now flagged only when it pushes (`push`,
+  `skopeo copy`, or `docker/build-push-action` with `push` not false) or
+  moves a floating tag with a push, tag or copy verb. `docker pull …:latest`
+  and a `--build-arg` naming `:latest` are no longer read as moving it.
+- **A base image beside its app could rebuild itself forever.** `downstream`
+  always sent `parent-image-updated`, and when the downstream repo is the
+  base's own repo (rotv-base, acquacotta-base) its base workflow, which
+  listens for that event from ubi10-core, fired again. `downstream-event`
+  names the event to send, and the workflow refuses to send
+  `parent-image-updated` to its own repo.
+
 ## [1.39.0] - 2026-11-11
 
 ### Added
