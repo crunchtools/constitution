@@ -456,7 +456,7 @@ Every code change must pass through these six gates in order:
 | build-container | Containerfile builds | Yes |
 | security | Weekly CVE scan + CodeQL | Scheduled |
 | publish | PyPI trusted publishing | On release tag |
-| container | Dual push: Quay.io job + GHCR job (dependency chain) | On release tag |
+| container | `container-release.yml` (`boot: mcp`): build once, gate, promote by digest to Quay.io | Every PR; promotes on merge and release tag |
 
 ---
 
@@ -471,7 +471,6 @@ All MCP servers follow this pattern (replace `<name>` with the service name):
 | CLI command | `mcp-<name>-crunchtools` | `mcp-gitlab-crunchtools` |
 | Python module | `mcp_<name>_crunchtools` | `mcp_gitlab_crunchtools` |
 | Container (Quay) | `quay.io/crunchtools/mcp-<name>` | `quay.io/crunchtools/mcp-gitlab` |
-| Container (GHCR) | `ghcr.io/crunchtools/mcp-<name>` | `ghcr.io/crunchtools/mcp-gitlab` |
 | MCP Registry | `io.github.crunchtools/<name>` | `io.github.crunchtools/gitlab` |
 | systemd service | `mcp-<name>.service` | `mcp-gitlab.service` |
 | License | AGPL-3.0-or-later | — |

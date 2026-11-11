@@ -250,7 +250,6 @@ Every autonomous agent deployment MUST pass these gates in order before entering
 |---------|---------|---------|
 | GitHub repo | `crunchtools/<agent-name>` | `crunchtools/openclaw` |
 | Container (Quay) | `quay.io/crunchtools/<agent-name>` | `quay.io/crunchtools/openclaw` |
-| Container (GHCR) | `ghcr.io/crunchtools/<agent-name>` | `ghcr.io/crunchtools/openclaw` |
 | systemd service | `<agent-name>.service` | `openclaw.service` |
 | Deployment config | `<agent-name>-deploy.yaml` | `openclaw-deploy.yaml` |
 | License | AGPL-3.0-or-later | — |

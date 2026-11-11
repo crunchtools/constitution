@@ -11,6 +11,14 @@ Entries through 1.14.0 are derived from the Ratification History table in
 
 ### Added
 
+- **Container release is machine-checked** (container-image VII, RT#1550). A
+  repo inheriting 1.39.0 or later with a Containerfile must call
+  `container-release.yml` at a release tag, or be listed in
+  `container_release_custom` and still promote with `skopeo copy --all
+  --preserve-digests`. Any workflow that builds or pushes an image outside it,
+  moves `latest`/`main` by hand, uses `imagetools create`, or names `ghcr.io`
+  fails. Gated on `Inherits`, so a repo takes it in its conversion PR.
+
 - **`container-release.yml`, the reusable build-once / promote workflow**
   (RT#1550). A pull request builds its head commit once, gates that digest
   (a required boot profile: `mcp`, `mcp-http`, `systemd`, `healthcheck`,
@@ -23,6 +31,16 @@ Entries through 1.14.0 are derived from the Ratification History table in
   floating tag held is kept as `rollback-<tag>`. Logic and tests in
   `scripts/container_release.py`; `examples/container.yml` is the caller; a
   canary image runs the candidate end to end in this repo's CI.
+
+### Changed
+
+- **GHCR is dropped; Quay.io is the only registry** (Scott, 2026-11-11). III
+  no longer requires a `build-and-push-ghcr` job or a GHCR pull endpoint for
+  MCP servers, and every profile's naming table loses its GHCR row.
+- **III, Container Image V, VII and IX describe the one release workflow**
+  in place of the dual-push jobs, the `type=gha` cache snippet, and a CI
+  example that tagged `main` at build. VII lists the tags (`sha-`, `gated-`,
+  `pr-`, `rollback-`) and the rules promote keeps.
 
 ## [1.38.0] - 2026-11-10
 

@@ -21,6 +21,11 @@ sdlc_hooks_repo = "https://github.com/crunchtools/python-sdlc"
 sdlc_hooks = ["sdlc-commit", "sdlc-push"]
 sdlc_exempt = ["gourmand", "gatehouse", "python-sdlc"]
 
+# Container release (container-image VII, since 1.39.0, RT#1550): repos that
+# keep their own promote workflow instead of calling container-release.yml.
+# Still checked: skopeo --preserve-digests, no `imagetools create`, no GHCR.
+container_release_custom = ["trentina", "python-sdlc"]
+
 # What a developer machine has (XII host contract): the only programs a
 # `language: system` pre-commit hook may start, besides scripts in the repo.
 host_tools = ["git", "podman", "pre-commit", "gh"]
