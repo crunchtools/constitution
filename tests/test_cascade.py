@@ -47,6 +47,17 @@ def test_a_downstream_key_outside_a_release_call_is_not_an_edge():
     assert C.build_dispatch_graph(["parent"], cache)["parent"] == set()
 
 
+def test_only_the_calling_jobs_downstream_counts():
+    """A release call in the file does not make every `downstream:` key an edge."""
+    text = (
+        "env:\n  downstream: env-var\n"
+        + CALLER
+        + "  other:\n    runs-on: x\n    with:\n      downstream: not-a-child\n"
+    )
+    cache = {("parent", "container.yml"): text}
+    assert C.build_dispatch_graph(["parent"], cache)["parent"] == {"child", "other-child"}
+
+
 def test_a_repo_naming_itself_is_not_an_edge():
     cache = {("parent", "build.yml"): "gh api repos/crunchtools/parent/dispatches\n"}
     assert C.build_dispatch_graph(["parent"], cache)["parent"] == set()
