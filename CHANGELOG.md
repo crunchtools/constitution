@@ -9,6 +9,16 @@ Entries through 1.14.0 are derived from the Ratification History table in
 
 ## [Unreleased]
 
+## [1.39.4] - 2026-11-11
+
+### Fixed
+
+- `rhsm: true` builds whose Containerfile mounts `id=RHSM_ACTIVATION_KEY`
+  (the ubi10 mariadb and postgres images) got an empty secret: the runner's
+  podman 4.9 mounts a secret whose id matches an environment variable
+  empty, ignoring `src=`, and the build step exported the key under that
+  name. The build step's variables are renamed, and a test holds that no build env var shares a secret id.
+
 ## [1.39.3] - 2026-11-11
 
 ### Fixed
