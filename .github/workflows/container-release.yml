@@ -51,6 +51,12 @@ on:
         description: "Log in to registry.redhat.io before building (a FROM there needs it)"
         type: boolean
         default: false
+      free-disk:
+        description: >-
+          Remove the runner's preinstalled SDKs before building and before
+          gating, for multi-GB images (bootc) that do not fit otherwise.
+        type: boolean
+        default: false
       boot:
         description: "mcp | mcp-http | systemd | healthcheck | command | none"
         type: string
@@ -191,6 +197,12 @@ jobs:
         env:
           SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+      - name: Free runner disk for a large image
+        if: inputs.free-disk
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache
+          sudo docker image prune --all --force >/dev/null
+          df -h /
       - uses: actions/checkout@v7
         with:
           ref: ${{ steps.src.outputs.sha }}
@@ -280,6 +292,12 @@ jobs:
     permissions:
       contents: read
     steps:
+      - name: Free runner disk for a large image
+        if: inputs.free-disk
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache
+          sudo docker image prune --all --force >/dev/null
+          df -h /
       - uses: actions/checkout@v7
         with:
           ref: ${{ needs.build.outputs.sha }}
