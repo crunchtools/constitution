@@ -2,6 +2,11 @@
 # healthcheck boot gate. Built and promoted by container-release-canary.yml so a
 # broken release of container-release.yml fails here, not in sixty repos.
 FROM registry.access.redhat.com/ubi10/ubi-minimal:latest
+LABEL maintainer="crunchtools" \
+      description="container-release canary: proves the release workflow end to end" \
+      org.opencontainers.image.source="https://github.com/crunchtools/constitution" \
+      org.opencontainers.image.description="container-release canary" \
+      org.opencontainers.image.licenses="AGPL-3.0-or-later"
 RUN printf '#!/bin/sh\nexec sleep infinity\n' > /usr/local/bin/serve && chmod 0755 /usr/local/bin/serve
 HEALTHCHECK --interval=5s --timeout=3s --retries=3 CMD test -x /usr/local/bin/serve
 CMD ["/usr/local/bin/serve"]

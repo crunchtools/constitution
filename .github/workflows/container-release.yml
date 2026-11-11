@@ -89,7 +89,12 @@ on:
         type: boolean
         default: false
       downstream:
-        description: "Space-separated crunchtools repos to dispatch after main/latest moves"
+        description: >-
+          Space-separated crunchtools repos to rebuild after main/latest moves.
+          Each receives repository_dispatch event `parent-image-updated` (the
+          name the ubi10 chain already listens for) with client_payload.source
+          set to this repo; a child triggers on `repository_dispatch: types:
+          [parent-image-updated]`.
         type: string
         default: ""
       constitution-ref:
@@ -381,7 +386,7 @@ jobs:
             echo
             echo "Rollback: \`skopeo copy --all --preserve-digests docker://$IMAGE:rollback-main docker://$IMAGE:main\` (or \`rollback-latest\` / \`latest\`)."
           } >> "$GITHUB_STEP_SUMMARY"
-      - name: Rebuild what builds FROM this
+      - name: Token for the downstream dispatch
         id: app
         if: inputs.downstream != '' && (contains(steps.p.outputs.tags, 'main') || contains(steps.p.outputs.tags, 'latest'))
         uses: actions/create-github-app-token@v3
@@ -391,7 +396,8 @@ jobs:
           owner: crunchtools
           # repository_dispatch needs contents: write on the target.
           permission-contents: write
-      - if: steps.app.outcome == 'success'
+      - name: Rebuild what builds FROM this (parent-image-updated)
+        if: steps.app.outcome == 'success'
         env:
           GH_TOKEN: ${{ steps.app.outputs.token }}
           DOWNSTREAM: ${{ inputs.downstream }}
