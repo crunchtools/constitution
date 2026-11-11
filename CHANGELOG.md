@@ -20,6 +20,10 @@ Entries through 1.14.0 are derived from the Ratification History table in
   group's builds failed to register.
 - **`free-disk: true`** clears the runner's preinstalled SDKs before the
   build and the gates, for the multi-GB bootc images that do not otherwise fit.
+- **`container_release_unpublished`** in requirements.toml lists repos whose
+  Containerfile is a reference or local build crunchtools never publishes
+  (claude-agent). They need no release workflow; a push from one is still
+  flagged.
 - **validate-cascade counts the release workflow's `downstream` input.** It
   only read the old shell `for repo in … dispatches` loop, so every converted
   cascade parent read as dispatching nothing and the fleet check failed with
