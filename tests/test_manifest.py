@@ -219,6 +219,19 @@ def test_rhsm_passes_both_secret_ids_from_the_same_files():
     assert "--secret" in rhsm_block and "--secret" not in run.split('if [ "$RHSM"', 1)[0]
 
 
+def test_no_build_env_var_shares_a_name_with_a_secret_id():
+    """podman 4.9 mounts a secret whose id matches an env var empty (src= is
+    ignored): every id=RHSM_ACTIVATION_KEY build failed while the env carried
+    RHSM_ACTIVATION_KEY."""
+    import yaml
+
+    workflow = yaml.safe_load((ROOT / ".github/workflows/container-release.yml").read_text())
+    build = next(s for s in workflow["jobs"]["build"]["steps"] if s.get("name") == "Build once")
+    ids = set(re.findall(r'--secret "id=([A-Za-z_]+),', build["run"]))
+    assert ids >= {"RHSM_ACTIVATION_KEY", "activation_key"}
+    assert ids.isdisjoint(build.get("env", {}))
+
+
 def test_container_release_inputs_parse_and_dispatch_the_configured_event():
     """Parsed, not grepped: every input has one type, and the dispatch step sends
     the `downstream-event` input, which defaults to the profile's event name."""
