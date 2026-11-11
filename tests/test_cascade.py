@@ -31,7 +31,7 @@ def test_a_direct_dispatch_counts():
 
 CALLER = (
     "jobs:\n  container:\n"
-    "    uses: crunchtools/constitution/.github/workflows/container-release.yml@v1.39.4\n"
+    "    uses: crunchtools/constitution/.github/workflows/container-release.yml@v1.39.5\n"
     "    with:\n      cascade: true\n      downstream: child other-child\n"
 )
 

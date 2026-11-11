@@ -1,6 +1,6 @@
 # CrunchTools Constitution
 
-> **Version:** 1.39.4
+> **Version:** 1.39.5
 > **Ratified:** 2026-11-04
 > **Status:** Active
 

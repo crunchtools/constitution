@@ -157,6 +157,11 @@ class GitHub:
     def tip(self, branch: str) -> str:
         return str(self._object(f"commits/{branch}")["sha"])
 
+    def on_branch(self, sha: str, branch: str) -> bool:
+        """Whether `sha` is the tip of `branch` or behind it (an ancestor)."""
+        status = self._object(f"compare/{branch}...{sha}").get("status")
+        return status in ("behind", "identical")
+
     def merged_pr(self, sha: str) -> dict | None:
         pulls = self.api(f"commits/{sha}/pulls")
         if not isinstance(pulls, list):
@@ -192,20 +197,31 @@ class GitHub:
 # ------------------------------------------------------------------ resolve
 
 
-def resolve(reg: Registry, gh: GitHub, sha: str, ref: str) -> tuple[str | None, str]:
+def resolve(
+    reg: Registry, gh: GitHub, sha: str, ref: str, branch: str = "main"
+) -> tuple[str | None, str]:
     """(digest, why) for a push. digest None means: no gated image, rebuild.
 
-    A tag must name a commit that main already promoted; it is never rebuilt,
-    because a release that rebuilds ships bytes no gate saw.
+    A release promotes gated bytes of the tag commit. It rebuilds only when
+    that commit was never gated, and gates the rebuild first: a caller whose
+    push trigger filters by path builds nothing for a release commit that
+    touches none of its inputs, so that commit has no gated- tag (RT#1550).
+    A tag on a commit outside the default branch is refused: only what main
+    carries is released.
     """
     marker = reg.digest(f":gated-{sha}")
     if marker:
         return marker, f"gated-{sha} exists"
     if ref.startswith("refs/tags/"):
-        raise Refused(
-            f"{ref} names {sha}, which main never promoted (no gated-{sha}); "
-            "a release promotes main's tested image and never rebuilds"
-        )
+        try:
+            on_branch = gh.on_branch(sha, branch)
+        except Refused as exc:
+            raise Refused(f"{ref} names {sha}, which main never promoted, and {exc}") from exc
+        if not on_branch:
+            raise Refused(
+                f"{ref} names {sha}, which main never promoted (no gated-{sha}) "
+                f"and which is not on {branch}; only what {branch} carries is released"
+            )
     pr = gh.merged_pr(sha)
     if pr is None:
         return None, f"no merged pull request produced {sha}"
@@ -614,7 +630,7 @@ def _registry_action(a: argparse.Namespace) -> None:
     reg = Registry(a.image, authfile=a.authfile)
     gh = GitHub(a.repo)
     if a.action == "resolve":
-        digest, why = resolve(reg, gh, a.sha, a.ref)
+        digest, why = resolve(reg, gh, a.sha, a.ref, a.branch)
         log(why)
         output("digest", digest or "")
         output("rebuild", "false" if digest else "true")
