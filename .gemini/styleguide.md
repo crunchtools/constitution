@@ -21,7 +21,7 @@
 
 ## CI
 - Workflows MUST include weekly cron trigger for base image security updates
-- Container builds go through `crunchtools/constitution/.github/workflows/container-release.yml`: build once per change, gate the digest, promote by `skopeo copy --all --preserve-digests`. Flag any other `docker build`/`podman push`, `imagetools create`, or `ghcr.io` reference
+- Container builds go through `crunchtools/constitution/.github/workflows/container-release.yml`: build once per change, gate the digest, promote by `skopeo copy --all --preserve-digests`. Outside the repos listed in `container_release_custom` (profiles/requirements.toml), flag any other `docker build`/`podman push`. Everywhere, flag `imagetools create` and a `ghcr.io/crunchtools` reference
 - Quay.io is the only registry
 
 ## Versioning

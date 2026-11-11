@@ -9,29 +9,23 @@ from fleet_common import load_validator
 V = load_validator()
 REQ = {"fleet": {"container_release_custom": ["custom-repo"]}}
 
-CALLER = """name: Container
-on: [pull_request, push]
-jobs:
-  container:
+CALL = """  container:
     uses: crunchtools/constitution/.github/workflows/container-release.yml@v1.39.0
     with:
       image: quay.io/crunchtools/x
       boot: mcp
 """
 
-OLD_DUAL_BUILD = """name: Container Build & Push
-jobs:
-  build-and-push-quay:
-    steps:
-      - uses: docker/build-push-action@v7
-        with:
-          tags: quay.io/crunchtools/x:latest
-  build-and-push-ghcr:
-    steps:
-      - uses: docker/build-push-action@v7
-        with:
-          tags: ghcr.io/crunchtools/x:latest
-"""
+
+def workflow(*jobs: str, env: str = "") -> str:
+    return "name: W\non: [push]\n" + env + "jobs:\n" + "".join(jobs)
+
+
+def job(name: str, *runs: str, uses: str = "") -> str:
+    steps = "".join(f"      - run: {r}\n" for r in runs)
+    if uses:
+        steps += f"      - uses: {uses}\n"
+    return f"  {name}:\n    runs-on: ubuntu-latest\n    steps:\n{steps}"
 
 
 def make(tmp_path: Path, name: str = "x", **workflows: str) -> Path:
@@ -47,43 +41,67 @@ def check(root: Path, inherits: str = "1.39.0") -> list[str]:
     return V.check_container_release(root, inherits, REQ)
 
 
+OLD_DUAL_BUILD = workflow(
+    job("quay", uses="docker/build-push-action@v7"),
+    job("ghcr", "docker push ghcr.io/crunchtools/x:latest"),
+)
+
+
 def test_a_repo_that_calls_container_release_passes(tmp_path):
-    assert check(make(tmp_path, container=CALLER)) == []
+    assert check(make(tmp_path, container=workflow(CALL))) == []
 
 
 def test_the_old_dual_build_fails_on_every_count(tmp_path):
     found = check(make(tmp_path, container=OLD_DUAL_BUILD))
     assert any("GHCR" in v for v in found)
     assert any("outside container-release.yml" in v for v in found)
-    assert any("no workflow calls" in v for v in found)
+    assert any("no workflow job calls" in v for v in found)
 
 
-def test_a_caller_that_keeps_a_second_build_fails(tmp_path):
-    found = check(make(tmp_path, container=CALLER, smoke="steps:\n  - run: podman build -t t .\n"))
-    assert found and all("smoke.yml" in v for v in found)
+def test_a_second_build_beside_the_call_in_the_same_file_fails(tmp_path):
+    found = check(make(tmp_path, container=workflow(CALL, job("smoke", "podman build -t t ."))))
+    assert len(found) == 1 and "job `smoke`" in found[0]
 
 
-def test_latest_pushed_by_hand_fails(tmp_path):
-    hand = "steps:\n  - run: skopeo copy docker://a docker://quay.io/crunchtools/x:latest\n"
-    found = check(make(tmp_path, container=CALLER, hand=hand))
-    assert any("floating tag" in v for v in found)
+def test_a_commented_out_call_is_not_a_call(tmp_path):
+    commented = workflow(job("noop", "true")) + "  # uses: " + CALL.split("uses: ")[1]
+    assert any("no workflow job calls" in v for v in check(make(tmp_path, c=commented)))
+
+
+def test_latest_moved_by_hand_fails(tmp_path):
+    hand = workflow(
+        CALL, job("hand", "skopeo copy docker://a docker://quay.io/crunchtools/x:latest")
+    )
+    assert any("floating tag" in v for v in check(make(tmp_path, container=hand)))
 
 
 def test_imagetools_create_fails_even_in_a_custom_repo(tmp_path):
-    flow = (
-        "steps:\n"
-        "  - run: docker buildx imagetools create -t q:1 q@sha256:x\n"
-        "  - run: skopeo copy --all --preserve-digests a b\n"
+    flow = workflow(
+        job(
+            "release",
+            "docker buildx imagetools create -t q:1 q@sha256:x",
+            "skopeo copy --all --preserve-digests docker://a docker://b",
+        )
     )
-    found = check(make(tmp_path, "custom-repo", release=flow))
-    assert [v for v in found if "imagetools create" in v]
+    assert [v for v in check(make(tmp_path, "custom-repo", r=flow)) if "imagetools" in v]
 
 
-def test_a_custom_repo_must_still_copy_by_digest(tmp_path):
-    found = check(make(tmp_path, "custom-repo", release="steps:\n  - run: podman push a b\n"))
-    assert any("--preserve-digests" in v for v in found)
-    good = "steps:\n  - run: podman push a b\n  - run: skopeo copy --all --preserve-digests a b\n"
-    assert check(make(tmp_path / "ok", "custom-repo", release=good)) == []
+def test_a_custom_repo_must_really_copy_by_digest(tmp_path):
+    echoed = workflow(job("release", "podman push a b", "echo --preserve-digests --all"))
+    assert any("--preserve-digests" in v for v in check(make(tmp_path, "custom-repo", r=echoed)))
+    good = workflow(
+        job(
+            "release",
+            "podman push a b",
+            "skopeo copy --all --preserve-digests docker://a docker://b",
+        )
+    )
+    assert check(make(tmp_path / "ok", "custom-repo", r=good)) == []
+
+
+def test_a_digest_copy_split_over_continued_lines_counts(tmp_path):
+    split = workflow(job("release", '"skopeo copy --all \\\\\\n  --preserve-digests a b"'))
+    assert check(make(tmp_path, "custom-repo", r=split)) == []
 
 
 @pytest.mark.parametrize("inherits", ["1.38.0", "1.30.0", ""])
@@ -118,10 +136,11 @@ def test_test_fixtures_are_not_container_repos(tmp_path):
     ["ghcr.io/crunchtools/x", "ghcr.io/${{ github.repository }}", "GHCR.IO/Crunchtools/x"],
 )
 def test_our_ghcr_namespace_fails_in_any_spelling(tmp_path, ref):
-    flow = CALLER + f"  extra:\n    steps:\n      - run: echo {ref}\n"
+    flow = workflow(CALL, env=f"env:\n  IMAGE: {ref}\n")
     assert any("GHCR" in v for v in check(make(tmp_path, container=flow)))
 
 
-def test_an_upstream_image_on_ghcr_is_not_publishing_there(tmp_path):
-    flow = CALLER + "  extra:\n    steps:\n      - run: echo ghcr.io/immich-app/immich-server\n"
+@pytest.mark.parametrize("ref", ["ghcr.io/immich-app/immich-server", "ghcr.io/crunchtools-fork/x"])
+def test_another_namespace_on_ghcr_is_not_publishing_there(tmp_path, ref):
+    flow = workflow(CALL, env=f"env:\n  UPSTREAM: {ref}\n")
     assert check(make(tmp_path, container=flow)) == []
