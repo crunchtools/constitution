@@ -1436,6 +1436,7 @@ _FLOATING_PUSH = re.compile(
     r"type=raw,value=(?:latest|main)\b"
     r"|\b(?:podman|buildah|docker|skopeo)\b[^\n]*:(?:latest|main)\b"
 )
+_GHCR = re.compile(r"\bghcr\.io/")
 _CONTAINERFILE_SKIP = {".git", "node_modules", "tests", "examples", ".venv"}
 
 
@@ -1476,7 +1477,7 @@ def check_container_release(repo_root: Path, inherits: str, requirements: dict) 
 
     violations: list[str] = []
     for name, text in texts.items():
-        if "ghcr.io" in text:
+        if _GHCR.search(text):
             violations.append(
                 f"CONTAINER: {name} publishes to GHCR; Quay is the only registry (VII, RT#1550)"
             )
