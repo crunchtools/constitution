@@ -180,3 +180,29 @@ def test_an_unpublished_reference_image_needs_no_release_workflow(tmp_path):
     assert check(make(tmp_path, "reference-repo", packages=local)) == []
     pushed = workflow(job("build", "podman push quay.io/crunchtools/ref:abc"))
     assert any("publishes" in v for v in check(make(tmp_path / "p", "reference-repo", b=pushed)))
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://github.com/crunchtools/reference-repo.git",
+        "https://github.com/crunchtools/reference-repo",
+        "git@github.com:crunchtools/reference-repo.git",
+    ],
+)
+def test_the_origin_remote_names_the_repo_where_the_directory_does_not(tmp_path, url):
+    """python-sdlc mounts every repo at /repo (claude-agent#23)."""
+    root = make(tmp_path, "repo", packages=workflow(job("build", "podman build -t ref .")))
+    (root / ".git").mkdir()
+    (root / ".git/config").write_text(f'[core]\n\tbare = false\n[remote "origin"]\n\turl = {url}\n')
+    assert V.repo_name(root) == "reference-repo"
+    assert check(root) == []
+
+
+def test_a_checkout_without_an_origin_falls_back_to_its_directory(tmp_path):
+    root = make(tmp_path, "reference-repo")
+    (root / ".git").mkdir()
+    (root / ".git/config").write_text(
+        '[remote "upstream"]\n\turl = https://github.com/other/thing.git\n'
+    )
+    assert V.repo_name(root) == "reference-repo"

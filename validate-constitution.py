@@ -327,13 +327,33 @@ Python repo takes v1.30.0 in the same pull request that converts it, and
 `fleet-bump.py` must not carry it to one that has not converted."""
 
 
+ORIGIN_SECTION_RE = re.compile(r'\[remote "origin"\]([^\[]*)')
+ORIGIN_NAME_RE = re.compile(r"^\s*url\s*=\s*\S*?([^/:\s]+?)(?:\.git)?/?\s*$", re.MULTILINE)
+
+
+def repo_name(repo_root: Path) -> str:
+    """The repo's GitHub name, which its checkout directory need not carry.
+
+    python-sdlc mounts every repo at /repo, so matching the fleet lists on the
+    directory name missed every exemption in the push hook (claude-agent#23).
+    The origin remote names the repo wherever it is checked out; a checkout
+    without one (a test fixture, a worktree) falls back to the directory.
+    """
+    config = repo_root / ".git" / "config"
+    section = (
+        ORIGIN_SECTION_RE.search(config.read_text(errors="ignore")) if config.is_file() else None
+    )
+    found = ORIGIN_NAME_RE.search(section.group(1)) if section else None
+    return found.group(1) if found else repo_root.name
+
+
 def is_sdlc_repo(repo_root: Path, inherits: str | None, requirements: dict) -> bool:
     """A Python repo (it has a pyproject.toml) that v1.30.0's XII applies to."""
     fleet = requirements.get("fleet", {})
     return (
         _version_tuple(inherits) >= SDLC_SINCE
         and (repo_root / "pyproject.toml").is_file()
-        and repo_root.name not in fleet.get("sdlc_exempt", [])
+        and repo_name(repo_root) not in fleet.get("sdlc_exempt", [])
     )
 
 
@@ -1501,8 +1521,9 @@ def check_container_release(repo_root: Path, inherits: str, requirements: dict) 
     if _version_tuple(inherits) < CONTAINER_RELEASE_SINCE or not _has_containerfile(repo_root):
         return []
     fleet = requirements.get("fleet", {})
-    custom = repo_root.name in fleet.get("container_release_custom", [])
-    unpublished = repo_root.name in fleet.get("container_release_unpublished", [])
+    name = repo_name(repo_root)
+    custom = name in fleet.get("container_release_custom", [])
+    unpublished = name in fleet.get("container_release_unpublished", [])
     calls = 0
     copies = False
     violations: list[str] = []

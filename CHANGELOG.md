@@ -9,6 +9,16 @@ Entries through 1.14.0 are derived from the Ratification History table in
 
 ## [Unreleased]
 
+## [1.39.3] - 2026-11-11
+
+### Fixed
+
+- The fleet lists (`sdlc_exempt`, `container_release_custom`,
+  `container_release_unpublished`) match the repo's name from its `origin`
+  remote, not its checkout directory. python-sdlc mounts every repo at
+  `/repo`, so in the push hook no exemption ever matched and claude-agent's
+  RPM-only Containerfile was refused (claude-agent#23).
+
 ## [1.39.2] - 2026-11-11
 
 ### Fixed
