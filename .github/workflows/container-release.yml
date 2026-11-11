@@ -84,6 +84,10 @@ on:
       default-branch:
         type: string
         default: main
+      cascade:
+        description: "An image other images build FROM (ubi10 chain): latest tracks main"
+        type: boolean
+        default: false
       downstream:
         description: "Space-separated crunchtools repos to dispatch after main/latest moves"
         type: string
@@ -354,12 +358,13 @@ jobs:
           IMAGE: ${{ inputs.image }}
           DIGEST: ${{ needs.resolve.outputs.digest || needs.build.outputs.digest }}
           BRANCH: ${{ inputs.default-branch }}
+          CASCADE: ${{ inputs.cascade && '--cascade' || '' }}
         run: |
           set -eu
           printf '%s' "$QUAY_PASSWORD" | skopeo login -u "$QUAY_USERNAME" --password-stdin quay.io
           echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
           python3 -I .constitution/scripts/container_release.py promote \
-            --image "$IMAGE" --digest "$DIGEST" --branch "$BRANCH"
+            --image "$IMAGE" --digest "$DIGEST" --branch "$BRANCH" $CASCADE
       - name: What was promoted
         env:
           IMAGE: ${{ inputs.image }}
@@ -394,7 +399,7 @@ jobs:
         run: |
           set -eu
           for r in $DOWNSTREAM; do
-            gh api "repos/crunchtools/$r/dispatches" -f event_type=base-image-promoted \
+            gh api "repos/crunchtools/$r/dispatches" -f event_type=parent-image-updated \
               -f "client_payload[source]=$SOURCE"
             echo "dispatched $r"
           done

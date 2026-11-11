@@ -208,8 +208,13 @@ def _backup(reg: Registry, tag: str, new: str) -> None:
 
 
 def promote(reg: Registry, gh: GitHub, digest: str, sha: str, ref: str,
-            branch: str) -> list[str]:
-    """Move the floating tags this event earns to `digest`; return them."""
+            branch: str, cascade: bool = False) -> list[str]:
+    """Move the floating tags this event earns to `digest`; return them.
+
+    `cascade`: an image other images build FROM (the ubi10 chain) cuts no
+    release, so its `latest` tracks the default branch with `main`
+    (container-image profile, "The cascade is the one exception").
+    """
     if not DIGEST.match(digest):
         raise Refused(f"'{digest}' is not a sha256 digest")
     moved: list[str] = []
@@ -227,7 +232,7 @@ def promote(reg: Registry, gh: GitHub, digest: str, sha: str, ref: str,
         if sha != tip:
             raise Superseded(f"{branch} has moved to {tip}; {sha} is older and main is "
                              "not moved backwards (the newer run promotes it)")
-        tags = ["main", f"gated-{sha}"]
+        tags = ["main", f"gated-{sha}"] + (["latest"] if cascade else [])
         # A rebuild of the released commit (weekly errata) refreshes the release too.
         for version, commit in releases.items():
             if commit == sha:
@@ -471,6 +476,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         p.add_argument("--branch", default="main")
         p.add_argument("--digest", default="")
         p.add_argument("--authfile")
+        p.add_argument("--cascade", action="store_true")
 
     b = sub.add_parser("boot")
     b.add_argument("--image", required=True)
@@ -507,7 +513,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         elif a.action == "mark":
             reg.copy(a.digest, f"gated-{a.sha}")
         else:
-            moved = promote(reg, gh, a.digest, a.sha, a.ref, a.branch)
+            moved = promote(reg, gh, a.digest, a.sha, a.ref, a.branch, a.cascade)
             output("tags", " ".join(moved))
         return 0
     except Superseded as exc:

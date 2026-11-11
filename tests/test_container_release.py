@@ -237,3 +237,17 @@ def test_the_cli_exits_zero_when_superseded_and_one_when_refused(w, monkeypatch,
     w.tip = "c2"
     w.read_error = True
     assert CR.main(args) == 1
+
+
+def test_a_cascade_image_moves_latest_with_main(w):
+    w.image("old", "latest")
+    d = w.image("new")
+    w.tip = "c2"
+    moved = CR.promote(*parts(w), d, "c2", "refs/heads/main", "main", cascade=True)
+    assert "latest" in moved and w.tags["latest"] == d and "rollback-latest" in w.tags
+
+
+def test_a_leaf_image_never_moves_latest_from_main(w):
+    w.tip = "c2"
+    moved = CR.promote(*parts(w), w.image("new"), "c2", "refs/heads/main", "main")
+    assert "latest" not in moved
