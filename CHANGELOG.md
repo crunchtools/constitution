@@ -9,6 +9,16 @@ Entries through 1.14.0 are derived from the Ratification History table in
 
 ## [Unreleased]
 
+## [1.39.2] - 2026-11-11
+
+### Fixed
+
+- **`rhsm: true` provides the build secrets under both ids in use.** The
+  fleet mounts them as `activation_key`/`org_id` (rotv, nagios, rt) and as
+  `RHSM_ACTIVATION_KEY`/`RHSM_ORG_ID` (ubi10-httpd-perl-mariadb,
+  -php-mariadb, -php-postgres); 1.39.1 provided only the first, so the second
+  group's builds failed to register.
+
 ## [1.39.1] - 2026-11-11
 
 ### Fixed

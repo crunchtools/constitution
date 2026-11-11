@@ -2,7 +2,7 @@
 #
 # Callers pin this file to a release tag; copy examples/container.yml:
 #
-#   uses: crunchtools/constitution/.github/workflows/container-release.yml@v1.39.1
+#   uses: crunchtools/constitution/.github/workflows/container-release.yml@v1.39.2
 #
 # One build per change. A pull request builds its head commit, gates that
 # digest and marks it gated-<sha>. The merge to the default branch does NOT
@@ -42,9 +42,9 @@ on:
         default: ""
       rhsm:
         description: >-
-          The Containerfile registers with RHSM through build secrets
-          `activation_key` and `org_id` (RUN --mount=type=secret,id=...);
-          pass RHSM_ACTIVATION_KEY and RHSM_ORG_ID.
+          The Containerfile registers with RHSM through build secrets, mounted
+          as `activation_key`/`org_id` or `RHSM_ACTIVATION_KEY`/`RHSM_ORG_ID`
+          (both are provided); pass RHSM_ACTIVATION_KEY and RHSM_ORG_ID.
         type: boolean
         default: false
       redhat-registry:
@@ -163,7 +163,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           repository: crunchtools/constitution
-          ref: ${{ inputs.constitution-ref || 'v1.39.1' }}
+          ref: ${{ inputs.constitution-ref || 'v1.39.2' }}
           path: .constitution
           persist-credentials: false
       - id: r
@@ -223,8 +223,13 @@ jobs:
             umask 077
             printf '%s' "$RHSM_ACTIVATION_KEY" > "$RUNNER_TEMP/activation_key"
             printf '%s' "$RHSM_ORG_ID" > "$RUNNER_TEMP/org_id"
+            # Both spellings are in the fleet's Containerfiles: id=activation_key
+            # (rotv, nagios, rt) and id=RHSM_ACTIVATION_KEY (the ubi10 mariadb
+            # and postgres images). An unused secret costs nothing.
             args+=(--secret "id=activation_key,src=$RUNNER_TEMP/activation_key")
             args+=(--secret "id=org_id,src=$RUNNER_TEMP/org_id")
+            args+=(--secret "id=RHSM_ACTIVATION_KEY,src=$RUNNER_TEMP/activation_key")
+            args+=(--secret "id=RHSM_ORG_ID,src=$RUNNER_TEMP/org_id")
           fi
           trap 'rm -f "$RUNNER_TEMP/activation_key" "$RUNNER_TEMP/org_id"' EXIT
           # --pull=always and a fresh runner: no stale base, no stale layer
@@ -282,7 +287,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           repository: crunchtools/constitution
-          ref: ${{ inputs.constitution-ref || 'v1.39.1' }}
+          ref: ${{ inputs.constitution-ref || 'v1.39.2' }}
           path: .constitution
           persist-credentials: false
       - if: needs.build.outputs.pushed == 'false'
@@ -368,7 +373,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           repository: crunchtools/constitution
-          ref: ${{ inputs.constitution-ref || 'v1.39.1' }}
+          ref: ${{ inputs.constitution-ref || 'v1.39.2' }}
           path: .constitution
           persist-credentials: false
       - env:
@@ -404,7 +409,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           repository: crunchtools/constitution
-          ref: ${{ inputs.constitution-ref || 'v1.39.1' }}
+          ref: ${{ inputs.constitution-ref || 'v1.39.2' }}
           path: .constitution
           persist-credentials: false
       - id: p
