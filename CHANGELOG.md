@@ -9,6 +9,13 @@ Entries through 1.14.0 are derived from the Ratification History table in
 
 ## [Unreleased]
 
+### Added
+
+- The canary workflow takes a `rollback-drill` dispatch input: it runs the
+  documented rollback copy (`:rollback-main` onto `:main`) against the canary
+  image and verifies `:main` lands on that digest (RT#1550). The canary image
+  repository now exists, so the canary runs for real.
+
 ## [1.39.4] - 2026-11-11
 
 ### Fixed

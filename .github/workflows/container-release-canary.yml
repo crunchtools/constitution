@@ -25,11 +25,17 @@ on:
     # breaks the workflow shows up here before a release ships it.
     - cron: "41 5 * * 1"
   workflow_dispatch:
+    inputs:
+      rollback-drill:
+        description: "Instead of a release run: put :main back on :rollback-main with the documented copy, and verify"
+        type: boolean
+        default: false
 
 permissions: {}
 
 jobs:
   canary:
+    if: ${{ !inputs.rollback-drill }}
     uses: ./.github/workflows/container-release.yml
     permissions:
       contents: read
@@ -44,3 +50,29 @@ jobs:
     secrets:
       QUAY_USERNAME: ${{ secrets.QUAY_USERNAME }}
       QUAY_PASSWORD: ${{ secrets.QUAY_PASSWORD }}
+
+  # The rollback runbook (profiles/container-image.md) is one digest copy. This
+  # runs exactly that command against the canary and proves :main lands on the
+  # digest :rollback-main held (RT#1550 E1). Dispatch-only; never on a release.
+  rollback-drill:
+    if: ${{ inputs.rollback-drill }}
+    runs-on: ubuntu-latest
+    permissions: {}
+    env:
+      IMAGE: quay.io/crunchtools/container-release-canary
+    steps:
+      - name: Copy rollback-main to main and verify
+        env:
+          QUAY_USERNAME: ${{ secrets.QUAY_USERNAME }}
+          QUAY_PASSWORD: ${{ secrets.QUAY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          digest() { skopeo inspect --raw "docker://$IMAGE:$1" | sha256sum | cut -d' ' -f1; }
+          printf '%s' "$QUAY_PASSWORD" | skopeo login -u "$QUAY_USERNAME" --password-stdin quay.io
+          want=$(digest rollback-main); before=$(digest main)
+          echo "main=$before rollback-main=$want"
+          [ "$want" != "$before" ] || { echo "rollback-main already equals main; nothing to drill" >&2; exit 1; }
+          skopeo copy --all --preserve-digests "docker://$IMAGE:rollback-main" "docker://$IMAGE:main"
+          after=$(digest main)
+          echo "main after rollback=$after"
+          [ "$after" = "$want" ] || { echo "rollback did not land: main=$after want=$want" >&2; exit 1; }
