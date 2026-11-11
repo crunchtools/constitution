@@ -2,7 +2,7 @@
 #
 # Callers pin this file to a release tag; copy examples/container.yml:
 #
-#   uses: crunchtools/constitution/.github/workflows/container-release.yml@v1.38.0
+#   uses: crunchtools/constitution/.github/workflows/container-release.yml@v1.39.0
 #
 # One build per change. A pull request builds its head commit, gates that
 # digest and marks it gated-<sha>. The merge to the default branch does NOT
@@ -155,7 +155,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           repository: crunchtools/constitution
-          ref: ${{ inputs.constitution-ref || 'v1.38.0' }}
+          ref: ${{ inputs.constitution-ref || 'v1.39.0' }}
           path: .constitution
           persist-credentials: false
       - id: r
@@ -274,7 +274,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           repository: crunchtools/constitution
-          ref: ${{ inputs.constitution-ref || 'v1.38.0' }}
+          ref: ${{ inputs.constitution-ref || 'v1.39.0' }}
           path: .constitution
           persist-credentials: false
       - if: needs.build.outputs.pushed == 'false'
@@ -360,7 +360,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           repository: crunchtools/constitution
-          ref: ${{ inputs.constitution-ref || 'v1.38.0' }}
+          ref: ${{ inputs.constitution-ref || 'v1.39.0' }}
           path: .constitution
           persist-credentials: false
       - env:
@@ -396,7 +396,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           repository: crunchtools/constitution
-          ref: ${{ inputs.constitution-ref || 'v1.38.0' }}
+          ref: ${{ inputs.constitution-ref || 'v1.39.0' }}
           path: .constitution
           persist-credentials: false
       - id: p
