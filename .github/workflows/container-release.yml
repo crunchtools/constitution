@@ -51,6 +51,12 @@ on:
         description: "Log in to registry.redhat.io before building (a FROM there needs it)"
         type: boolean
         default: false
+      format:
+        description: >-
+          Image format: `docker` (default; keeps HEALTHCHECK) or `oci` (bootc
+          images, which want a plain OCI manifest).
+        type: string
+        default: docker
       free-disk:
         description: >-
           Remove the runner's preinstalled SDKs before building and before
@@ -213,6 +219,7 @@ jobs:
           FILE: ${{ inputs.containerfile }}
           CONTEXT: ${{ inputs.context }}
           BUILD_ARGS: ${{ inputs.build-args }}
+          FORMAT: ${{ inputs.format }}
           SOURCE: ${{ github.server_url }}/${{ github.repository }}
           RHSM: ${{ inputs.rhsm }}
           RHSM_ACTIVATION_KEY: ${{ secrets.RHSM_ACTIVATION_KEY }}
@@ -245,8 +252,10 @@ jobs:
           fi
           trap 'rm -f "$RUNNER_TEMP/activation_key" "$RUNNER_TEMP/org_id"' EXIT
           # --pull=always and a fresh runner: no stale base, no stale layer
-          # (the 2026-10-22 rotv incident). --format docker keeps HEALTHCHECK.
-          podman build --pull=always --format docker "${args[@]}" \
+          # (the 2026-10-22 rotv incident). The docker format keeps HEALTHCHECK;
+          # bootc images ask for oci.
+          case "$FORMAT" in docker|oci) ;; *) echo "format must be docker or oci" >&2; exit 1 ;; esac
+          podman build --pull=always --format "$FORMAT" "${args[@]}" \
             --label "org.opencontainers.image.revision=$SHA" \
             --label "org.opencontainers.image.source=$SOURCE" \
             -f "$FILE" -t localhost/release:candidate "$CONTEXT"

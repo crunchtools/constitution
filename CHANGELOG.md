@@ -18,6 +18,8 @@ Entries through 1.14.0 are derived from the Ratification History table in
   `RHSM_ACTIVATION_KEY`/`RHSM_ORG_ID` (ubi10-httpd-perl-mariadb,
   -php-mariadb, -php-postgres); 1.39.1 provided only the first, so the second
   group's builds failed to register.
+- **`format: oci`** builds a plain OCI manifest for bootc images; the
+  default stays `docker`, which keeps HEALTHCHECK.
 - **`free-disk: true`** clears the runner's preinstalled SDKs before the
   build and the gates, for the multi-GB bootc images that do not otherwise fit.
 - **`container_release_unpublished`** in requirements.toml lists repos whose
