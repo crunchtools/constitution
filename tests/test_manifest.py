@@ -194,6 +194,13 @@ def test_container_release_checks_out_this_release():
     assert "ref: v" not in workflow.replace(f"@v{VERSION}", "")
 
 
+def test_the_gates_job_holds_no_secrets():
+    """Gates run the repo's own commands, so no credential may reach that job."""
+    workflow = (ROOT / ".github/workflows/container-release.yml").read_text()
+    gates = workflow.split("\n  gates:\n", 1)[1].split("\n  mark:\n", 1)[0]
+    assert "secrets." not in gates
+
+
 def test_downstream_dispatch_names_the_event_the_profile_documents():
     """Children listen for one event name; the workflow and the profile must agree."""
     workflow = (ROOT / ".github/workflows/container-release.yml").read_text()
