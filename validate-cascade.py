@@ -64,6 +64,12 @@ DISPATCH_LOOP_RE = re.compile(
 DISPATCH_DIRECT_RE = re.compile(
     r"repos/crunchtools/([A-Za-z0-9._-]+)/dispatches",
 )
+#   (c) the release workflow's input (1.39.0, RT#1550): a job calling
+#       container-release.yml names its children in `downstream: foo bar`.
+RELEASE_CALL = "crunchtools/constitution/.github/workflows/container-release.yml@"
+DISPATCH_INPUT_RE = re.compile(
+    r"^\s*downstream:\s*([A-Za-z0-9._-]+(?:[ \t]+[A-Za-z0-9._-]+)*)\s*$", re.MULTILINE
+)
 
 # Image-publication signals in workflow YAML — used to detect crunchtools images
 # that are BUILT (and pushed to Quay) by some workflow, even if no GitHub repo of
@@ -219,6 +225,9 @@ def build_dispatch_graph(
                 dispatch_graph[r].update(n for n in m.group(1).split() if n)
             for m in DISPATCH_DIRECT_RE.finditer(text):
                 dispatch_graph[r].add(m.group(1))
+            if RELEASE_CALL in text:
+                for m in DISPATCH_INPUT_RE.finditer(text):
+                    dispatch_graph[r].update(m.group(1).split())
         # Don't count "self dispatches" (a repo mentioning its own name in a comment)
         dispatch_graph[r].discard(r)
     return dispatch_graph

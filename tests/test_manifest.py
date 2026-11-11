@@ -201,6 +201,24 @@ def test_the_gates_job_holds_no_secrets():
     assert "secrets." not in gates
 
 
+def test_rhsm_passes_both_secret_ids_from_the_same_files():
+    """Both spellings in the fleet (activation_key, RHSM_ACTIVATION_KEY) are mounted."""
+    import yaml
+
+    workflow = yaml.safe_load((ROOT / ".github/workflows/container-release.yml").read_text())
+    build = next(s for s in workflow["jobs"]["build"]["steps"] if s.get("name") == "Build once")
+    run = build["run"]
+    for sid, src in [
+        ("activation_key", "activation_key"),
+        ("org_id", "org_id"),
+        ("RHSM_ACTIVATION_KEY", "activation_key"),
+        ("RHSM_ORG_ID", "org_id"),
+    ]:
+        assert f'--secret "id={sid},src=$RUNNER_TEMP/{src}"' in run
+    rhsm_block = run.split('if [ "$RHSM" = true ]; then', 1)[1].split("\n          fi", 1)[0]
+    assert "--secret" in rhsm_block and "--secret" not in run.split('if [ "$RHSM"', 1)[0]
+
+
 def test_container_release_inputs_parse_and_dispatch_the_configured_event():
     """Parsed, not grepped: every input has one type, and the dispatch step sends
     the `downstream-event` input, which defaults to the profile's event name."""
