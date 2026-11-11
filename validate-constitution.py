@@ -1436,7 +1436,8 @@ _FLOATING_PUSH = re.compile(
     r"type=raw,value=(?:latest|main)\b"
     r"|\b(?:podman|buildah|docker|skopeo)\b[^\n]*:(?:latest|main)\b"
 )
-_GHCR = re.compile(r"\bghcr\.io/")
+# Our own namespace only: an upstream image that lives on GHCR (immich) is fine.
+_GHCR = re.compile(r"\bghcr\.io/(?:crunchtools\b|\$\{\{\s*github\.)", re.IGNORECASE)
 _CONTAINERFILE_SKIP = {".git", "node_modules", "tests", "examples", ".venv"}
 
 

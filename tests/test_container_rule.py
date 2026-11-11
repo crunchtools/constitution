@@ -111,3 +111,17 @@ def test_test_fixtures_are_not_container_repos(tmp_path):
     (root / "tests/canary").mkdir(parents=True)
     (root / "tests/canary/Containerfile").write_text("FROM scratch\n")
     assert check(root) == []
+
+
+@pytest.mark.parametrize(
+    "ref",
+    ["ghcr.io/crunchtools/x", "ghcr.io/${{ github.repository }}", "GHCR.IO/Crunchtools/x"],
+)
+def test_our_ghcr_namespace_fails_in_any_spelling(tmp_path, ref):
+    flow = CALLER + f"  extra:\n    steps:\n      - run: echo {ref}\n"
+    assert any("GHCR" in v for v in check(make(tmp_path, container=flow)))
+
+
+def test_an_upstream_image_on_ghcr_is_not_publishing_there(tmp_path):
+    flow = CALLER + "  extra:\n    steps:\n      - run: echo ghcr.io/immich-app/immich-server\n"
+    assert check(make(tmp_path, container=flow)) == []
