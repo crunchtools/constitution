@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import http.client
 import json
 import os
 import queue
@@ -33,13 +34,15 @@ import sys
 import tempfile
 import threading
 import time
-import urllib.error
-import urllib.request
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
 DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 SEMVER = re.compile(r"^v(\d+)\.(\d+)\.(\d+)$")
+# The MCP revision the gate speaks; servers negotiate down from it.
+MCP_PROTOCOL = "2025-06-18"
+BOOT_TIMEOUT = 120  # seconds; the workflow passes its own boot-timeout
+HTTP_TIMEOUT = 10  # seconds per request to the server under test
 MISSING = re.compile(r"manifest unknown|not found|no such|name unknown", re.I)
 
 
@@ -128,20 +131,23 @@ class GitHub:
             raise Refused(f"GitHub API {path} failed: {res.err.strip()}")
         return json.loads(res.out)
 
+    def _object(self, path: str) -> dict:
+        found = self.api(path)
+        if not isinstance(found, dict):
+            raise Refused(f"GitHub API {path} returned {type(found).__name__}, not an object")
+        return found
+
     def tree(self, sha: str) -> str:
-        data = self.api(f"git/commits/{sha}")
-        assert isinstance(data, dict)
-        return str(data["tree"]["sha"])
+        return str(self._object(f"git/commits/{sha}")["tree"]["sha"])
 
     def tip(self, branch: str) -> str:
-        data = self.api(f"commits/{branch}")
-        assert isinstance(data, dict)
-        return str(data["sha"])
+        return str(self._object(f"commits/{branch}")["sha"])
 
     def merged_pr(self, sha: str) -> dict | None:
-        data = self.api(f"commits/{sha}/pulls")
-        assert isinstance(data, list)
-        for pr in data:
+        pulls = self.api(f"commits/{sha}/pulls")
+        if not isinstance(pulls, list):
+            raise Refused(f"GitHub API commits/{sha}/pulls returned {type(pulls).__name__}")
+        for pr in pulls:
             if pr.get("merge_commit_sha") == sha and pr.get("merged_at"):
                 return pr
         return None
@@ -268,7 +274,7 @@ def boot_mcp_stdio(image: str, env: Sequence[str], extra: str, cmd: str,
                    timeout: int) -> list[str]:
     msgs = [
         {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
-            "protocolVersion": "2025-06-18", "capabilities": {},
+            "protocolVersion": MCP_PROTOCOL, "capabilities": {},
             "clientInfo": {"name": "container-release-gate", "version": "1"}}},
         {"jsonrpc": "2.0", "method": "notifications/initialized"},
         {"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
@@ -278,13 +284,14 @@ def boot_mcp_stdio(image: str, env: Sequence[str], extra: str, cmd: str,
     proc = subprocess.Popen(
         ["podman", "run", "--rm", "-i", *_run_args(env, extra), image, *shlex.split(cmd)],
         stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=errlog, text=True)
-    assert proc.stdin and proc.stdout
+    if proc.stdin is None or proc.stdout is None:
+        raise Refused("podman run gave no stdio pipes")
+    stdin, stdout = proc.stdin, proc.stdout
     # readline() blocks; a reader thread lets the deadline actually bite.
     lines: queue.Queue[str | None] = queue.Queue()
 
     def pump() -> None:
-        assert proc.stdout
-        for line in proc.stdout:
+        for line in stdout:
             lines.put(line)
         lines.put(None)
 
@@ -294,10 +301,12 @@ def boot_mcp_stdio(image: str, env: Sequence[str], extra: str, cmd: str,
     try:
         for msg in msgs:
             try:
-                proc.stdin.write(json.dumps(msg) + "\n")
-                proc.stdin.flush()
-            except BrokenPipeError:
-                pass  # it exited; the read below reports why
+                stdin.write(json.dumps(msg) + "\n")
+                stdin.flush()
+            except BrokenPipeError as exc:
+                errlog.seek(0)
+                raise Refused(f"server exited before {msg['method']}:\n"
+                              f"{errlog.read()[-4000:]}") from exc
             if "id" not in msg:
                 continue
             while msg["id"] not in replies:
@@ -323,21 +332,29 @@ def boot_mcp_stdio(image: str, env: Sequence[str], extra: str, cmd: str,
     return _tools(replies[1], replies[2])
 
 
-def _post(url: str, body: dict, session: str | None) -> tuple[dict | None, str | None]:
+def _post(port: int, path: str, body: dict,
+          session: str | None) -> tuple[dict | None, str | None]:
+    """POST one JSON-RPC message to the server under test on 127.0.0.1."""
     headers = {"Content-Type": "application/json",
                "Accept": "application/json, text/event-stream"}
     if session:
         headers["Mcp-Session-Id"] = session
-    req = urllib.request.Request(url, data=json.dumps(body).encode(), headers=headers)
-    with urllib.request.urlopen(req, timeout=10) as resp:  # noqa: S310 - localhost gate
-        sid = resp.headers.get("Mcp-Session-Id") or session
+    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=HTTP_TIMEOUT)
+    try:
+        conn.request("POST", path, body=json.dumps(body), headers=headers)
+        resp = conn.getresponse()
+        sid = resp.getheader("Mcp-Session-Id") or session
         text = resp.read().decode()
-        if "text/event-stream" in resp.headers.get("Content-Type", ""):
-            for line in text.splitlines():
-                if line.startswith("data:"):
-                    return json.loads(line[5:]), sid
-            return None, sid
-        return (json.loads(text) if text.strip() else None), sid
+    finally:
+        conn.close()
+    if resp.status >= 400:
+        raise Refused(f"{path} answered HTTP {resp.status}: {text[:500]}")
+    if "text/event-stream" in (resp.getheader("Content-Type") or ""):
+        for line in text.splitlines():
+            if line.startswith("data:"):
+                return json.loads(line[5:]), sid
+        return None, sid
+    return (json.loads(text) if text.strip() else None), sid
 
 
 def boot_mcp_http(image: str, env: Sequence[str], extra: str, cmd: str, port: int,
@@ -345,22 +362,21 @@ def boot_mcp_http(image: str, env: Sequence[str], extra: str, cmd: str, port: in
     name = f"gate-{os.getpid()}"
     _podman("run", "-d", "--name", name, "-p", f"127.0.0.1:{port}:{port}",
             *_run_args(env, extra), image, *shlex.split(cmd))
-    url = f"http://127.0.0.1:{port}{path}"
     try:
         deadline = time.monotonic() + timeout
         init = {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
-            "protocolVersion": "2025-06-18", "capabilities": {},
+            "protocolVersion": MCP_PROTOCOL, "capabilities": {},
             "clientInfo": {"name": "container-release-gate", "version": "1"}}}
         while True:
             try:
-                first, sid = _post(url, init, None)
+                first, sid = _post(port, path, init, None)
                 break
-            except (urllib.error.URLError, ConnectionError, OSError) as exc:
+            except (ConnectionError, OSError, http.client.HTTPException) as exc:
                 if time.monotonic() > deadline:
-                    raise Refused(f"{url} never answered initialize: {exc}") from exc
+                    raise Refused(f"127.0.0.1:{port}{path} never answered initialize: {exc}") from exc
                 time.sleep(2)
-        _post(url, {"jsonrpc": "2.0", "method": "notifications/initialized"}, sid)
-        tools, _ = _post(url, {"jsonrpc": "2.0", "id": 2, "method": "tools/list"}, sid)
+        _post(port, path, {"jsonrpc": "2.0", "method": "notifications/initialized"}, sid)
+        tools, _ = _post(port, path, {"jsonrpc": "2.0", "id": 2, "method": "tools/list"}, sid)
         return _tools(first or {}, tools or {})
     except Refused:
         log(_podman("logs", name, check=False).stdout[-4000:])
@@ -466,7 +482,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     b.add_argument("--units", default="")
     b.add_argument("--port", type=int, default=8080)
     b.add_argument("--path", default="/mcp")
-    b.add_argument("--timeout", type=int, default=120)
+    b.add_argument("--timeout", type=int, default=BOOT_TIMEOUT)
 
     a = ap.parse_args(argv)
     try:

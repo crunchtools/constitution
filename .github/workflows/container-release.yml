@@ -97,7 +97,8 @@ on:
         required: false
       QUAY_PASSWORD:
         required: false
-      DISPATCH_TOKEN:
+      CRUNCHTOOLS_CI_APP_KEY:
+        description: "Only with downstream: the crunchtools-ci GitHub App key"
         required: false
     outputs:
       digest:
@@ -376,15 +377,24 @@ jobs:
             echo "Rollback: \`skopeo copy --all --preserve-digests docker://$IMAGE:rollback-main docker://$IMAGE:main\` (or \`rollback-latest\` / \`latest\`)."
           } >> "$GITHUB_STEP_SUMMARY"
       - name: Rebuild what builds FROM this
+        id: app
         if: inputs.downstream != '' && (contains(steps.p.outputs.tags, 'main') || contains(steps.p.outputs.tags, 'latest'))
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.CRUNCHTOOLS_CI_CLIENT_ID }}
+          private-key: ${{ secrets.CRUNCHTOOLS_CI_APP_KEY }}
+          owner: crunchtools
+          # repository_dispatch needs contents: write on the target.
+          permission-contents: write
+      - if: steps.app.outcome == 'success'
         env:
-          GH_TOKEN: ${{ secrets.DISPATCH_TOKEN }}
+          GH_TOKEN: ${{ steps.app.outputs.token }}
           DOWNSTREAM: ${{ inputs.downstream }}
           SOURCE: ${{ github.repository }}
         run: |
           set -eu
-          [ -n "$GH_TOKEN" ] || { echo "downstream set but no DISPATCH_TOKEN" >&2; exit 1; }
           for r in $DOWNSTREAM; do
             gh api "repos/crunchtools/$r/dispatches" -f event_type=base-image-promoted \
-              -f "client_payload[source]=$SOURCE" && echo "dispatched $r"
+              -f "client_payload[source]=$SOURCE"
+            echo "dispatched $r"
           done
