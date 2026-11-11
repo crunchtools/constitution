@@ -9,6 +9,8 @@ Entries through 1.14.0 are derived from the Ratification History table in
 
 ## [Unreleased]
 
+## [1.39.0] - 2026-11-11
+
 ### Added
 
 - **Container release is machine-checked** (container-image VII, RT#1550). A

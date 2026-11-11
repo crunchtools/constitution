@@ -126,7 +126,7 @@ def repo(tmp_path: Path) -> Path:
     write(root, ".github/workflows/gatehouse-retriage.yml", RETRIAGE)
     write(root, ".github/workflows/gourmand.yml", GOURMAND)
     write(root, ".github/workflows/ci.yml", SDLC_CI)
-    for name in ("constitution.yml", "dependabot-automerge.yml"):
+    for name in ("constitution.yml", "dependabot-automerge.yml", "container.yml"):
         text = re.sub(r"@v\d+\.\d+\.\d+", f"@v{VERSION}", (ROOT / "examples" / name).read_text())
         write(root, f".github/workflows/{name}", text)
     shutil.copy(ROOT / "examples" / "dependabot-uv.yml", root / ".github" / "dependabot.yml")
@@ -425,7 +425,7 @@ def test_inline_gourmand_job_fails_but_mentions_do_not(repo):
         ".github/workflows/build.yml",
         "on: push\nenv:\n  IMAGE: quay.io/crunchtools/gourmand\njobs:\n  build:\n"
         "    runs-on: ubuntu-latest\n    env:\n      SKIP: gatehouse,gourmand\n"
-        "    steps:\n      - run: podman build .\n",
+        "    steps:\n      - run: make\n",
     )
     assert violations(repo) == []
     write(

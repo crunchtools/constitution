@@ -19,7 +19,7 @@ permissions: {}
 
 jobs:
   container:
-    uses: crunchtools/constitution/.github/workflows/container-release.yml@v1.38.0
+    uses: crunchtools/constitution/.github/workflows/container-release.yml@v1.39.0
     permissions:
       contents: read
       pull-requests: read
