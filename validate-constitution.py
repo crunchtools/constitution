@@ -1426,11 +1426,15 @@ CONTAINER_RELEASE_SINCE = (1, 39, 0)
 """First constitution version whose container-image VII is machine-checked (RT#1550)."""
 
 _RELEASE_CALL = re.compile(
-    r"uses:\s*crunchtools/constitution/\.github/workflows/container-release\.yml@v\d+\.\d+\.\d+"
+    r"uses:\s*crunchtools/constitution/\.github/workflows/"
+    r"container-release\.yml@v\d+\.\d+\.\d+"
 )
-_IMAGE_BUILD = re.compile(r"docker/build-push-action|\b(?:podman|buildah|docker)\s+(?:build|push)\b")
+_IMAGE_BUILD = re.compile(
+    r"docker/build-push-action|\b(?:podman|buildah|docker)\s+(?:build|push)\b"
+)
 _FLOATING_PUSH = re.compile(
-    r"type=raw,value=(?:latest|main)\b|\b(?:podman|buildah|docker|skopeo)\b[^\n]*:(?:latest|main)\b"
+    r"type=raw,value=(?:latest|main)\b"
+    r"|\b(?:podman|buildah|docker|skopeo)\b[^\n]*:(?:latest|main)\b"
 )
 _CONTAINERFILE_SKIP = {".git", "node_modules", "tests", "examples", ".venv"}
 
@@ -1454,14 +1458,16 @@ def check_container_release(repo_root: Path, inherits: str, requirements: dict) 
     if _version_tuple(inherits) < CONTAINER_RELEASE_SINCE:
         return []
     containerfiles = [
-        path for pattern in ("Containerfile*", "Dockerfile*")
+        path
+        for pattern in ("Containerfile*", "Dockerfile*")
         for path in repo_root.rglob(pattern)
         if not _CONTAINERFILE_SKIP.intersection(path.relative_to(repo_root).parts)
     ]
     if not containerfiles:
         return []
     workflows = sorted(
-        path for pattern in ("*.yml", "*.yaml")
+        path
+        for pattern in ("*.yml", "*.yaml")
         for path in (repo_root / ".github" / "workflows").glob(pattern)
     )
     texts = {path.name: path.read_text(errors="ignore") for path in workflows}

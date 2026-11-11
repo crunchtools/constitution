@@ -70,7 +70,11 @@ def test_latest_pushed_by_hand_fails(tmp_path):
 
 
 def test_imagetools_create_fails_even_in_a_custom_repo(tmp_path):
-    flow = "steps:\n  - run: docker buildx imagetools create -t q:1 q@sha256:x\n  - run: skopeo copy --all --preserve-digests a b\n"
+    flow = (
+        "steps:\n"
+        "  - run: docker buildx imagetools create -t q:1 q@sha256:x\n"
+        "  - run: skopeo copy --all --preserve-digests a b\n"
+    )
     found = check(make(tmp_path, "custom-repo", release=flow))
     assert [v for v in found if "imagetools create" in v]
 
