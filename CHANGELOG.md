@@ -21,6 +21,12 @@ Entries through 1.14.0 are derived from the Ratification History table in
   `skopeo copy`, or `docker/build-push-action` with `push` not false) or
   moves a floating tag with a push, tag or copy verb. `docker pull …:latest`
   and a `--build-arg` naming `:latest` are no longer read as moving it.
+- **A base image beside its app could rebuild itself forever.** `downstream`
+  always sent `parent-image-updated`, and when the downstream repo is the
+  base's own repo (rotv-base, acquacotta-base) its base workflow, which
+  listens for that event from ubi10-core, fired again. `downstream-event`
+  names the event to send, and the workflow refuses to send
+  `parent-image-updated` to its own repo.
 
 ## [1.39.0] - 2026-11-11
 

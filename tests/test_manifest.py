@@ -205,8 +205,8 @@ def test_downstream_dispatch_names_the_event_the_profile_documents():
     """Children listen for one event name; the workflow and the profile must agree."""
     workflow = (ROOT / ".github/workflows/container-release.yml").read_text()
     profile = (ROOT / "profiles/container-image.md").read_text()
-    sent = re.findall(r"event_type=([\w-]+)", workflow)
-    assert sent == ["parent-image-updated"]
+    assert '-f "event_type=$EVENT"' in workflow
+    assert "default: parent-image-updated" in workflow
     assert "`parent-image-updated`" in profile
 
 
