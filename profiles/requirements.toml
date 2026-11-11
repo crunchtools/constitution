@@ -25,6 +25,10 @@ sdlc_exempt = ["gourmand", "gatehouse", "python-sdlc"]
 # keep their own promote workflow instead of calling container-release.yml.
 # Still checked: skopeo --preserve-digests, no `imagetools create`, no GHCR.
 container_release_custom = ["trentina", "python-sdlc"]
+# Repos whose Containerfile is a reference or local build that crunchtools
+# never publishes (claude-agent: "build your own"). No release workflow is
+# required; publishing anyway is still checked (GHCR, imagetools, pushes).
+container_release_unpublished = ["claude-agent"]
 
 # What a developer machine has (XII host contract): the only programs a
 # `language: system` pre-commit hook may start, besides scripts in the repo.

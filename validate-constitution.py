@@ -1500,7 +1500,9 @@ def check_container_release(repo_root: Path, inherits: str, requirements: dict) 
     """
     if _version_tuple(inherits) < CONTAINER_RELEASE_SINCE or not _has_containerfile(repo_root):
         return []
-    custom = repo_root.name in requirements.get("fleet", {}).get("container_release_custom", [])
+    fleet = requirements.get("fleet", {})
+    custom = repo_root.name in fleet.get("container_release_custom", [])
+    unpublished = repo_root.name in fleet.get("container_release_unpublished", [])
     calls = 0
     copies = False
     violations: list[str] = []
@@ -1544,7 +1546,7 @@ def check_container_release(repo_root: Path, inherits: str, requirements: dict) 
             "CONTAINER: custom release workflow never promotes with "
             "`skopeo copy --all --preserve-digests` (VII)"
         )
-    elif not custom and not calls:
+    elif not custom and not unpublished and not calls:
         violations.append(
             "CONTAINER: a Containerfile is present but no workflow job calls "
             "crunchtools/constitution/.github/workflows/container-release.yml@vX.Y.Z (VII, RT#1550)"

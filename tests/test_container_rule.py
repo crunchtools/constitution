@@ -7,7 +7,12 @@ import pytest
 from fleet_common import load_validator
 
 V = load_validator()
-REQ = {"fleet": {"container_release_custom": ["custom-repo"]}}
+REQ = {
+    "fleet": {
+        "container_release_custom": ["custom-repo"],
+        "container_release_unpublished": ["reference-repo"],
+    }
+}
 
 CALL = """  container:
     uses: crunchtools/constitution/.github/workflows/container-release.yml@v1.39.0
@@ -168,3 +173,10 @@ def test_our_ghcr_namespace_fails_in_any_spelling(tmp_path, ref):
 def test_another_namespace_on_ghcr_is_not_publishing_there(tmp_path, ref):
     flow = workflow(CALL, env=f"env:\n  UPSTREAM: {ref}\n")
     assert check(make(tmp_path, container=flow)) == []
+
+
+def test_an_unpublished_reference_image_needs_no_release_workflow(tmp_path):
+    local = workflow(job("build", "podman build -t ref ."))
+    assert check(make(tmp_path, "reference-repo", packages=local)) == []
+    pushed = workflow(job("build", "podman push quay.io/crunchtools/ref:abc"))
+    assert any("publishes" in v for v in check(make(tmp_path / "p", "reference-repo", b=pushed)))

@@ -9,6 +9,28 @@ Entries through 1.14.0 are derived from the Ratification History table in
 
 ## [Unreleased]
 
+## [1.39.2] - 2026-11-11
+
+### Fixed
+
+- **`rhsm: true` provides the build secrets under both ids in use.** The
+  fleet mounts them as `activation_key`/`org_id` (rotv, nagios, rt) and as
+  `RHSM_ACTIVATION_KEY`/`RHSM_ORG_ID` (ubi10-httpd-perl-mariadb,
+  -php-mariadb, -php-postgres); 1.39.1 provided only the first, so the second
+  group's builds failed to register.
+- **`format: oci`** builds a plain OCI manifest for bootc images; the
+  default stays `docker`, which keeps HEALTHCHECK.
+- **`free-disk: true`** clears the runner's preinstalled SDKs before the
+  build and the gates, for the multi-GB bootc images that do not otherwise fit.
+- **`container_release_unpublished`** in requirements.toml lists repos whose
+  Containerfile is a reference or local build crunchtools never publishes
+  (claude-agent). They need no release workflow; a push from one is still
+  flagged.
+- **validate-cascade counts the release workflow's `downstream` input.** It
+  only read the old shell `for repo in … dispatches` loop, so every converted
+  cascade parent read as dispatching nothing and the fleet check failed with
+  fourteen phantom missing edges.
+
 ## [1.39.1] - 2026-11-11
 
 ### Fixed

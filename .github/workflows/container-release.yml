@@ -2,7 +2,7 @@
 #
 # Callers pin this file to a release tag; copy examples/container.yml:
 #
-#   uses: crunchtools/constitution/.github/workflows/container-release.yml@v1.39.1
+#   uses: crunchtools/constitution/.github/workflows/container-release.yml@v1.39.2
 #
 # One build per change. A pull request builds its head commit, gates that
 # digest and marks it gated-<sha>. The merge to the default branch does NOT
@@ -42,13 +42,25 @@ on:
         default: ""
       rhsm:
         description: >-
-          The Containerfile registers with RHSM through build secrets
-          `activation_key` and `org_id` (RUN --mount=type=secret,id=...);
-          pass RHSM_ACTIVATION_KEY and RHSM_ORG_ID.
+          The Containerfile registers with RHSM through build secrets, mounted
+          as `activation_key`/`org_id` or `RHSM_ACTIVATION_KEY`/`RHSM_ORG_ID`
+          (both are provided); pass RHSM_ACTIVATION_KEY and RHSM_ORG_ID.
         type: boolean
         default: false
       redhat-registry:
         description: "Log in to registry.redhat.io before building (a FROM there needs it)"
+        type: boolean
+        default: false
+      format:
+        description: >-
+          Image format: `docker` (default; keeps HEALTHCHECK) or `oci` (bootc
+          images, which want a plain OCI manifest).
+        type: string
+        default: docker
+      free-disk:
+        description: >-
+          Remove the runner's preinstalled SDKs before building and before
+          gating, for multi-GB images (bootc) that do not fit otherwise.
         type: boolean
         default: false
       boot:
@@ -163,7 +175,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           repository: crunchtools/constitution
-          ref: ${{ inputs.constitution-ref || 'v1.39.1' }}
+          ref: ${{ inputs.constitution-ref || 'v1.39.2' }}
           path: .constitution
           persist-credentials: false
       - id: r
@@ -191,6 +203,12 @@ jobs:
         env:
           SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+      - name: Free runner disk for a large image
+        if: inputs.free-disk
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache
+          sudo docker image prune --all --force >/dev/null
+          df -h /
       - uses: actions/checkout@v7
         with:
           ref: ${{ steps.src.outputs.sha }}
@@ -201,6 +219,7 @@ jobs:
           FILE: ${{ inputs.containerfile }}
           CONTEXT: ${{ inputs.context }}
           BUILD_ARGS: ${{ inputs.build-args }}
+          FORMAT: ${{ inputs.format }}
           SOURCE: ${{ github.server_url }}/${{ github.repository }}
           RHSM: ${{ inputs.rhsm }}
           RHSM_ACTIVATION_KEY: ${{ secrets.RHSM_ACTIVATION_KEY }}
@@ -223,13 +242,20 @@ jobs:
             umask 077
             printf '%s' "$RHSM_ACTIVATION_KEY" > "$RUNNER_TEMP/activation_key"
             printf '%s' "$RHSM_ORG_ID" > "$RUNNER_TEMP/org_id"
+            # Both spellings are in the fleet's Containerfiles: id=activation_key
+            # (rotv, nagios, rt) and id=RHSM_ACTIVATION_KEY (the ubi10 mariadb
+            # and postgres images). An unused secret costs nothing.
             args+=(--secret "id=activation_key,src=$RUNNER_TEMP/activation_key")
             args+=(--secret "id=org_id,src=$RUNNER_TEMP/org_id")
+            args+=(--secret "id=RHSM_ACTIVATION_KEY,src=$RUNNER_TEMP/activation_key")
+            args+=(--secret "id=RHSM_ORG_ID,src=$RUNNER_TEMP/org_id")
           fi
           trap 'rm -f "$RUNNER_TEMP/activation_key" "$RUNNER_TEMP/org_id"' EXIT
           # --pull=always and a fresh runner: no stale base, no stale layer
-          # (the 2026-10-22 rotv incident). --format docker keeps HEALTHCHECK.
-          podman build --pull=always --format docker "${args[@]}" \
+          # (the 2026-10-22 rotv incident). The docker format keeps HEALTHCHECK;
+          # bootc images ask for oci.
+          case "$FORMAT" in docker|oci) ;; *) echo "format must be docker or oci" >&2; exit 1 ;; esac
+          podman build --pull=always --format "$FORMAT" "${args[@]}" \
             --label "org.opencontainers.image.revision=$SHA" \
             --label "org.opencontainers.image.source=$SOURCE" \
             -f "$FILE" -t localhost/release:candidate "$CONTEXT"
@@ -275,6 +301,12 @@ jobs:
     permissions:
       contents: read
     steps:
+      - name: Free runner disk for a large image
+        if: inputs.free-disk
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache
+          sudo docker image prune --all --force >/dev/null
+          df -h /
       - uses: actions/checkout@v7
         with:
           ref: ${{ needs.build.outputs.sha }}
@@ -282,7 +314,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           repository: crunchtools/constitution
-          ref: ${{ inputs.constitution-ref || 'v1.39.1' }}
+          ref: ${{ inputs.constitution-ref || 'v1.39.2' }}
           path: .constitution
           persist-credentials: false
       - if: needs.build.outputs.pushed == 'false'
@@ -368,7 +400,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           repository: crunchtools/constitution
-          ref: ${{ inputs.constitution-ref || 'v1.39.1' }}
+          ref: ${{ inputs.constitution-ref || 'v1.39.2' }}
           path: .constitution
           persist-credentials: false
       - env:
@@ -404,7 +436,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           repository: crunchtools/constitution
-          ref: ${{ inputs.constitution-ref || 'v1.39.1' }}
+          ref: ${{ inputs.constitution-ref || 'v1.39.2' }}
           path: .constitution
           persist-credentials: false
       - id: p

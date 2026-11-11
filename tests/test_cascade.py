@@ -29,6 +29,35 @@ def test_a_direct_dispatch_counts():
     assert C.build_dispatch_graph(["parent"], cache)["parent"] == {"child"}
 
 
+CALLER = (
+    "jobs:\n  container:\n"
+    "    uses: crunchtools/constitution/.github/workflows/container-release.yml@v1.39.2\n"
+    "    with:\n      cascade: true\n      downstream: child other-child\n"
+)
+
+
+def test_the_release_workflows_downstream_input_counts():
+    """1.39.0 moved the dispatch into container-release.yml's `downstream` input."""
+    cache = {("parent", "container.yml"): CALLER}
+    assert C.build_dispatch_graph(["parent"], cache)["parent"] == {"child", "other-child"}
+
+
+def test_a_downstream_key_outside_a_release_call_is_not_an_edge():
+    cache = {("parent", "other.yml"): "env:\n  downstream: child\n"}
+    assert C.build_dispatch_graph(["parent"], cache)["parent"] == set()
+
+
+def test_only_the_calling_jobs_downstream_counts():
+    """A release call in the file does not make every `downstream:` key an edge."""
+    text = (
+        "env:\n  downstream: env-var\n"
+        + CALLER
+        + "  other:\n    runs-on: x\n    with:\n      downstream: not-a-child\n"
+    )
+    cache = {("parent", "container.yml"): text}
+    assert C.build_dispatch_graph(["parent"], cache)["parent"] == {"child", "other-child"}
+
+
 def test_a_repo_naming_itself_is_not_an_edge():
     cache = {("parent", "build.yml"): "gh api repos/crunchtools/parent/dispatches\n"}
     assert C.build_dispatch_graph(["parent"], cache)["parent"] == set()
