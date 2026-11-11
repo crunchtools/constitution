@@ -95,40 +95,34 @@ Every project MUST maintain a `CHANGELOG.md` in the repo root following the [Kee
 
 ## III. Container Registry
 
-Container images authored by crunchtools are dual-pushed to two registries. Forked projects push to Quay.io only (see `profiles/forked-mcp-server.md`).
+Container images are published to one registry. GHCR was dropped on 2026-11-11
+(RT#1550): nothing pulls from it, and a second registry was a second build.
 
 | Registry | Image Pattern | Purpose |
 |----------|---------------|---------|
-| Quay.io | `quay.io/crunchtools/<name>` | Primary distribution |
-| GHCR | `ghcr.io/crunchtools/<name>` | GitHub-native distribution |
+| Quay.io | `quay.io/crunchtools/<name>` | The only distribution |
 
-### Dual-Push CI Architecture
+### Release CI: build once, promote what was tested
 
-Container CI workflows MUST use **two separate jobs** (not steps within one job):
+Every repo with a Containerfile calls the reusable workflow
+`crunchtools/constitution/.github/workflows/container-release.yml` at a
+release tag (copy `examples/container.yml`), unless it is listed in
+`container_release_custom` in `profiles/requirements.toml`. Since 1.39.0 the
+validator checks this. One build per change: the pull request builds its head
+commit and gates that digest; the merge promotes the PR's digest without
+rebuilding; a release tag copies main's digest. The rules the workflow keeps are
+in the Container Image profile, VII.
 
-1. **`build-and-push-quay`** — Builds and pushes to Quay.io. Has `permissions: contents: read` only. Includes Trivy security scan with `continue-on-error: true`.
-2. **`build-and-push-ghcr`** — Builds and pushes to GHCR. Uses `needs: build-and-push-quay` dependency. Has `permissions: contents: read, packages: write`. Gated with `if: github.event_name != 'pull_request'`.
+### Fresh builds
 
-This ensures Quay.io succeeds independently if GHCR has permission issues.
-
-### Build Caching (MANDATORY)
-
-All container build workflows MUST use Docker layer caching to minimize build times:
-
-```yaml
-cache-from: type=gha
-cache-to: type=gha,mode=max
-```
-
-Commit-driven builds (`push`, `pull_request`) MUST use the cache; `no-cache: true` MUST NOT be set for every build. Builds no commit triggered (`schedule`, `repository_dispatch`, `workflow_dispatch`) MUST set `no-cache`, because those runs exist to pick up base image and package updates, and with the cache on they reuse the cached package-install layer and ship nothing new:
-
-```yaml
-no-cache: ${{ github.event_name != 'push' && github.event_name != 'pull_request' }}
-```
+A release build runs on a fresh runner with `--pull=always`, so no stale base
+image and no cached layer can reach an image; schedule, dispatch and pull
+request builds are all built from nothing. The 2026-10-22 rotv image shipped
+without PostgreSQL because a cached package layer outlived an EPEL outage.
 
 ### OCI Labels
 
-All container images MUST include these OCI labels for GHCR auto-linking:
+All container images MUST include these OCI labels:
 
 ```
 org.opencontainers.image.source=https://github.com/crunchtools/<name>
@@ -136,7 +130,7 @@ org.opencontainers.image.description=<description>
 org.opencontainers.image.licenses=AGPL-3.0-or-later
 ```
 
-The `org.opencontainers.image.source` label auto-links the GHCR package to the GitHub repo, granting `GITHUB_TOKEN` write access in GHA workflows.
+`container-release.yml` also sets `org.opencontainers.image.revision` to the commit the image was built from.
 
 ---
 

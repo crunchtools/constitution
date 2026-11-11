@@ -73,7 +73,7 @@ Forked MCP server images are pushed to **Quay.io only**:
 quay.io/crunchtools/mcp-<name>
 ```
 
-No GHCR dual-push. No PyPI publishing. These are internal deployments, not distribution packages.
+No PyPI publishing. These are internal deployments, not distribution packages.
 
 ---
 

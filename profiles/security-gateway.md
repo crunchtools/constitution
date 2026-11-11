@@ -62,7 +62,6 @@ Sections III to VI of the MCP Server profile (Containerfile Conventions, Testing
 | GitHub repo | `crunchtools/<name>` | `crunchtools/trentina` |
 | Python module and command | `<name>` | `trentina` |
 | Container (Quay) | `quay.io/crunchtools/<name>` | `quay.io/crunchtools/trentina` |
-| Container (GHCR) | `ghcr.io/crunchtools/<name>` | `ghcr.io/crunchtools/trentina` |
 | Service and public address | `<name>.crunchtools.com` | `trentina.crunchtools.com` |
 | License | AGPL-3.0-or-later | — |
 

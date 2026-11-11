@@ -145,7 +145,11 @@ Tags:
 - `main` — the newest build of the default branch. A unit that wants continuous
   delivery MUST say so by naming this tag; `latest` is not that tag.
 - `<version>` and `<major>.<minor>` — the release. Immutable once published.
-- `<sha>` — git commit SHA for traceability
+- `sha-<sha>` — the build of that commit, pushed once by the build job
+- `gated-<sha>` — that build passed its gates; the only digests promote copies
+- `pr-<N>` — the pull request's latest build (moves with each push)
+- `rollback-main` / `rollback-latest` — the digest the floating tag held before
+  its last move: `skopeo copy --all --preserve-digests docker://IMAGE:rollback-latest docker://IMAGE:latest`
 
 A repo that cuts no releases, where the weekly errata rebuild of the default
 branch is the only thing that ever moves, MUST point its units at `main`.
@@ -176,7 +180,10 @@ nowhere else. Four units on gloval run `ubi10-httpd-php*` directly and are the
 live cases. A child's `FROM` SHOULD name the branch tag too, for the same reason:
 `FROM …:main` says what it is doing where `FROM …:latest` only looks like it.
 
-GHCR dual-push is optional for container image projects (required for MCP servers per the MCP Server profile, but not mandated here).
+Quay.io is the only registry (constitution III); GHCR was dropped on 2026-11-11.
+A cascade image sets `cascade: true` on `container-release.yml`, which moves
+`latest` with `main` and dispatches `parent-image-updated` to the repos named in
+`downstream`.
 
 ---
 
@@ -190,15 +197,7 @@ on:
     - cron: '0 6 * * 1'  # Weekly Monday 6 AM UTC
 ```
 
-Rebuilds that are not driven by a commit (`schedule`, `repository_dispatch`, `workflow_dispatch`) MUST bypass the build layer cache. A cached `RUN dnf install` layer is reused as long as the Containerfile and base digest are unchanged, so a cached rebuild ships the same packages and no errata:
-
-```yaml
-      - uses: docker/build-push-action@v7
-        with:
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          no-cache: ${{ github.event_name != 'push' && github.event_name != 'pull_request' }}
-```
+Rebuilds that are not driven by a commit (`schedule`, `repository_dispatch`, `workflow_dispatch`) MUST NOT reuse a cached layer: a cached `RUN dnf install` layer is reused as long as the Containerfile and base digest are unchanged, so a cached rebuild ships the same packages and no errata. `container-release.yml` meets this for every build by construction: a fresh runner, no layer cache, and `--pull=always` on the base.
 
 Found 2026-10-22: a dispatched rebuild of `ubi10-httpd-php` reused its cached install layer and shipped php 8.3.33 after the CVE-2026-109618/109619 fix (8.3.36) was in the UBI repos.
 
@@ -232,7 +231,14 @@ Every container image build must pass:
 3. **Boot test** — against the pushed digest (multi-service images)
 4. **Security scan** — Trivy scan with `continue-on-error: true` (when applicable)
 
-The build job pushes only the commit SHA tag (and `pr-N` on pull requests, which moves with each push); the gates and the promotion always address the image by the digest the build reported, never by tag. `main`, `latest` and the semver tags move in a separate promote job that needs the gates and copies the tested digest without rebuilding (`skopeo copy --all --preserve-digests`). Not `docker buildx imagetools create`: given a single image manifest it writes a new one-entry manifest list, so the tag resolves to a digest no gate ever tested. After each copy the job MUST confirm the tag resolves to the promoted digest (reading it with `imagetools inspect` is fine) and MUST fail if it does not; `--preserve-digests` refuses a copy that would change the manifest, and the check catches everything else. A second registry gets the same digest by copy, not by a second build. Promotion MUST NOT move a floating tag back to an older commit when a newer one has landed: `main` is guarded against a re-dispatched or scheduled rebuild of an older commit, and `latest` against a re-run of an older release tag. An image that downstream images build `FROM` dispatches their rebuild from the promote job, after it is promoted.
+`container-release.yml` (constitution III) is how a repo meets this, and since 1.39.0 the validator requires it or a listed custom workflow. Build once per change, gate the digest, promote what was tested:
+
+- **One build per change.** A pull request builds its head commit, pushes `sha-<sha>` (and `pr-N`), gates that digest and tags it `gated-<sha>`. The merge does not rebuild: promote finds the merged pull request, confirms the merge commit has the same git tree as the gated head, and copies that digest to `main`. A `v*` tag copies main's digest to the version tags and `latest`, and is refused for a commit main never promoted. Builds otherwise happen only on `schedule` and `workflow_dispatch`, and once as a fallback: a merge with no gated image (a PR that could not push, or a branch not up to date) is rebuilt and gated before anything moves.
+- **Gates address the digest, never a tag, and hold no credentials.** A boot gate is required and named: `mcp` (initialize and `tools/list` over stdio, at least one tool), `mcp-http`, `systemd` (`is-system-running` reaches `running`, listed units active), `healthcheck` (fails if the image carries none — buildah drops `HEALTHCHECK` in OCI format), `command` (the repo's own script with `$IMAGE`), or `none` with a written reason. A contract test runs when the repo supplies one. Trivy scans the digest with `continue-on-error: true`.
+- **Promotion copies, never rebuilds:** `skopeo copy --all --preserve-digests`, then a read-back that fails the job if the tag resolves to anything else. Not `docker buildx imagetools create`: given a single image manifest it writes a new one-entry manifest list, so the tag resolves to a digest no gate ever tested.
+- **Floating tags never move backwards.** `main` moves only to the commit that is the branch tip when promote runs; an older run stands down. `X.Y` and `latest` move only to the newest release. A same-commit rebuild (weekly errata) does move them. Promote runs in a non-cancelling per-repo concurrency group and fails closed when it cannot read the tag it would move.
+- **Rollback is a copy.** Before `main` or `latest` moves, the digest it held is kept as `rollback-main` / `rollback-latest`.
+- **Downstream.** An image that others build `FROM` dispatches their rebuild from the promote job, after it is promoted, with a `crunchtools-ci` app token.
 
 ---
 
@@ -250,24 +256,7 @@ Naming pattern for UBI-based images: `ubi10-<runtime>-<purpose>` (e.g., `ubi10-h
 
 ## IX. CI Pipeline (GitHub Actions)
 
-Standard workflow for container image repos:
-
-```yaml
-name: Build and Push Container Image
-
-on:
-  push:
-    branches: [main, master]
-  workflow_dispatch:
-  schedule:
-    - cron: '0 6 * * 1'
-
-env:
-  REGISTRY: quay.io
-  IMAGE_NAME: crunchtools/<name>
-```
-
-The workflow builds the Containerfile, tags with `main` and commit SHA, and pushes to Quay.io. `latest` moves on a release tag only.
+Copy `examples/container.yml` from this repo: it calls `container-release.yml` at a release tag on `pull_request`, `push` (the default branch and `v*` tags), a weekly `schedule` and `workflow_dispatch`, and passes `QUAY_USERNAME`/`QUAY_PASSWORD` by name (never `secrets: inherit`). The repo chooses only its image, its boot gate and, for a cascade image, `cascade` and `downstream`.
 
 ---
 

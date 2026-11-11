@@ -1422,6 +1422,89 @@ def check_locked_install(repo_root: Path, requirements: dict) -> list[str]:
     return violations
 
 
+CONTAINER_RELEASE_SINCE = (1, 39, 0)
+"""First constitution version whose container-image VII is machine-checked (RT#1550)."""
+
+_RELEASE_CALL = re.compile(
+    r"uses:\s*crunchtools/constitution/\.github/workflows/container-release\.yml@v\d+\.\d+\.\d+"
+)
+_IMAGE_BUILD = re.compile(r"docker/build-push-action|\b(?:podman|buildah|docker)\s+(?:build|push)\b")
+_FLOATING_PUSH = re.compile(
+    r"type=raw,value=(?:latest|main)\b|\b(?:podman|buildah|docker|skopeo)\b[^\n]*:(?:latest|main)\b"
+)
+_CONTAINERFILE_SKIP = {".git", "node_modules", "tests", "examples", ".venv"}
+
+
+def check_container_release(repo_root: Path, inherits: str, requirements: dict) -> list[str]:
+    """Since 1.39.0 (RT#1550): build once, gate the digest, promote what was tested.
+
+    A repo with a Containerfile calls container-release.yml at a constitution
+    tag, which builds once per change and moves floating tags only by digest
+    copy after the gates. 62 of 63 container repos rebuilt per registry and
+    pushed `latest` from the build job; acquacotta then shipped an
+    unbootable image straight to production with no clean rollback target.
+    A repo listed in `container_release_custom` keeps its own workflow, and is
+    still held to the copy (`--preserve-digests`, never `imagetools create`,
+    which rewraps a manifest into a new digest). GHCR is gone for every repo
+    (constitution III): Quay is the only registry.
+
+    Gated on `Inherits`, like SDLC_SINCE: a repo takes 1.39.0 in the pull
+    request that converts it.
+    """
+    if _version_tuple(inherits) < CONTAINER_RELEASE_SINCE:
+        return []
+    containerfiles = [
+        path for pattern in ("Containerfile*", "Dockerfile*")
+        for path in repo_root.rglob(pattern)
+        if not _CONTAINERFILE_SKIP.intersection(path.relative_to(repo_root).parts)
+    ]
+    if not containerfiles:
+        return []
+    workflows = sorted(
+        path for pattern in ("*.yml", "*.yaml")
+        for path in (repo_root / ".github" / "workflows").glob(pattern)
+    )
+    texts = {path.name: path.read_text(errors="ignore") for path in workflows}
+    custom = repo_root.name in requirements.get("fleet", {}).get("container_release_custom", [])
+    calls = [name for name, text in texts.items() if _RELEASE_CALL.search(text)]
+
+    violations: list[str] = []
+    for name, text in texts.items():
+        if "ghcr.io" in text:
+            violations.append(
+                f"CONTAINER: {name} publishes to GHCR; Quay is the only registry (VII, RT#1550)"
+            )
+        if "imagetools create" in text:
+            violations.append(
+                f"CONTAINER: {name} promotes with `imagetools create`, which rewraps a "
+                f"single manifest into a new digest no gate tested; use "
+                f"`skopeo copy --all --preserve-digests` (VII)"
+            )
+        if custom or name in calls:
+            continue
+        if _IMAGE_BUILD.search(text):
+            violations.append(
+                f"CONTAINER: {name} builds or pushes an image outside container-release.yml; "
+                f"build once per change and promote the gated digest (VII, RT#1550)"
+            )
+        elif _FLOATING_PUSH.search(text):
+            violations.append(
+                f"CONTAINER: {name} moves a floating tag outside the promote job (VII)"
+            )
+    if custom:
+        if not any("--preserve-digests" in text for text in texts.values()):
+            violations.append(
+                "CONTAINER: custom release workflow never promotes with "
+                "`skopeo copy --all --preserve-digests` (VII)"
+            )
+    elif not calls:
+        violations.append(
+            "CONTAINER: a Containerfile is present but no workflow calls "
+            "crunchtools/constitution/.github/workflows/container-release.yml@vX.Y.Z (VII, RT#1550)"
+        )
+    return violations
+
+
 VERSION_SYNC_SINCE = (1, 28, 0)
 """First constitution version with the `version_files` requirement."""
 RELEASED = re.compile(r"^##\s*\[(\d+\.\d+\.\d+)\]", re.MULTILINE)
@@ -1674,6 +1757,7 @@ def validate_manifest(
         violations += check_gate_workflows(repo_root, inherits, requirements)
         violations += check_repo_files(repo_root, profiles, requirements)
         violations += check_locked_install(repo_root, requirements)
+        violations += check_container_release(repo_root, inherits, requirements)
         violations += check_tests_contain(repo_root, inherits, profiles, requirements)
         violations += check_http_client(repo_root, inherits, profiles, requirements)
         violations += check_version_sync(repo_root, inherits, profiles, requirements)

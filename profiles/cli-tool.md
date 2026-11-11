@@ -210,7 +210,7 @@ Every code change must pass through these five gates in order:
 | build-container | Containerfile builds | Yes |
 | security | Weekly CVE scan + CodeQL | Scheduled |
 | publish | PyPI trusted publishing | On release tag |
-| container | Dual push: Quay.io job + GHCR job (dependency chain) | On release tag |
+| container | `container-release.yml`: build once, gate, promote by digest to Quay.io | Every PR; promotes on merge and release tag |
 
 ---
 
@@ -225,7 +225,6 @@ CLI tools follow this pattern (replace `<name>` with the tool name):
 | CLI command | `<name>` | `gatehouse` |
 | Python module | `<name>` (or `<name>_<qualifier>` if needed) | `gatehouse` |
 | Container (Quay) | `quay.io/crunchtools/<name>` | `quay.io/crunchtools/gatehouse` |
-| Container (GHCR) | `ghcr.io/crunchtools/<name>` | `ghcr.io/crunchtools/gatehouse` |
 | License | AGPL-3.0-or-later | — |
 
 CLI tools use **short, memorable names** — not the `mcp-<name>-crunchtools` pattern. The tool name IS the command.
