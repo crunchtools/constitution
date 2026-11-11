@@ -1,0 +1,411 @@
+# Build once, gate the digest, promote what was tested (container-image VII).
+#
+# Callers pin this file to a release tag; copy examples/container.yml:
+#
+#   uses: crunchtools/constitution/.github/workflows/container-release.yml@v1.38.0
+#
+# One build per change. A pull request builds its head commit, gates that
+# digest and marks it gated-<sha>. The merge to the default branch does NOT
+# rebuild: `resolve` finds the merged PR, confirms the merge commit has the
+# same git tree as the head that was gated, and promote copies that digest to
+# `main`. A v* tag copies main's digest to the version tags and `latest`.
+# Builds happen only on pull requests, schedule and workflow_dispatch, plus
+# one fallback: a merge with no gated image (a PR that could not push, or a
+# branch that was not up to date) is rebuilt and gated here before it can move
+# a tag. Untested bytes never reach a floating tag on any path.
+#
+# The logic is scripts/container_release.py at the release written below as a
+# literal `ref:` (a reusable workflow cannot name its own ref, #42);
+# tests/test_manifest.py fails when it is not this constitution's version.
+#
+# Secrets are passed by name, never `secrets: inherit`: the gates job runs the
+# caller's own boot and contract commands and holds no credentials at all.
+
+name: Container release
+
+on:
+  workflow_call:
+    inputs:
+      image:
+        description: "Repository without tag, e.g. quay.io/crunchtools/mcp-nagios"
+        type: string
+        required: true
+      containerfile:
+        type: string
+        default: Containerfile
+      context:
+        type: string
+        default: .
+      build-args:
+        description: "Newline-separated KEY=VALUE build arguments"
+        type: string
+        default: ""
+      boot:
+        description: "mcp | mcp-http | systemd | healthcheck | command | none"
+        type: string
+        required: true
+      boot-env:
+        description: "Newline-separated KEY=VALUE for the boot container (dummy values)"
+        type: string
+        default: ""
+      boot-run-args:
+        description: "Extra podman run arguments for the boot container"
+        type: string
+        default: ""
+      boot-cmd:
+        description: "Arguments after the image (mcp / mcp-http)"
+        type: string
+        default: ""
+      boot-units:
+        description: "systemd: space-separated units that must be active"
+        type: string
+        default: ""
+      boot-port:
+        type: number
+        default: 8080
+      boot-path:
+        type: string
+        default: /mcp
+      boot-timeout:
+        type: number
+        default: 180
+      boot-command:
+        description: "command: shell run from the repo root with $IMAGE set; exit 0 = boots"
+        type: string
+        default: ""
+      boot-none-reason:
+        description: "none: why this image cannot be booted (required for none)"
+        type: string
+        default: ""
+      contract-test:
+        description: "Optional shell run from the repo root with $IMAGE set (profile VI)"
+        type: string
+        default: ""
+      default-branch:
+        type: string
+        default: main
+      cascade:
+        description: "An image other images build FROM (ubi10 chain): latest tracks main"
+        type: boolean
+        default: false
+      downstream:
+        description: >-
+          Space-separated crunchtools repos to rebuild after main/latest moves.
+          Each receives repository_dispatch event `parent-image-updated` (the
+          name the ubi10 chain already listens for) with client_payload.source
+          set to this repo; a child triggers on `repository_dispatch: types:
+          [parent-image-updated]`.
+        type: string
+        default: ""
+      constitution-ref:
+        description: "Internal: the canary tests the candidate scripts. Leave empty."
+        type: string
+        default: ""
+    secrets:
+      QUAY_USERNAME:
+        required: false
+      QUAY_PASSWORD:
+        required: false
+      CRUNCHTOOLS_CI_APP_KEY:
+        description: "Only with downstream: the crunchtools-ci GitHub App key"
+        required: false
+    outputs:
+      digest:
+        value: ${{ jobs.promote.outputs.digest }}
+      tags:
+        value: ${{ jobs.promote.outputs.tags }}
+
+permissions: {}
+
+jobs:
+  resolve:
+    name: resolve
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      digest: ${{ steps.r.outputs.digest }}
+      rebuild: ${{ steps.r.outputs.rebuild }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          repository: crunchtools/constitution
+          ref: ${{ inputs.constitution-ref || 'v1.38.0' }}
+          path: .constitution
+          persist-credentials: false
+      - id: r
+        env:
+          GH_TOKEN: ${{ github.token }}
+          IMAGE: ${{ inputs.image }}
+        run: python3 -I .constitution/scripts/container_release.py resolve --image "$IMAGE"
+
+  build:
+    name: build
+    needs: resolve
+    if: >-
+      always() && (needs.resolve.result == 'skipped' ||
+      (needs.resolve.result == 'success' && needs.resolve.outputs.rebuild == 'true' &&
+       !startsWith(github.ref, 'refs/tags/')))
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      digest: ${{ steps.push.outputs.digest }}
+      pushed: ${{ steps.push.outputs.pushed }}
+      sha: ${{ steps.src.outputs.sha }}
+    steps:
+      - id: src
+        env:
+          SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ steps.src.outputs.sha }}
+          persist-credentials: false
+      - name: Build once
+        env:
+          SHA: ${{ steps.src.outputs.sha }}
+          FILE: ${{ inputs.containerfile }}
+          CONTEXT: ${{ inputs.context }}
+          BUILD_ARGS: ${{ inputs.build-args }}
+          SOURCE: ${{ github.server_url }}/${{ github.repository }}
+        run: |
+          set -eu
+          args=()
+          while IFS= read -r kv; do [ -n "$kv" ] && args+=(--build-arg "$kv"); done <<< "$BUILD_ARGS"
+          # --pull=always and a fresh runner: no stale base, no stale layer
+          # (the 2026-10-22 rotv incident). --format docker keeps HEALTHCHECK.
+          podman build --pull=always --format docker "${args[@]}" \
+            --label "org.opencontainers.image.revision=$SHA" \
+            --label "org.opencontainers.image.source=$SOURCE" \
+            -f "$FILE" -t localhost/release:candidate "$CONTEXT"
+      - id: push
+        env:
+          QUAY_USERNAME: ${{ secrets.QUAY_USERNAME }}
+          QUAY_PASSWORD: ${{ secrets.QUAY_PASSWORD }}
+          IMAGE: ${{ inputs.image }}
+          SHA: ${{ steps.src.outputs.sha }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          set -eu
+          if [ -z "$QUAY_USERNAME" ]; then
+            # Dependabot and forks get no secrets: gate from an archive, push
+            # nothing. Their merge rebuilds and gates on the default branch.
+            echo "::notice::no registry credentials; gating a local archive, nothing is pushed"
+            podman save --format oci-archive -o "$RUNNER_TEMP/image.tar" localhost/release:candidate
+            echo "pushed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          printf '%s' "$QUAY_PASSWORD" | podman login -u "$QUAY_USERNAME" --password-stdin quay.io
+          podman push --digestfile "$RUNNER_TEMP/digest" localhost/release:candidate "docker://$IMAGE:sha-$SHA"
+          digest=$(cat "$RUNNER_TEMP/digest")
+          if [ -n "$PR" ]; then
+            skopeo copy --all --preserve-digests "docker://$IMAGE@$digest" "docker://$IMAGE:pr-$PR"
+          fi
+          podman logout quay.io
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+          echo "pushed=true" >> "$GITHUB_OUTPUT"
+          echo "::notice::built once: $IMAGE@$digest (sha-$SHA)"
+      - if: steps.push.outputs.pushed == 'false'
+        uses: actions/upload-artifact@v7
+        with:
+          name: candidate-image
+          path: ${{ runner.temp }}/image.tar
+          retention-days: 3
+
+  gates:
+    name: gates
+    needs: build
+    if: always() && needs.build.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.build.outputs.sha }}
+          persist-credentials: false
+      - uses: actions/checkout@v7
+        with:
+          repository: crunchtools/constitution
+          ref: ${{ inputs.constitution-ref || 'v1.38.0' }}
+          path: .constitution
+          persist-credentials: false
+      - if: needs.build.outputs.pushed == 'false'
+        uses: actions/download-artifact@v7
+        with:
+          name: candidate-image
+          path: ${{ runner.temp }}
+      - name: The image under test, by digest
+        id: img
+        env:
+          PUSHED: ${{ needs.build.outputs.pushed }}
+          IMAGE: ${{ inputs.image }}
+          DIGEST: ${{ needs.build.outputs.digest }}
+        run: |
+          set -eu
+          if [ "$PUSHED" = true ]; then
+            ref="$IMAGE@$DIGEST"
+            podman pull --quiet "$ref" >/dev/null
+          else
+            ref=$(podman load -q -i "$RUNNER_TEMP/image.tar" | sed -n 's/^Loaded image: //p' | tail -1)
+          fi
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
+          echo "::notice::gating $ref"
+      - name: Boot gate (${{ inputs.boot }})
+        env:
+          IMAGE: ${{ steps.img.outputs.ref }}
+          PROFILE: ${{ inputs.boot }}
+          BOOT_ENV: ${{ inputs.boot-env }}
+          RUN_ARGS: ${{ inputs.boot-run-args }}
+          CMD: ${{ inputs.boot-cmd }}
+          UNITS: ${{ inputs.boot-units }}
+          PORT: ${{ inputs.boot-port }}
+          URLPATH: ${{ inputs.boot-path }}
+          TIMEOUT: ${{ inputs.boot-timeout }}
+          BOOT_COMMAND: ${{ inputs.boot-command }}
+          NONE_REASON: ${{ inputs.boot-none-reason }}
+        run: |
+          set -eu
+          case "$PROFILE" in
+            command)
+              [ -n "$BOOT_COMMAND" ] || { echo "boot: command needs boot-command" >&2; exit 1; }
+              bash -euo pipefail -c "$BOOT_COMMAND"
+              ;;
+            none)
+              [ -n "$NONE_REASON" ] || { echo "boot: none needs boot-none-reason" >&2; exit 1; }
+              echo "::warning::boot gate skipped: $NONE_REASON"
+              ;;
+            mcp|mcp-http|systemd|healthcheck)
+              envs=()
+              while IFS= read -r kv; do [ -n "$kv" ] && envs+=(--env "$kv"); done <<< "$BOOT_ENV"
+              python3 -I .constitution/scripts/container_release.py boot \
+                --image "$IMAGE" --profile "$PROFILE" "${envs[@]}" \
+                --run-args "$RUN_ARGS" --cmd "$CMD" --units "$UNITS" \
+                --port "$PORT" --path "$URLPATH" --timeout "$TIMEOUT"
+              ;;
+            *) echo "boot: unknown profile '$PROFILE'" >&2; exit 1 ;;
+          esac
+      - name: Contract test
+        if: inputs.contract-test != ''
+        env:
+          IMAGE: ${{ steps.img.outputs.ref }}
+          CONTRACT: ${{ inputs.contract-test }}
+        run: bash -euo pipefail -c "$CONTRACT"
+      - name: Vulnerability scan (advisory, VII)
+        if: needs.build.outputs.pushed == 'true'
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ${{ inputs.image }}@${{ needs.build.outputs.digest }}
+          format: table
+          exit-code: "0"
+          severity: CRITICAL,HIGH
+          version: v0.68.2
+
+  mark:
+    name: mark gated
+    needs: [build, gates]
+    if: always() && needs.gates.result == 'success' && needs.build.outputs.pushed == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          repository: crunchtools/constitution
+          ref: ${{ inputs.constitution-ref || 'v1.38.0' }}
+          path: .constitution
+          persist-credentials: false
+      - env:
+          QUAY_USERNAME: ${{ secrets.QUAY_USERNAME }}
+          QUAY_PASSWORD: ${{ secrets.QUAY_PASSWORD }}
+          IMAGE: ${{ inputs.image }}
+          DIGEST: ${{ needs.build.outputs.digest }}
+          SHA: ${{ needs.build.outputs.sha }}
+        run: |
+          set -eu
+          printf '%s' "$QUAY_PASSWORD" | skopeo login -u "$QUAY_USERNAME" --password-stdin quay.io
+          python3 -I .constitution/scripts/container_release.py mark \
+            --image "$IMAGE" --digest "$DIGEST" --sha "$SHA"
+
+  promote:
+    name: promote
+    needs: [resolve, build, gates, mark]
+    if: >-
+      always() && github.event_name != 'pull_request' &&
+      (startsWith(github.ref, 'refs/tags/v') || github.ref == format('refs/heads/{0}', inputs.default-branch)) &&
+      ((needs.resolve.result == 'success' && needs.resolve.outputs.digest != '') || needs.mark.result == 'success')
+    runs-on: ubuntu-latest
+    # Check-then-copy must not interleave; never cancel a promotion halfway.
+    concurrency:
+      group: container-promote-${{ github.repository }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+    outputs:
+      digest: ${{ steps.p.outputs.digest }}
+      tags: ${{ steps.p.outputs.tags }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          repository: crunchtools/constitution
+          ref: ${{ inputs.constitution-ref || 'v1.38.0' }}
+          path: .constitution
+          persist-credentials: false
+      - id: p
+        env:
+          QUAY_USERNAME: ${{ secrets.QUAY_USERNAME }}
+          QUAY_PASSWORD: ${{ secrets.QUAY_PASSWORD }}
+          GH_TOKEN: ${{ github.token }}
+          IMAGE: ${{ inputs.image }}
+          DIGEST: ${{ needs.resolve.outputs.digest || needs.build.outputs.digest }}
+          BRANCH: ${{ inputs.default-branch }}
+          CASCADE: ${{ inputs.cascade && '--cascade' || '' }}
+        run: |
+          set -eu
+          printf '%s' "$QUAY_PASSWORD" | skopeo login -u "$QUAY_USERNAME" --password-stdin quay.io
+          echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
+          python3 -I .constitution/scripts/container_release.py promote \
+            --image "$IMAGE" --digest "$DIGEST" --branch "$BRANCH" $CASCADE
+      - name: What was promoted
+        env:
+          IMAGE: ${{ inputs.image }}
+          DIGEST: ${{ steps.p.outputs.digest }}
+          TAGS: ${{ steps.p.outputs.tags }}
+        run: |
+          {
+            echo "### Promoted, not rebuilt"
+            echo
+            echo "\`$IMAGE@$DIGEST\`"
+            echo
+            for t in $TAGS; do echo "- \`$t\`"; done
+            [ -n "$TAGS" ] || echo "Nothing moved: a newer commit owns the branch."
+            echo
+            echo "Rollback: \`skopeo copy --all --preserve-digests docker://$IMAGE:rollback-main docker://$IMAGE:main\` (or \`rollback-latest\` / \`latest\`)."
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Token for the downstream dispatch
+        id: app
+        if: inputs.downstream != '' && (contains(steps.p.outputs.tags, 'main') || contains(steps.p.outputs.tags, 'latest'))
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.CRUNCHTOOLS_CI_CLIENT_ID }}
+          private-key: ${{ secrets.CRUNCHTOOLS_CI_APP_KEY }}
+          owner: crunchtools
+          # repository_dispatch needs contents: write on the target.
+          permission-contents: write
+      - name: Rebuild what builds FROM this (parent-image-updated)
+        if: steps.app.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          DOWNSTREAM: ${{ inputs.downstream }}
+          SOURCE: ${{ github.repository }}
+        run: |
+          set -eu
+          for r in $DOWNSTREAM; do
+            gh api "repos/crunchtools/$r/dispatches" -f event_type=parent-image-updated \
+              -f "client_payload[source]=$SOURCE"
+            echo "dispatched $r"
+          done

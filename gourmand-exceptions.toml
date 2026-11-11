@@ -70,3 +70,10 @@ path = ".pre-commit-config.yaml"
 pattern = "ruff-check"
 justification = "ruff runs inside the sdlc-commit hook from python-sdlc (constitution XII v1.30.0), configured by [tool.ruff] in pyproject.toml; Gourmand looks for a literal ruff hook id"
 classification = "by_design"
+
+[[exceptions]]
+check = "CQ013-hardcoded_years"
+path = "scripts/container_release.py"
+pattern = "MCP_PROTOCOL"
+justification = "\"2025-06-18\" is the MCP protocol revision the boot gate sends in initialize, a protocol identifier and not a date that goes stale; servers negotiate down from it."
+classification = "by_design"

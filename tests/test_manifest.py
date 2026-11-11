@@ -185,6 +185,30 @@ def test_reusable_workflow_checks_out_this_release(name):
     assert "job_workflow_sha }}" not in workflow
 
 
+def test_container_release_checks_out_this_release():
+    """Same as above; the canary may override the ref with its own candidate sha."""
+    workflow = (ROOT / ".github/workflows/container-release.yml").read_text()
+    jobs_that_check_out_scripts = 4  # resolve, gates, mark, promote
+    pinned = f"inputs.constitution-ref || 'v{VERSION}' }}}}"
+    assert workflow.count(pinned) == jobs_that_check_out_scripts
+    assert "ref: v" not in workflow.replace(f"@v{VERSION}", "")
+
+
+def test_downstream_dispatch_names_the_event_the_profile_documents():
+    """Children listen for one event name; the workflow and the profile must agree."""
+    workflow = (ROOT / ".github/workflows/container-release.yml").read_text()
+    profile = (ROOT / "profiles/container-image.md").read_text()
+    sent = re.findall(r"event_type=([\w-]+)", workflow)
+    assert sent == ["parent-image-updated"]
+    assert "`parent-image-updated`" in profile
+
+
+def test_example_container_caller_pins_this_release():
+    example = (ROOT / "examples/container.yml").read_text()
+    assert f"container-release.yml@v{VERSION}\n" in example
+    assert "secrets: inherit" not in example
+
+
 def test_example_security_caller_pins_this_release():
     example = (ROOT / "examples/security.yml").read_text()
     assert f"dependency-audit.yml@v{VERSION}\n" in example
@@ -883,7 +907,9 @@ def test_value_flag_path_is_not_a_target(repo):
 
 def test_no_deps_but_no_lock_reference_fails(repo):
     """--no-deps alone is not enough: the image must install FROM the lock."""
-    set_containerfile(repo, "FROM b\nCOPY src/ ./src/\nRUN pip install --no-cache-dir --no-deps .\n")
+    set_containerfile(
+        repo, "FROM b\nCOPY src/ ./src/\nRUN pip install --no-cache-dir --no-deps .\n"
+    )
     found = container_violations(repo)
     assert any("never installs from the committed uv.lock" in v for v in found)
 
@@ -903,7 +929,10 @@ def test_comment_naming_lock_does_not_satisfy(repo):
 def test_container_check_off_without_requirements_key(repo, monkeypatch):
     """A pinned checkout whose requirements.toml predates the key is left alone."""
     raised = V.load_requirements()
-    raised = {**raised, "fleet": {k: v for k, v in raised["fleet"].items() if k != "locked_python_install"}}
+    raised = {
+        **raised,
+        "fleet": {k: v for k, v in raised["fleet"].items() if k != "locked_python_install"},
+    }
     monkeypatch.setattr(V, "load_requirements", lambda: raised)
     set_containerfile(repo, "FROM b\nRUN pip install --no-cache-dir .\n")
     assert container_violations(repo) == []

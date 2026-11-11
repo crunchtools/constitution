@@ -1,0 +1,46 @@
+# Runs this repo's candidate container-release.yml end to end on a canary
+# image, so the workflow is proven before any release tag ships it. A pull
+# request builds, gates and marks; the merge promotes the PR's digest to
+# :main without rebuilding. The refusal paths are unit-tested in
+# tests/test_container_release.py.
+
+name: Container release canary
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/container-release.yml
+      - .github/workflows/container-release-canary.yml
+      - scripts/container_release.py
+      - tests/canary/**
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/container-release.yml
+      - .github/workflows/container-release-canary.yml
+      - scripts/container_release.py
+      - tests/canary/**
+  schedule:
+    # Weekly, like every container repo: a ubi-minimal or runner change that
+    # breaks the workflow shows up here before a release ships it.
+    - cron: "41 5 * * 1"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  canary:
+    uses: ./.github/workflows/container-release.yml
+    permissions:
+      contents: read
+      pull-requests: read
+    with:
+      image: quay.io/crunchtools/container-release-canary
+      containerfile: tests/canary/Containerfile
+      context: tests/canary
+      boot: healthcheck
+      boot-timeout: 60
+      constitution-ref: ${{ github.event.pull_request.head.sha || github.sha }}
+    secrets:
+      QUAY_USERNAME: ${{ secrets.QUAY_USERNAME }}
+      QUAY_PASSWORD: ${{ secrets.QUAY_PASSWORD }}
