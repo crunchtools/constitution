@@ -42,7 +42,7 @@ def check(root: Path, inherits: str = "1.39.0") -> list[str]:
 
 
 OLD_DUAL_BUILD = workflow(
-    job("quay", uses="docker/build-push-action@v7"),
+    job("quay", "docker push quay.io/crunchtools/x:abc123"),
     job("ghcr", "docker push ghcr.io/crunchtools/x:latest"),
 )
 
@@ -54,13 +54,37 @@ def test_a_repo_that_calls_container_release_passes(tmp_path):
 def test_the_old_dual_build_fails_on_every_count(tmp_path):
     found = check(make(tmp_path, container=OLD_DUAL_BUILD))
     assert any("GHCR" in v for v in found)
-    assert any("outside container-release.yml" in v for v in found)
+    assert any("publishes an image outside" in v for v in found)
     assert any("no workflow job calls" in v for v in found)
 
 
-def test_a_second_build_beside_the_call_in_the_same_file_fails(tmp_path):
-    found = check(make(tmp_path, container=workflow(CALL, job("smoke", "podman build -t t ."))))
-    assert len(found) == 1 and "job `smoke`" in found[0]
+def test_a_second_publish_beside_the_call_in_the_same_file_fails(tmp_path):
+    side = job("side", "podman build -t q:x .", "podman push quay.io/crunchtools/x:abc")
+    found = check(make(tmp_path, container=workflow(CALL, side)))
+    assert len(found) == 1 and "job `side`" in found[0]
+
+
+def test_a_local_build_for_tests_is_not_publishing(tmp_path):
+    tests = job(
+        "test",
+        "docker pull quay.io/crunchtools/rotv-base:latest",
+        "docker build --build-arg BASE_IMAGE=quay.io/crunchtools/rotv-base:latest -t rotv:test .",
+        "docker run -d rotv:test",
+    )
+    assert check(make(tmp_path, container=workflow(CALL), tests=workflow(tests))) == []
+
+
+@pytest.mark.parametrize(
+    "push, flagged",
+    [("true", True), ("${{ github.event_name != 'pull_request' }}", True), ("false", False)],
+)
+def test_build_push_action_publishes_unless_push_is_false(tmp_path, push, flagged):
+    step = (
+        "  b:\n    runs-on: x\n    steps:\n"
+        f"      - uses: docker/build-push-action@v7\n        with:\n          push: {push}\n"
+    )
+    found = check(make(tmp_path, container=workflow(CALL), other=workflow(step)))
+    assert bool(found) is flagged
 
 
 def test_a_commented_out_call_is_not_a_call(tmp_path):

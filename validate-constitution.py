@@ -1428,12 +1428,14 @@ CONTAINER_RELEASE_SINCE = (1, 39, 0)
 _RELEASE_CALL = re.compile(
     r"^crunchtools/constitution/\.github/workflows/container-release\.yml@v\d+\.\d+\.\d+$"
 )
-_IMAGE_BUILD = re.compile(
-    r"docker/build-push-action|\b(?:podman|buildah|docker)\s+(?:build|push)\b"
-)
+# Publishing, not building: a job may build an image locally to run its tests
+# (rotv's BUILD_ENV=test integration image); what VII governs is which bytes
+# reach a registry tag.
+_IMAGE_PUSH = re.compile(r"\b(?:podman|buildah|docker)\s+push\b|\bskopeo\s+copy\b")
 _FLOATING_PUSH = re.compile(
     r"type=raw,value=(?:latest|main)\b"
-    r"|\b(?:podman|buildah|docker|skopeo)\b[^\n]*:(?:latest|main)\b"
+    r"|\b(?:podman|buildah|docker)\s+(?:push|tag)\b[^\n]*:(?:latest|main)\b"
+    r"|\bskopeo\s+copy\b[^\n]*:(?:latest|main)\b"
 )
 # A digest-preserving promotion: one logical `skopeo copy` with both flags.
 _DIGEST_COPY = re.compile(r"\bskopeo\s+copy\b(?=[^\n]*--all\b)(?=[^\n]*--preserve-digests\b)")
@@ -1462,6 +1464,18 @@ def _job_commands(job: dict) -> str:
             lines.append(str(step.get("run", "")).replace("\\\n", " "))
             lines.append(json.dumps(step.get("with") or {}))
     return "\n".join(lines)
+
+
+def _job_publishes(job: dict, commands: str) -> bool:
+    """A push command, or docker/build-push-action with `push` not false."""
+    if _IMAGE_PUSH.search(commands):
+        return True
+    for step in job.get("steps") or []:
+        if isinstance(step, dict) and "docker/build-push-action" in str(step.get("uses", "")):
+            push = (step.get("with") or {}).get("push", False)
+            if str(push).strip().lower() not in ("false", ""):
+                return True
+    return False
 
 
 def check_container_release(repo_root: Path, inherits: str, requirements: dict) -> list[str]:
@@ -1514,16 +1528,16 @@ def check_container_release(repo_root: Path, inherits: str, requirements: dict) 
             copies = copies or bool(_DIGEST_COPY.search(commands))
             if custom:
                 continue
-            if _IMAGE_BUILD.search(commands):
-                violations.append(
-                    f"CONTAINER: {path.name} job `{job_id}` builds or pushes an image outside "
-                    f"container-release.yml; build once per change and promote the gated "
-                    f"digest (VII, RT#1550)"
-                )
-            elif _FLOATING_PUSH.search(commands):
+            if _FLOATING_PUSH.search(commands):
                 violations.append(
                     f"CONTAINER: {path.name} job `{job_id}` moves a floating tag outside the "
                     f"promote job (VII)"
+                )
+            elif _job_publishes(job, commands):
+                violations.append(
+                    f"CONTAINER: {path.name} job `{job_id}` publishes an image outside "
+                    f"container-release.yml; build once per change and promote the gated "
+                    f"digest (VII, RT#1550)"
                 )
     if custom and not copies:
         violations.append(
