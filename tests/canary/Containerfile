@@ -1,0 +1,7 @@
+# The container-release canary: the smallest image that exercises the
+# healthcheck boot gate. Built and promoted by container-release-canary.yml so a
+# broken release of container-release.yml fails here, not in sixty repos.
+FROM registry.access.redhat.com/ubi10/ubi-minimal:latest
+RUN printf '#!/bin/sh\nexec sleep infinity\n' > /usr/local/bin/serve && chmod 0755 /usr/local/bin/serve
+HEALTHCHECK --interval=5s --timeout=3s --retries=3 CMD test -x /usr/local/bin/serve
+CMD ["/usr/local/bin/serve"]

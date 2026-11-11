@@ -9,6 +9,21 @@ Entries through 1.14.0 are derived from the Ratification History table in
 
 ## [Unreleased]
 
+### Added
+
+- **`container-release.yml`, the reusable build-once / promote workflow**
+  (RT#1550). A pull request builds its head commit once, gates that digest
+  (a required boot profile: `mcp`, `mcp-http`, `systemd`, `healthcheck`,
+  `command`, or `none` with a reason; an optional contract test) and marks it
+  `gated-<sha>`. The merge does not rebuild: it promotes the PR's digest to
+  `main` after checking the merge commit has the same git tree, and a `v*`
+  tag copies main's digest to the version tags and `latest`. Every copy is
+  `skopeo --all --preserve-digests` and read back. `main` moves only to the
+  branch tip, `latest` and `X.Y` only to the newest release, and the digest a
+  floating tag held is kept as `rollback-<tag>`. Logic and tests in
+  `scripts/container_release.py`; `examples/container.yml` is the caller; a
+  canary image runs the candidate end to end in this repo's CI.
+
 ## [1.38.0] - 2026-11-10
 
 ### Added

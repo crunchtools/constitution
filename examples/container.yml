@@ -1,0 +1,33 @@
+# Container release: build once, gate the digest, promote what was tested
+# (constitution container-image VII). Copy to .github/workflows/container.yml.
+#
+# `boot` is required: mcp | mcp-http | systemd | healthcheck | command | none.
+# See the inputs in crunchtools/constitution .github/workflows/container-release.yml.
+
+name: Container
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  schedule:
+    - cron: "17 4 * * 1"   # weekly: base-image errata, gated like any build
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  container:
+    uses: crunchtools/constitution/.github/workflows/container-release.yml@v1.38.0
+    permissions:
+      contents: read
+      pull-requests: read
+    with:
+      image: quay.io/crunchtools/EXAMPLE
+      boot: mcp
+      boot-env: |
+        EXAMPLE_API_KEY=gate-dummy
+    secrets:
+      QUAY_USERNAME: ${{ secrets.QUAY_USERNAME }}
+      QUAY_PASSWORD: ${{ secrets.QUAY_PASSWORD }}

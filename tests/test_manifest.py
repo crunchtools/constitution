@@ -185,6 +185,19 @@ def test_reusable_workflow_checks_out_this_release(name):
     assert "job_workflow_sha }}" not in workflow
 
 
+def test_container_release_checks_out_this_release():
+    """Same as above; the canary may override the ref with its own candidate sha."""
+    workflow = (ROOT / ".github/workflows/container-release.yml").read_text()
+    assert workflow.count(f"inputs.constitution-ref || 'v{VERSION}' }}}}") == 4
+    assert "ref: v" not in workflow.replace(f"@v{VERSION}", "")
+
+
+def test_example_container_caller_pins_this_release():
+    example = (ROOT / "examples/container.yml").read_text()
+    assert f"container-release.yml@v{VERSION}\n" in example
+    assert "secrets: inherit" not in example
+
+
 def test_example_security_caller_pins_this_release():
     example = (ROOT / "examples/security.yml").read_text()
     assert f"dependency-audit.yml@v{VERSION}\n" in example
