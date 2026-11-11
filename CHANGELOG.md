@@ -23,6 +23,9 @@ Entries through 1.14.0 are derived from the Ratification History table in
   floating tag held is kept as `rollback-<tag>`. Logic and tests in
   `scripts/container_release.py`; `examples/container.yml` is the caller; a
   canary image runs the candidate end to end in this repo's CI.
+  `rhsm: true` passes the `activation_key` / `org_id` build secrets
+  (RHSM_ACTIVATION_KEY, RHSM_ORG_ID) and `redhat-registry: true` logs in to
+  registry.redhat.io, both to the build job only.
 
 ## [1.38.0] - 2026-11-10
 

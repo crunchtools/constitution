@@ -40,6 +40,17 @@ on:
         description: "Newline-separated KEY=VALUE build arguments"
         type: string
         default: ""
+      rhsm:
+        description: >-
+          The Containerfile registers with RHSM through build secrets
+          `activation_key` and `org_id` (RUN --mount=type=secret,id=...);
+          pass RHSM_ACTIVATION_KEY and RHSM_ORG_ID.
+        type: boolean
+        default: false
+      redhat-registry:
+        description: "Log in to registry.redhat.io before building (a FROM there needs it)"
+        type: boolean
+        default: false
       boot:
         description: "mcp | mcp-http | systemd | healthcheck | command | none"
         type: string
@@ -109,6 +120,18 @@ on:
       CRUNCHTOOLS_CI_APP_KEY:
         description: "Only with downstream: the crunchtools-ci GitHub App key"
         required: false
+      RHSM_ACTIVATION_KEY:
+        description: "Only with rhsm: true"
+        required: false
+      RHSM_ORG_ID:
+        description: "Only with rhsm: true"
+        required: false
+      REGISTRY_REDHAT_IO_USER:
+        description: "Only with redhat-registry: true"
+        required: false
+      REGISTRY_REDHAT_IO_PASSWORD:
+        description: "Only with redhat-registry: true"
+        required: false
     outputs:
       digest:
         value: ${{ jobs.promote.outputs.digest }}
@@ -171,10 +194,31 @@ jobs:
           CONTEXT: ${{ inputs.context }}
           BUILD_ARGS: ${{ inputs.build-args }}
           SOURCE: ${{ github.server_url }}/${{ github.repository }}
+          RHSM: ${{ inputs.rhsm }}
+          RHSM_ACTIVATION_KEY: ${{ secrets.RHSM_ACTIVATION_KEY }}
+          RHSM_ORG_ID: ${{ secrets.RHSM_ORG_ID }}
+          REDHAT_REGISTRY: ${{ inputs.redhat-registry }}
+          RH_USER: ${{ secrets.REGISTRY_REDHAT_IO_USER }}
+          RH_PASSWORD: ${{ secrets.REGISTRY_REDHAT_IO_PASSWORD }}
         run: |
           set -eu
           args=()
           while IFS= read -r kv; do [ -n "$kv" ] && args+=(--build-arg "$kv"); done <<< "$BUILD_ARGS"
+          if [ "$REDHAT_REGISTRY" = true ]; then
+            [ -n "$RH_USER" ] || { echo "redhat-registry: true but no REGISTRY_REDHAT_IO_USER" >&2; exit 1; }
+            printf '%s' "$RH_PASSWORD" | podman login -u "$RH_USER" --password-stdin registry.redhat.io
+          fi
+          if [ "$RHSM" = true ]; then
+            # Files, not env=: the runner's podman predates env-sourced secrets.
+            # 0600 in RUNNER_TEMP, removed below; the gates job never sees them.
+            [ -n "$RHSM_ACTIVATION_KEY" ] || { echo "rhsm: true but no RHSM_ACTIVATION_KEY" >&2; exit 1; }
+            umask 077
+            printf '%s' "$RHSM_ACTIVATION_KEY" > "$RUNNER_TEMP/activation_key"
+            printf '%s' "$RHSM_ORG_ID" > "$RUNNER_TEMP/org_id"
+            args+=(--secret "id=activation_key,src=$RUNNER_TEMP/activation_key")
+            args+=(--secret "id=org_id,src=$RUNNER_TEMP/org_id")
+          fi
+          trap 'rm -f "$RUNNER_TEMP/activation_key" "$RUNNER_TEMP/org_id"' EXIT
           # --pull=always and a fresh runner: no stale base, no stale layer
           # (the 2026-10-22 rotv incident). --format docker keeps HEALTHCHECK.
           podman build --pull=always --format docker "${args[@]}" \
