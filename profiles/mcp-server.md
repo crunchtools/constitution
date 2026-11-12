@@ -1,6 +1,6 @@
 # MCP Server Profile
 
-> **Profile Version:** 1.9.0
+> **Profile Version:** 1.10.0
 > **Applies to:** All `mcp-*-crunchtools` projects
 
 This profile extends the [universal constitution](../constitution.md) with requirements specific to MCP (Model Context Protocol) servers in the crunchtools organization.
@@ -63,8 +63,10 @@ nothing in the error said which site had answered or with what (RT #1596).
   a good citizen on a site you do not own.
 - **Bound what you read.** A response body MUST be read with a hard byte
   ceiling enforced *while reading* — accumulate `aiter_bytes()` and abort the
-  moment the running total passes the cap. A `content-length` check MAY reject
-  early and MUST NOT be the only check: the header is optional, so a chunked
+  moment the running total passes the cap. From constitution 1.41.0 the
+  validator refuses a function that streams a body without comparing against a
+  named `MAX_*_SIZE` / `MAX_*_BYTES` ceiling in that same function. A
+  `content-length` check MAY reject early and MUST NOT be the only check: the header is optional, so a chunked
   reply walks past it and the cap becomes a promise the code does not keep.
   Measuring at the transport instead is not equivalent either, because it
   counts wire bytes and a compressed body expands past the cap after the count.
