@@ -2,17 +2,19 @@
 #
 # Callers pin this file to a release tag; copy examples/container.yml:
 #
-#   uses: crunchtools/constitution/.github/workflows/container-release.yml@v1.39.4
+#   uses: crunchtools/constitution/.github/workflows/container-release.yml@v1.39.5
 #
 # One build per change. A pull request builds its head commit, gates that
 # digest and marks it gated-<sha>. The merge to the default branch does NOT
 # rebuild: `resolve` finds the merged PR, confirms the merge commit has the
 # same git tree as the head that was gated, and promote copies that digest to
-# `main`. A v* tag copies main's digest to the version tags and `latest`.
-# Builds happen only on pull requests, schedule and workflow_dispatch, plus
-# one fallback: a merge with no gated image (a PR that could not push, or a
-# branch that was not up to date) is rebuilt and gated here before it can move
-# a tag. Untested bytes never reach a floating tag on any path.
+# `main`. A v* tag promotes the gated digest of the tag commit to the version
+# tags and `latest`. Builds happen only on pull requests, schedule and
+# workflow_dispatch, plus one fallback: a merge or a release whose commit was
+# never gated (a PR that could not push, a branch not up to date, or a
+# path-filtered caller that built nothing for a release commit) is rebuilt
+# and gated here before it can move a tag; a tag off the default branch is
+# refused. Untested bytes never reach a floating tag on any path.
 #
 # The logic is scripts/container_release.py at the release written below as a
 # literal `ref:` (a reusable workflow cannot name its own ref, #42);
@@ -175,22 +177,22 @@ jobs:
       - uses: actions/checkout@v7
         with:
           repository: crunchtools/constitution
-          ref: ${{ inputs.constitution-ref || 'v1.39.4' }}
+          ref: ${{ inputs.constitution-ref || 'v1.39.5' }}
           path: .constitution
           persist-credentials: false
       - id: r
         env:
           GH_TOKEN: ${{ github.token }}
           IMAGE: ${{ inputs.image }}
-        run: python3 -I .constitution/scripts/container_release.py resolve --image "$IMAGE"
+          BRANCH: ${{ inputs.default-branch }}
+        run: python3 -I .constitution/scripts/container_release.py resolve --image "$IMAGE" --branch "$BRANCH"
 
   build:
     name: build
     needs: resolve
     if: >-
       always() && (needs.resolve.result == 'skipped' ||
-      (needs.resolve.result == 'success' && needs.resolve.outputs.rebuild == 'true' &&
-       !startsWith(github.ref, 'refs/tags/')))
+      (needs.resolve.result == 'success' && needs.resolve.outputs.rebuild == 'true'))
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -317,7 +319,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           repository: crunchtools/constitution
-          ref: ${{ inputs.constitution-ref || 'v1.39.4' }}
+          ref: ${{ inputs.constitution-ref || 'v1.39.5' }}
           path: .constitution
           persist-credentials: false
       - if: needs.build.outputs.pushed == 'false'
@@ -403,7 +405,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           repository: crunchtools/constitution
-          ref: ${{ inputs.constitution-ref || 'v1.39.4' }}
+          ref: ${{ inputs.constitution-ref || 'v1.39.5' }}
           path: .constitution
           persist-credentials: false
       - env:
@@ -439,7 +441,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           repository: crunchtools/constitution
-          ref: ${{ inputs.constitution-ref || 'v1.39.4' }}
+          ref: ${{ inputs.constitution-ref || 'v1.39.5' }}
           path: .constitution
           persist-credentials: false
       - id: p

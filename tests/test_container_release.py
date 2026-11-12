@@ -49,6 +49,8 @@ class World:
         self.trees: dict[str, str] = {}  # commit -> tree
         self.pulls: dict[str, list] = {}  # commit -> PRs
         self.tip = ""
+        self.compare: dict[str, str] = {}  # commit -> status against the branch
+        self.compare_error = False
         self.release: dict[str, str] = {}  # vX.Y.Z -> commit
         self.read_error = False
         self.copies: list[str] = []
@@ -88,7 +90,11 @@ class World:
             lines = "\n".join(f"{n}\t{c}" for n, c in self.release.items())
             return CR.Result(0, lines, "")
         path = argv[2].removeprefix(f"repos/{REPO}/")
-        if path.startswith("git/commits/"):
+        if path.startswith("compare/"):
+            if self.compare_error:
+                return CR.Result(1, "", "HTTP 502")
+            found = {"status": self.compare.get(path.rsplit("...", 1)[1], "diverged")}
+        elif path.startswith("git/commits/"):
             found = {"tree": {"sha": self.trees[path.removeprefix("git/commits/")]}}
         elif path.endswith("/pulls"):
             found = self.pulls.get(path.split("/")[1], [])
@@ -147,9 +153,44 @@ def test_a_rerun_finds_its_own_marker(w):
     assert CR.resolve(*parts(w), "merge1", "refs/heads/main")[0] == d
 
 
-def test_a_release_of_a_commit_main_never_promoted_is_refused(w):
-    with pytest.raises(CR.Refused, match="never promoted"):
+def test_a_tag_on_main_with_no_marker_rebuilds(w):
+    """A path-filtered caller built nothing for a release commit (RT#1550)."""
+    w.compare["c9"] = "identical"
+    digest, why = CR.resolve(*parts(w), "c9", "refs/tags/v1.2.0")
+    assert digest is None and "no merged pull request" in why
+
+
+def test_a_tag_off_the_branch_is_refused(w):
+    w.compare["c9"] = "ahead"
+    with pytest.raises(CR.Refused, match="not on main"):
         CR.resolve(*parts(w), "c9", "refs/tags/v1.2.0")
+
+
+def test_a_tag_on_a_merge_promotes_the_pr_gated_digest(w):
+    w.compare["merge1"] = "behind"
+    merged(w, "merge1", "head1")
+    d = w.image("pr", "gated-head1")
+    assert CR.resolve(*parts(w), "merge1", "refs/tags/v1.2.0")[0] == d
+
+
+def test_a_tag_whose_branch_check_fails_is_refused(w):
+    w.compare_error = True
+    with pytest.raises(CR.Refused, match="cannot confirm it is on main"):
+        CR.resolve(*parts(w), "c9", "refs/tags/v1.2.0")
+
+
+def test_a_tag_on_a_gated_pr_head_off_the_branch_is_refused(w):
+    """A PR head is gated before it merges; tagging it must not release it."""
+    w.image("pr", "gated-head1")
+    w.compare["head1"] = "ahead"
+    with pytest.raises(CR.Refused, match="not on main"):
+        CR.resolve(*parts(w), "head1", "refs/tags/v1.2.0")
+
+
+def test_a_tag_on_a_gated_main_commit_promotes_its_marker(w):
+    d = w.image("main", "gated-c9")
+    w.compare["c9"] = "behind"
+    assert CR.resolve(*parts(w), "c9", "refs/tags/v1.2.0")[0] == d
 
 
 def test_a_failed_registry_read_fails_closed(w):
@@ -199,6 +240,14 @@ def test_a_release_moves_latest_and_its_versions(w):
     d = w.image("rel")
     moved = CR.promote(*parts(w), d, CR.Event("c2", "refs/tags/v1.4.0"))
     assert moved == ["1.4.0", "1.4", "latest"]
+
+
+def test_a_release_never_moves_main(w):
+    """A tag run, rebuilt or not, moves version tags and latest only."""
+    w.release = {"v1.4.0": "c2"}
+    w.tip = "c2"
+    moved = CR.promote(*parts(w), w.image("rel"), CR.Event("c2", "refs/tags/v1.4.0"))
+    assert "main" not in moved
 
 
 def test_a_patch_to_an_old_line_never_takes_latest(w):
