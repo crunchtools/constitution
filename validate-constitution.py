@@ -17,6 +17,7 @@ Exit codes:
 """
 
 import argparse
+import ast
 import json
 import os
 import re
@@ -1142,6 +1143,9 @@ def check_tests_contain(
 HTTP_CLIENT_SINCE = (1, 36, 0)
 """First constitution version with the `http_client` requirement."""
 
+HTTP_CEILING_SINCE = (1, 41, 0)
+"""First version that refuses a streamed read with no comparison against a ceiling."""
+
 # Only a repo that speaks HTTP itself is judged. `urllib.request` is in the list
 # because mcp-trove reaches Ollama with it, and a survey that greps only for the
 # third-party clients misses that: RT #1601's own table did.
@@ -1151,6 +1155,11 @@ HTTP_IMPORT = re.compile(
 # Reading a body in bounded pieces. A cap taken from `content-length` alone is not
 # one: the header is optional, so a chunked reply walks straight past it.
 BOUNDED_READ = re.compile(r"\ba?iter_bytes\b|\ba?iter_raw\b|\bnum_bytes_downloaded\b")
+# Streaming alone is not a ceiling: the same file must compare against a named
+# `MAX_*_SIZE` / `MAX_*_BYTES` limit. Fakeable, but deliberately so.
+CEILING_COMPARE = re.compile(
+    r"[<>]=?\s*(?:self\.)?\w*MAX_\w*(?:SIZE|BYTES)\b|\bMAX_\w*(?:SIZE|BYTES)\w*\s*[<>]"
+)
 # Both halves of how an agent string is written: the header literal
 # `"User-Agent"` and the `USER_AGENT` constant that holds its value.
 USER_AGENT_HEADER = re.compile(r"User[-_]Agent", re.IGNORECASE)
@@ -1165,6 +1174,44 @@ OVERSIZE_TEST = re.compile(r"too.?large|too.?big|oversiz|MAX_RESPONSE", re.IGNOR
 # returns an HTML body and reproduces the same error byte for byte -- so a
 # message naming only the path cannot tell the two apart.
 RESPONSE_URL = re.compile(r"\b(?:request|response)\.url\b")
+
+
+_FUNC_START = re.compile(r"^(?=[ \t]*(?:async[ \t]+)?def[ \t])", re.MULTILINE)
+
+
+def _own_scope_sources(text: str) -> list[str] | None:
+    """Per-function source with nested function bodies removed; None if unparsable."""
+    try:
+        tree = ast.parse(text)
+    except (SyntaxError, ValueError):
+        return None
+    lines = text.splitlines()
+    func_types = (ast.FunctionDef, ast.AsyncFunctionDef)
+    scopes = []
+    for fn in ast.walk(tree):
+        if not isinstance(fn, func_types):
+            continue
+        skip: set[int] = set()
+        for inner in ast.walk(fn):
+            if inner is not fn and isinstance(inner, func_types):
+                skip.update(range(inner.lineno, (inner.end_lineno or inner.lineno) + 1))
+        end = fn.end_lineno or fn.lineno
+        scopes.append(
+            "\n".join(lines[i - 1] for i in range(fn.lineno, end + 1) if i not in skip)
+        )
+    return scopes
+
+
+def _has_ceiling_in_one_function(text: str) -> bool:
+    """A bounded read and a ceiling comparison inside the same function scope.
+
+    Nested function bodies count toward neither themselves-as-parent nor the
+    enclosing function. Unparsable files fall back to splitting on `def` lines.
+    """
+    scopes = _own_scope_sources(text)
+    if scopes is None:
+        scopes = _FUNC_START.split(text)
+    return any(BOUNDED_READ.search(c) and CEILING_COMPARE.search(c) for c in scopes)
 
 
 def _python_sources(repo_root: Path, pattern: str) -> list[str]:
@@ -1223,6 +1270,10 @@ def check_http_client(
         return []
 
     sources = _python_sources(repo_root, "src/**/*.py")
+    if not sources:
+        # Informational only: a skipped repo and a passing one must not look alike.
+        print("HTTP: skipped, no Python under src/")
+        return []
     if not any(HTTP_IMPORT.search(text) for text in sources):
         return []
 
@@ -1239,6 +1290,14 @@ def check_http_client(
             "HTTP: no file under src/ reads a response in bounded pieces "
             "(`aiter_bytes`, `iter_bytes`, `num_bytes_downloaded`); a `content-length` "
             "check is not a ceiling, a chunked reply carries no such header (Layer 3)"
+        )
+    elif (version_tuple(inherits) or ()) >= HTTP_CEILING_SINCE and not any(
+        _has_ceiling_in_one_function(t) for t in sources
+    ):
+        violations.append(
+            "HTTP: no file under src/ compares a bounded read against a ceiling "
+            "(`MAX_*_SIZE` or `MAX_*_BYTES`); streaming the body without a comparison "
+            "bounds nothing (Layer 3)"
         )
     if not any(RESPONSE_URL.search(t) for t in sources):
         violations.append(

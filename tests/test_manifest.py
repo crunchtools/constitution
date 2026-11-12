@@ -866,6 +866,106 @@ def test_untested_contract_is_reported(repo):
     assert any("rejects an oversized response body" in v for v in found)
 
 
+STREAMING_WITHOUT_CEILING = """import httpx
+from importlib.metadata import version
+
+USER_AGENT = f"example-server/{version('example-server')}"
+
+
+async def read(response: httpx.Response, out) -> None:
+    async for chunk in response.aiter_bytes():
+        out.write(chunk)
+    raise RuntimeError(f"{response.request.url} failed")
+"""
+
+
+def pin(repo: Path, version: str) -> None:
+    for rel in (".specify/memory/constitution.md", ".github/workflows/constitution.yml"):
+        path = repo / rel
+        path.write_text(path.read_text().replace(f"v{VERSION}", f"v{version}"))
+
+
+def test_streaming_without_a_comparison_is_reported(repo):
+    pin(repo, "1.41.0")
+    add_client(repo, STREAMING_WITHOUT_CEILING)
+    assert any("compares a bounded read against a ceiling" in v for v in http_violations(repo))
+
+
+def test_unrelated_ceiling_comparison_does_not_satisfy_the_check(repo):
+    """A `MAX_*` comparison in another function does not bound the stream."""
+    pin(repo, "1.41.0")
+    add_client(
+        repo,
+        STREAMING_WITHOUT_CEILING
+        + "\n\nMAX_HEADER_SIZE = 8192\n\n\ndef header_ok(header: bytes) -> bool:\n"
+        "    return len(header) < MAX_HEADER_SIZE\n",
+    )
+    assert any("compares a bounded read against a ceiling" in v for v in http_violations(repo))
+
+
+def test_read_and_comparison_in_one_function_count():
+    src = (
+        "async def read(response):\n"
+        "    total = 0\n"
+        "    async for chunk in response.aiter_bytes():\n"
+        "        total += len(chunk)\n"
+        "        if total > MAX_RESPONSE_BYTES:\n"
+        "            raise ValueError('too large')\n"
+    )
+    assert V._has_ceiling_in_one_function(src)
+
+
+def test_read_and_comparison_split_across_nested_functions_do_not_count():
+    """Each half in a different nested function leaves the parent with neither."""
+    src = (
+        "def outer(response):\n"
+        "    def stream():\n"
+        "        return response.iter_bytes()\n"
+        "    def check(total):\n"
+        "        return total > MAX_RESPONSE_BYTES\n"
+        "    return stream, check\n"
+    )
+    assert not V._has_ceiling_in_one_function(src)
+
+
+def test_own_scope_sources_drops_nested_bodies():
+    src = "def outer():\n    x = 1\n    def inner():\n        y = 2\n    return x\n"
+    scopes = V._own_scope_sources(src)
+    outer = next(s for s in scopes if s.startswith("def outer"))
+    assert "y = 2" not in outer and "return x" in outer
+
+
+def test_unparsable_source_falls_back_to_def_splitting():
+    broken = (
+        "def read(response):\n"
+        "    for chunk in response.iter_bytes():\n"
+        "        if total > MAX_RESPONSE_BYTES: raise ValueError(\n"
+        "def other(:\n"
+        "    return MAX_HEADER_SIZE < 1\n"
+    )
+    assert V._own_scope_sources(broken) is None
+    assert V._has_ceiling_in_one_function(broken)
+    split_apart = (
+        "def read(response):\n"
+        "    return response.iter_bytes(\n"
+        "def other(:\n"
+        "    return n > MAX_HEADER_SIZE\n"
+    )
+    assert not V._has_ceiling_in_one_function(split_apart)
+
+
+def test_streaming_without_a_comparison_passes_at_an_older_pin(repo):
+    pin(repo, "1.40.0")
+    add_client(repo, STREAMING_WITHOUT_CEILING)
+    assert not any("compares a bounded read" in v for v in http_violations(repo))
+
+
+def test_flat_layout_skip_is_printed(repo, capsys):
+    write(repo, "client.py", NAMELESS_CLIENT)
+    violations(repo, pinned=True)
+    assert "HTTP: skipped, no Python under src/" in capsys.readouterr().out
+
+
 def test_contract_not_checked_before_1_36_0(repo):
     """A repo's CI does not change until that repo moves its own pin."""
     for rel in (".specify/memory/constitution.md", ".github/workflows/constitution.yml"):
