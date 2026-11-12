@@ -26,7 +26,8 @@ Entries through 1.14.0 are derived from the Ratification History table in
   refused (images-rotv, the bootc images). A tag now falls through to the
   merge rules: its merged pull request's gated head (same tree), else a gated
   rebuild of the tag commit. A tag on a commit outside the default branch is
-  still refused. Untested bytes still never reach a floating tag. Ruled by the
+  refused first, even when that commit carries `gated-<sha>`: a pull request's
+  head is gated before it merges, and tagging it must not release it. Untested bytes still never reach a floating tag. Ruled by the
   cto agent; the ancestor-walk alternative was rejected because it could ship
   an older image under a new version.
 

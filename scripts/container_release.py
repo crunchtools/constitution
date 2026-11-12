@@ -206,22 +206,23 @@ def resolve(
     that commit was never gated, and gates the rebuild first: a caller whose
     push trigger filters by path builds nothing for a release commit that
     touches none of its inputs, so that commit has no gated- tag (RT#1550).
-    A tag on a commit outside the default branch is refused: only what main
-    carries is released.
+    A tag on a commit outside the default branch is refused before anything
+    else, gated or not: a PR head carries gated-<sha> before it merges, and
+    only what the branch carries is released.
     """
-    marker = reg.digest(f":gated-{sha}")
-    if marker:
-        return marker, f"gated-{sha} exists"
     if ref.startswith("refs/tags/"):
         try:
             on_branch = gh.on_branch(sha, branch)
         except Refused as exc:
-            raise Refused(f"{ref} names {sha}, which main never promoted, and {exc}") from exc
+            raise Refused(f"{ref} names {sha}; cannot confirm it is on {branch}: {exc}") from exc
         if not on_branch:
             raise Refused(
-                f"{ref} names {sha}, which main never promoted (no gated-{sha}) "
-                f"and which is not on {branch}; only what {branch} carries is released"
+                f"{ref} names {sha}, which is not on {branch}; "
+                f"only what {branch} carries is released"
             )
+    marker = reg.digest(f":gated-{sha}")
+    if marker:
+        return marker, f"gated-{sha} exists"
     pr = gh.merged_pr(sha)
     if pr is None:
         return None, f"no merged pull request produced {sha}"

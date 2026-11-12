@@ -175,8 +175,22 @@ def test_a_tag_on_a_merge_promotes_the_pr_gated_digest(w):
 
 def test_a_tag_whose_branch_check_fails_is_refused(w):
     w.compare_error = True
-    with pytest.raises(CR.Refused, match="never promoted"):
+    with pytest.raises(CR.Refused, match="cannot confirm it is on main"):
         CR.resolve(*parts(w), "c9", "refs/tags/v1.2.0")
+
+
+def test_a_tag_on_a_gated_pr_head_off_the_branch_is_refused(w):
+    """A PR head is gated before it merges; tagging it must not release it."""
+    w.image("pr", "gated-head1")
+    w.compare["head1"] = "ahead"
+    with pytest.raises(CR.Refused, match="not on main"):
+        CR.resolve(*parts(w), "head1", "refs/tags/v1.2.0")
+
+
+def test_a_tag_on_a_gated_main_commit_promotes_its_marker(w):
+    d = w.image("main", "gated-c9")
+    w.compare["c9"] = "behind"
+    assert CR.resolve(*parts(w), "c9", "refs/tags/v1.2.0")[0] == d
 
 
 def test_a_failed_registry_read_fails_closed(w):
