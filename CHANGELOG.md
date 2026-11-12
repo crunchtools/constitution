@@ -9,6 +9,23 @@ Entries through 1.14.0 are derived from the Ratification History table in
 
 ## [Unreleased]
 
+## [1.40.0] - 2026-11-11
+
+### Removed
+
+- The advisory Trivy step in `container-release.yml`. It ran with
+  `continue-on-error` and exit code 0, so it could never fail a build, and its
+  table output was read by no one (RT #1551).
+
+### Changed
+
+- Container Image 1.9.0, Web Application 1.5.0, Forked MCP Server 1.3.0 and
+  Autonomous Agent 1.5.0 no longer list a per-build vulnerability scan.
+  Build time audits dependencies (XV); published images are scanned on a
+  schedule by the fleet CVE check (grype + Nagios), which pages on a new
+  fixable Critical and recovers when it clears. Repos drop their own Trivy
+  steps and `.trivyignore` files as they take this version.
+
 ## [1.39.5] - 2026-11-11
 
 ### Added

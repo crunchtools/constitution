@@ -1,6 +1,6 @@
 # Web Application Profile
 
-> **Profile Version:** 1.4.0
+> **Profile Version:** 1.5.0
 > **Applies to:** End-user web applications deployed as containers (acquacotta, rotv)
 
 This profile extends the [universal constitution](../constitution.md) with requirements specific to web application projects in the crunchtools organization. Web applications differ from Container Image projects in that they contain application code, manage stateful data, run multiple services, and require application-level testing.
@@ -178,7 +178,7 @@ Web application projects MUST include the following tests:
 | **Application health check** | HTTP response or process is running | Yes |
 | **Database connectivity** | App can connect to its database | When applicable |
 | **Smoke test** | Core application functionality works | Recommended |
-| **Security scan** | Trivy or equivalent CVE scanner | Recommended |
+| **Vulnerability scan** | None at build time. Dependencies are audited in CI (XV); published images are scanned on a schedule by the fleet CVE check, which pages on a new fixable Critical (RT #1551) | No |
 
 At minimum, CI MUST build the image and verify the application starts and responds to health checks. These checks follow the [Container Image profile](container-image.md) Sections VI and VII: they run against the pushed digest, on every build trigger including dispatched rebuilds, and gate the promotion to `latest`. The application health check covers every unit and endpoint the production monitor checks, so CI fails on whatever would page.
 
@@ -194,7 +194,6 @@ Every web application change must pass:
 
 Additional recommended gates:
 - Database connectivity test (when applicable)
-- Trivy security scan
 - End-to-end smoke test
 
 ---

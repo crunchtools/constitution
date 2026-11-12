@@ -1,6 +1,6 @@
 # Container Image Profile
 
-> **Profile Version:** 1.8.0
+> **Profile Version:** 1.9.0
 > **Applies to:** All `ubi10-*` and standalone container image projects
 
 This profile extends the [universal constitution](../constitution.md) with requirements specific to **UBI-based** container image projects in the crunchtools organization.
@@ -212,7 +212,7 @@ Container image projects MUST include the following test gates:
 | **Build test** | CI builds the image from Containerfile | Yes |
 | **Contract test** | The image holds what it promises without starting it: required executables, enabled units, and no leftovers that must not ship (dev-only files, RHSM consumer or entitlement certs) | Yes |
 | **Boot test** | The image starts as production starts it, and every service the production monitor checks is up and answering | Yes for multi-service images; recommended otherwise |
-| **Security scan** | Trivy or equivalent CVE scanner | Recommended |
+| **Vulnerability scan** | None at build time. Dependencies are audited in CI (XV); published images are scanned on a schedule by the fleet CVE check, which pages on a new fixable Critical (RT #1551) | No |
 
 The contract and boot tests run against the **pushed digest** that will be promoted, never against a separate test build. They run on **every** build trigger, including `schedule`, `repository_dispatch` and `workflow_dispatch` rebuilds, which change packages without a commit.
 
@@ -229,12 +229,11 @@ Every container image build must pass:
 1. **Build** — `podman build -f Containerfile .` (or equivalent in CI)
 2. **Contract test** — against the pushed digest
 3. **Boot test** — against the pushed digest (multi-service images)
-4. **Security scan** — Trivy scan with `continue-on-error: true` (when applicable)
 
 `container-release.yml` (constitution III) is how a repo meets this, and since 1.39.0 the validator requires it or a listed custom workflow. Build once per change, gate the digest, promote what was tested:
 
 - **One build per change.** A pull request builds its head commit, pushes `sha-<sha>` (and `pr-N`), gates that digest and tags it `gated-<sha>`. The merge does not rebuild: promote finds the merged pull request, confirms the merge commit has the same git tree as the gated head, and copies that digest to `main`. A `v*` tag promotes gated bytes of the tag commit to the version tags and `latest`: the commit's own `gated-<sha>`, else its merged pull request's gated head. Builds otherwise happen only on `schedule` and `workflow_dispatch`, and as a fallback: a merge or a release whose commit was never gated (a PR that could not push, a branch not up to date, or a path-filtered caller that built nothing for a release commit) is rebuilt and gated before anything moves. A tag on a commit outside the default branch is refused.
-- **Gates address the digest, never a tag, and hold no credentials.** A boot gate is required and named: `mcp` (initialize and `tools/list` over stdio, at least one tool), `mcp-http`, `systemd` (`is-system-running` reaches `running`, listed units active), `healthcheck` (fails if the image carries none — buildah drops `HEALTHCHECK` in OCI format), `command` (the repo's own script with `$IMAGE`), or `none` with a written reason. A contract test runs when the repo supplies one. Trivy scans the digest with `continue-on-error: true`.
+- **Gates address the digest, never a tag, and hold no credentials.** A boot gate is required and named: `mcp` (initialize and `tools/list` over stdio, at least one tool), `mcp-http`, `systemd` (`is-system-running` reaches `running`, listed units active), `healthcheck` (fails if the image carries none — buildah drops `HEALTHCHECK` in OCI format), `command` (the repo's own script with `$IMAGE`), or `none` with a written reason. A contract test runs when the repo supplies one. No vulnerability scan runs here: the advisory per-build scan, which never failed a build and was read by no one, is replaced by the scheduled fleet CVE check (RT #1551).
 - **Promotion copies, never rebuilds:** `skopeo copy --all --preserve-digests`, then a read-back that fails the job if the tag resolves to anything else. Not `docker buildx imagetools create`: given a single image manifest it writes a new one-entry manifest list, so the tag resolves to a digest no gate ever tested.
 - **Floating tags never move backwards.** `main` moves only to the commit that is the branch tip when promote runs; an older run stands down. `X.Y` and `latest` move only to the newest release. A same-commit rebuild (weekly errata) does move them. Promote runs in a non-cancelling per-repo concurrency group and fails closed when it cannot read the tag it would move.
 - **Rollback is a copy.** Before `main` or `latest` moves, the digest it held is kept as `rollback-main` / `rollback-latest`.
