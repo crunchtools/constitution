@@ -9,11 +9,13 @@ Entries through 1.14.0 are derived from the Ratification History table in
 
 ## [Unreleased]
 
+## [1.41.0] - 2026-11-12
+
 ### Changed
 
 - HTTP client check: a file that streams a body (`aiter_bytes` and kin) must
-  also compare against a `MAX_*_SIZE` / `MAX_*_BYTES` ceiling; streaming alone
-  no longer passes. Gated at constitution 1.41.0, so repos pinned lower still
+  compare, in the same function, against a `MAX_*_SIZE` / `MAX_*_BYTES`
+  ceiling; streaming alone no longer passes (#109). MCP Server profile 1.10.0. Gated at constitution 1.41.0, so repos pinned lower still
   pass at their own pin.
 - HTTP client check prints `HTTP: skipped, no Python under src/` when it finds
   no Python under `src/`, instead of skipping silently. Informational; the exit

@@ -1196,9 +1196,7 @@ def _own_scope_sources(text: str) -> list[str] | None:
             if inner is not fn and isinstance(inner, func_types):
                 skip.update(range(inner.lineno, (inner.end_lineno or inner.lineno) + 1))
         end = fn.end_lineno or fn.lineno
-        scopes.append(
-            "\n".join(lines[i - 1] for i in range(fn.lineno, end + 1) if i not in skip)
-        )
+        scopes.append("\n".join(lines[i - 1] for i in range(fn.lineno, end + 1) if i not in skip))
     return scopes
 
 
