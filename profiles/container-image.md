@@ -27,23 +27,43 @@ For application containers (MCP servers, web apps), prefer **Hummingbird** image
 
 ## II. RHSM Registration
 
-Images that need packages beyond what UBI provides MUST use the build-time secret mount pattern for subscription-manager:
+Images that need packages beyond what UBI provides MUST register, install, and
+unregister in a **single RUN layer**, using the build-time secret mount and a
+`trap` so the unregister+clean run even if the install fails:
 
 ```dockerfile
 RUN --mount=type=secret,id=activation_key \
-    --mount=type=secret,id=org_id \
-    if [ -s /run/secrets/activation_key ] && [ -s /run/secrets/org_id ]; then \
-        subscription-manager register \
-            --activationkey="$(cat /run/secrets/activation_key)" \
-            --org="$(cat /run/secrets/org_id)"; \
-    fi
+    --mount=type=secret,id=org_id <<'EOF'
+set -euo pipefail
+if [ -s /run/secrets/activation_key ] && [ -s /run/secrets/org_id ]; then
+    subscription-manager register \
+        --activationkey="$(cat /run/secrets/activation_key)" \
+        --org="$(cat /run/secrets/org_id)"
+    # Unregister + clean run on ANY exit from this shell (success or failure),
+    # and because it is all one RUN the consumer identity is never committed to
+    # a layer. Deleting the consumer also removes it from console.redhat.com
+    # inventory — a registration left live becomes a ghost host.
+    trap 'subscription-manager unregister || true; subscription-manager clean || true' EXIT
+fi
+dnf install -y <your packages>
+dnf clean all
+EOF
 ```
 
-After package installation, unregister to avoid leaking entitlements:
+This is the ONLY permitted form. Specifically:
 
-```dockerfile
-RUN subscription-manager unregister 2>/dev/null || true
-```
+- NEVER put `register`, the install, and `unregister` in separate `RUN` layers.
+  `register` is a live network call: the consumer appears in Red Hat Hybrid
+  Cloud Console inventory (HBI) the instant it runs, and a separate layer
+  commits `/etc/pki/consumer` into the image. Builds that die between layers —
+  a failed install, a cancelled job, one arch of a multi-arch matrix — leak a
+  live consumer that shows up as a ghost host.
+- NEVER write a standalone `RUN subscription-manager unregister 2>/dev/null ||
+  true`. The `|| true` swallows the failure that leaves the ghost behind. This
+  is exactly the 2026-10-22 incident recorded in Section VI (a swallowed
+  unregister shipped an image with a live registration).
+- Keep the `if [ -s /run/secrets/... ]` guard so PR builds without the secret
+  still parse and run.
 
 CI workflows pass secrets via the build action:
 
