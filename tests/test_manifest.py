@@ -903,6 +903,57 @@ def test_unrelated_ceiling_comparison_does_not_satisfy_the_check(repo):
     assert any("compares a bounded read against a ceiling" in v for v in http_violations(repo))
 
 
+def test_read_and_comparison_in_one_function_count():
+    src = (
+        "async def read(response):\n"
+        "    total = 0\n"
+        "    async for chunk in response.aiter_bytes():\n"
+        "        total += len(chunk)\n"
+        "        if total > MAX_RESPONSE_BYTES:\n"
+        "            raise ValueError('too large')\n"
+    )
+    assert V._has_ceiling_in_one_function(src)
+
+
+def test_read_and_comparison_split_across_nested_functions_do_not_count():
+    """Each half in a different nested function leaves the parent with neither."""
+    src = (
+        "def outer(response):\n"
+        "    def stream():\n"
+        "        return response.iter_bytes()\n"
+        "    def check(total):\n"
+        "        return total > MAX_RESPONSE_BYTES\n"
+        "    return stream, check\n"
+    )
+    assert not V._has_ceiling_in_one_function(src)
+
+
+def test_own_scope_sources_drops_nested_bodies():
+    src = "def outer():\n    x = 1\n    def inner():\n        y = 2\n    return x\n"
+    scopes = V._own_scope_sources(src)
+    outer = next(s for s in scopes if s.startswith("def outer"))
+    assert "y = 2" not in outer and "return x" in outer
+
+
+def test_unparsable_source_falls_back_to_def_splitting():
+    broken = (
+        "def read(response):\n"
+        "    for chunk in response.iter_bytes():\n"
+        "        if total > MAX_RESPONSE_BYTES: raise ValueError(\n"
+        "def other(:\n"
+        "    return MAX_HEADER_SIZE < 1\n"
+    )
+    assert V._own_scope_sources(broken) is None
+    assert V._has_ceiling_in_one_function(broken)
+    split_apart = (
+        "def read(response):\n"
+        "    return response.iter_bytes(\n"
+        "def other(:\n"
+        "    return n > MAX_HEADER_SIZE\n"
+    )
+    assert not V._has_ceiling_in_one_function(split_apart)
+
+
 def test_streaming_without_a_comparison_passes_at_an_older_pin(repo):
     pin(repo, "1.40.0")
     add_client(repo, STREAMING_WITHOUT_CEILING)
