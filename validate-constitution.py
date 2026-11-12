@@ -17,6 +17,7 @@ Exit codes:
 """
 
 import argparse
+import ast
 import json
 import os
 import re
@@ -1178,12 +1179,39 @@ RESPONSE_URL = re.compile(r"\b(?:request|response)\.url\b")
 _FUNC_START = re.compile(r"^(?=[ \t]*(?:async[ \t]+)?def[ \t])", re.MULTILINE)
 
 
+def _own_scope_sources(text: str) -> list[str] | None:
+    """Per-function source with nested function bodies removed; None if unparsable."""
+    try:
+        tree = ast.parse(text)
+    except (SyntaxError, ValueError):
+        return None
+    lines = text.splitlines()
+    func_types = (ast.FunctionDef, ast.AsyncFunctionDef)
+    scopes = []
+    for fn in ast.walk(tree):
+        if not isinstance(fn, func_types):
+            continue
+        skip: set[int] = set()
+        for inner in ast.walk(fn):
+            if inner is not fn and isinstance(inner, func_types):
+                skip.update(range(inner.lineno, (inner.end_lineno or inner.lineno) + 1))
+        end = fn.end_lineno or fn.lineno
+        scopes.append(
+            "\n".join(lines[i - 1] for i in range(fn.lineno, end + 1) if i not in skip)
+        )
+    return scopes
+
+
 def _has_ceiling_in_one_function(text: str) -> bool:
-    """A bounded read and a ceiling comparison inside the same function body."""
-    return any(
-        BOUNDED_READ.search(chunk) and CEILING_COMPARE.search(chunk)
-        for chunk in _FUNC_START.split(text)
-    )
+    """A bounded read and a ceiling comparison inside the same function scope.
+
+    Nested function bodies count toward neither themselves-as-parent nor the
+    enclosing function. Unparsable files fall back to splitting on `def` lines.
+    """
+    scopes = _own_scope_sources(text)
+    if scopes is None:
+        scopes = _FUNC_START.split(text)
+    return any(BOUNDED_READ.search(c) and CEILING_COMPARE.search(c) for c in scopes)
 
 
 def _python_sources(repo_root: Path, pattern: str) -> list[str]:
