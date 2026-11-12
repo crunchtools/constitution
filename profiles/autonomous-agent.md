@@ -1,6 +1,6 @@
 # Autonomous Agent Profile
 
-> **Profile Version:** 1.4.0
+> **Profile Version:** 1.5.0
 > **Applies to:** All autonomous AI agent deployments on crunchtools infrastructure
 
 This profile extends the [universal constitution](../constitution.md) with requirements specific to deploying autonomous AI agents (e.g., OpenClaw) on crunchtools infrastructure. The agent code is third-party — this profile governs the **deployment architecture**, not the agent internals.
@@ -82,7 +82,7 @@ MCP server orchestration (mcporter or equivalent) MUST be configured with:
 | Base image | UBI 10 Minimal (`registry.access.redhat.com/ubi10/ubi-minimal`) or Hummingbird (`quay.io/hummingbird/*`) |
 | Build file | `Containerfile` (not Dockerfile) |
 | Rebuild schedule | Weekly (minimum) via scheduled CI |
-| Vulnerability scanning | Trivy scan on every build |
+| Vulnerability scanning | Scheduled fleet image scan (RT #1551); dependency audit in CI |
 | SBOM | Generated and stored with each release |
 | Image signing | cosign signatures required for production images |
 
@@ -236,7 +236,7 @@ When a kill switch is triggered or anomaly detected:
 Every autonomous agent deployment MUST pass these gates in order before entering production:
 
 1. **Container build** — Image builds from Containerfile without errors
-2. **Security scan** — Trivy scan passes (no critical/high CVEs)
+2. **Vulnerability check** — no unbaselined fixable Critical for the image in the fleet CVE scan
 3. **Allowlist validation** — All MCP servers scored ≥ B/15, listed in config
 4. **Circuit breaker config** — All breakers configured with appropriate limits
 5. **Credential audit** — No hardcoded credentials, all secrets via env/LoadCredential

@@ -1,6 +1,6 @@
 # Forked MCP Server Profile
 
-> **Profile Version:** 1.2.0
+> **Profile Version:** 1.3.0
 > **Applies to:** Third-party MCP servers forked and containerized for crunchtools infrastructure
 
 This profile extends the [universal constitution](../constitution.md) with requirements specific to forked MCP servers — upstream projects we containerize and run but do not author. The upstream code is governed by its own project; this profile governs the **containerization, deployment, and operational lifecycle**.
@@ -98,7 +98,7 @@ env:
   QUAY_IMAGE: quay.io/crunchtools/mcp-<name>
 ```
 
-Single job: `build-and-push` with Quay.io login, metadata extraction, build+push, and Trivy scan.
+Single job: `build-and-push` with Quay.io login, metadata extraction, and build+push. Published images are scanned by the scheduled fleet CVE check (RT #1551), not in this job.
 
 ### Upstream Workflows
 
@@ -151,8 +151,7 @@ Forked MCP servers have a minimal gate set — we don't run upstream's quality c
 
 1. **Container build** — `podman build -f Containerfile .` succeeds
 2. **Container starts** — server binds to port 8000 and responds on `/mcp`
-3. **Security scan** — Trivy scan with `continue-on-error: true`
-4. **Gourmand and Gatehouse** — per constitution XII, as CI gates and pre-commit hooks
+3. **Gourmand and Gatehouse** — per constitution XII, as CI gates and pre-commit hooks
 
 Gourmand gates only the crunchtools delta (RT #1511). Upstream-owned paths are listed as `excluded_paths` in the exceptions config (`.gourmand-exceptions.d/globals.toml`; Gourmand ignores `[global] excluded_paths` in `gourmand.toml`, but `gourmand.toml` must still exist for the exceptions to load). Revisit the exclusion list on every upstream sync.
 

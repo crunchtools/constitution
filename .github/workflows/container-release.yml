@@ -2,7 +2,7 @@
 #
 # Callers pin this file to a release tag; copy examples/container.yml:
 #
-#   uses: crunchtools/constitution/.github/workflows/container-release.yml@v1.39.5
+#   uses: crunchtools/constitution/.github/workflows/container-release.yml@v1.40.0
 #
 # One build per change. A pull request builds its head commit, gates that
 # digest and marks it gated-<sha>. The merge to the default branch does NOT
@@ -177,7 +177,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           repository: crunchtools/constitution
-          ref: ${{ inputs.constitution-ref || 'v1.39.5' }}
+          ref: ${{ inputs.constitution-ref || 'v1.40.0' }}
           path: .constitution
           persist-credentials: false
       - id: r
@@ -319,7 +319,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           repository: crunchtools/constitution
-          ref: ${{ inputs.constitution-ref || 'v1.39.5' }}
+          ref: ${{ inputs.constitution-ref || 'v1.40.0' }}
           path: .constitution
           persist-credentials: false
       - if: needs.build.outputs.pushed == 'false'
@@ -383,16 +383,6 @@ jobs:
           IMAGE: ${{ steps.img.outputs.ref }}
           CONTRACT: ${{ inputs.contract-test }}
         run: bash -euo pipefail -c "$CONTRACT"
-      - name: Vulnerability scan (advisory, VII)
-        if: needs.build.outputs.pushed == 'true'
-        continue-on-error: true
-        uses: aquasecurity/trivy-action@v0.36.0
-        with:
-          image-ref: ${{ inputs.image }}@${{ needs.build.outputs.digest }}
-          format: table
-          exit-code: "0"
-          severity: CRITICAL,HIGH
-          version: v0.68.2
 
   mark:
     name: mark gated
@@ -405,7 +395,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           repository: crunchtools/constitution
-          ref: ${{ inputs.constitution-ref || 'v1.39.5' }}
+          ref: ${{ inputs.constitution-ref || 'v1.40.0' }}
           path: .constitution
           persist-credentials: false
       - env:
@@ -441,7 +431,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           repository: crunchtools/constitution
-          ref: ${{ inputs.constitution-ref || 'v1.39.5' }}
+          ref: ${{ inputs.constitution-ref || 'v1.40.0' }}
           path: .constitution
           persist-credentials: false
       - id: p
