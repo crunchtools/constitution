@@ -1142,6 +1142,9 @@ def check_tests_contain(
 HTTP_CLIENT_SINCE = (1, 36, 0)
 """First constitution version with the `http_client` requirement."""
 
+HTTP_CEILING_SINCE = (1, 41, 0)
+"""First version that refuses a streamed read with no comparison against a ceiling."""
+
 # Only a repo that speaks HTTP itself is judged. `urllib.request` is in the list
 # because mcp-trove reaches Ollama with it, and a survey that greps only for the
 # third-party clients misses that: RT #1601's own table did.
@@ -1151,6 +1154,11 @@ HTTP_IMPORT = re.compile(
 # Reading a body in bounded pieces. A cap taken from `content-length` alone is not
 # one: the header is optional, so a chunked reply walks straight past it.
 BOUNDED_READ = re.compile(r"\ba?iter_bytes\b|\ba?iter_raw\b|\bnum_bytes_downloaded\b")
+# Streaming alone is not a ceiling: the same file must compare against a named
+# `MAX_*_SIZE` / `MAX_*_BYTES` limit. Fakeable, but deliberately so.
+CEILING_COMPARE = re.compile(
+    r"[<>]=?\s*(?:self\.)?\w*MAX_\w*(?:SIZE|BYTES)\b|\bMAX_\w*(?:SIZE|BYTES)\w*\s*[<>]"
+)
 # Both halves of how an agent string is written: the header literal
 # `"User-Agent"` and the `USER_AGENT` constant that holds its value.
 USER_AGENT_HEADER = re.compile(r"User[-_]Agent", re.IGNORECASE)
@@ -1223,6 +1231,10 @@ def check_http_client(
         return []
 
     sources = _python_sources(repo_root, "src/**/*.py")
+    if not sources:
+        # Informational only: a skipped repo and a passing one must not look alike.
+        print("HTTP: skipped, no Python under src/")
+        return []
     if not any(HTTP_IMPORT.search(text) for text in sources):
         return []
 
@@ -1239,6 +1251,14 @@ def check_http_client(
             "HTTP: no file under src/ reads a response in bounded pieces "
             "(`aiter_bytes`, `iter_bytes`, `num_bytes_downloaded`); a `content-length` "
             "check is not a ceiling, a chunked reply carries no such header (Layer 3)"
+        )
+    elif (version_tuple(inherits) or ()) >= HTTP_CEILING_SINCE and not any(
+        BOUNDED_READ.search(t) and CEILING_COMPARE.search(t) for t in sources
+    ):
+        violations.append(
+            "HTTP: no file under src/ compares a bounded read against a ceiling "
+            "(`MAX_*_SIZE` or `MAX_*_BYTES`); streaming the body without a comparison "
+            "bounds nothing (Layer 3)"
         )
     if not any(RESPONSE_URL.search(t) for t in sources):
         violations.append(

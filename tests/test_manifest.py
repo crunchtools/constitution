@@ -866,6 +866,43 @@ def test_untested_contract_is_reported(repo):
     assert any("rejects an oversized response body" in v for v in found)
 
 
+STREAMING_WITHOUT_CEILING = """import httpx
+from importlib.metadata import version
+
+USER_AGENT = f"example-server/{version('example-server')}"
+
+
+async def read(response: httpx.Response, out) -> None:
+    async for chunk in response.aiter_bytes():
+        out.write(chunk)
+    raise RuntimeError(f"{response.request.url} failed")
+"""
+
+
+def pin(repo: Path, version: str) -> None:
+    for rel in (".specify/memory/constitution.md", ".github/workflows/constitution.yml"):
+        path = repo / rel
+        path.write_text(path.read_text().replace(f"v{VERSION}", f"v{version}"))
+
+
+def test_streaming_without_a_comparison_is_reported(repo):
+    pin(repo, "1.41.0")
+    add_client(repo, STREAMING_WITHOUT_CEILING)
+    assert any("compares a bounded read against a ceiling" in v for v in http_violations(repo))
+
+
+def test_streaming_without_a_comparison_passes_at_an_older_pin(repo):
+    pin(repo, "1.40.0")
+    add_client(repo, STREAMING_WITHOUT_CEILING)
+    assert not any("compares a bounded read" in v for v in http_violations(repo))
+
+
+def test_flat_layout_skip_is_printed(repo, capsys):
+    write(repo, "client.py", NAMELESS_CLIENT)
+    violations(repo, pinned=True)
+    assert "HTTP: skipped, no Python under src/" in capsys.readouterr().out
+
+
 def test_contract_not_checked_before_1_36_0(repo):
     """A repo's CI does not change until that repo moves its own pin."""
     for rel in (".specify/memory/constitution.md", ".github/workflows/constitution.yml"):
