@@ -891,6 +891,18 @@ def test_streaming_without_a_comparison_is_reported(repo):
     assert any("compares a bounded read against a ceiling" in v for v in http_violations(repo))
 
 
+def test_unrelated_ceiling_comparison_does_not_satisfy_the_check(repo):
+    """A `MAX_*` comparison in another function does not bound the stream."""
+    pin(repo, "1.41.0")
+    add_client(
+        repo,
+        STREAMING_WITHOUT_CEILING
+        + "\n\nMAX_HEADER_SIZE = 8192\n\n\ndef header_ok(header: bytes) -> bool:\n"
+        "    return len(header) < MAX_HEADER_SIZE\n",
+    )
+    assert any("compares a bounded read against a ceiling" in v for v in http_violations(repo))
+
+
 def test_streaming_without_a_comparison_passes_at_an_older_pin(repo):
     pin(repo, "1.40.0")
     add_client(repo, STREAMING_WITHOUT_CEILING)

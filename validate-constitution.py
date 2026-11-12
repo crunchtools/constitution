@@ -1175,6 +1175,17 @@ OVERSIZE_TEST = re.compile(r"too.?large|too.?big|oversiz|MAX_RESPONSE", re.IGNOR
 RESPONSE_URL = re.compile(r"\b(?:request|response)\.url\b")
 
 
+_FUNC_START = re.compile(r"^(?=[ \t]*(?:async[ \t]+)?def[ \t])", re.MULTILINE)
+
+
+def _has_ceiling_in_one_function(text: str) -> bool:
+    """A bounded read and a ceiling comparison inside the same function body."""
+    return any(
+        BOUNDED_READ.search(chunk) and CEILING_COMPARE.search(chunk)
+        for chunk in _FUNC_START.split(text)
+    )
+
+
 def _python_sources(repo_root: Path, pattern: str) -> list[str]:
     """The text of every Python file matching a glob, unreadable ones skipped."""
     return [
@@ -1253,7 +1264,7 @@ def check_http_client(
             "check is not a ceiling, a chunked reply carries no such header (Layer 3)"
         )
     elif (version_tuple(inherits) or ()) >= HTTP_CEILING_SINCE and not any(
-        BOUNDED_READ.search(t) and CEILING_COMPARE.search(t) for t in sources
+        _has_ceiling_in_one_function(t) for t in sources
     ):
         violations.append(
             "HTTP: no file under src/ compares a bounded read against a ceiling "
