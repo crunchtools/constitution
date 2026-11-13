@@ -323,7 +323,7 @@ jobs:
           path: .constitution
           persist-credentials: false
       - if: needs.build.outputs.pushed == 'false'
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: candidate-image
           path: ${{ runner.temp }}
