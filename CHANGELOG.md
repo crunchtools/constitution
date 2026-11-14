@@ -14,7 +14,7 @@ Entries through 1.14.0 are derived from the Ratification History table in
 - Host Tool profile (`profiles/host-tool.md`) for Python tools that run from a
   checkout on named hosts as systemd units and need the host itself (D-Bus,
   NetworkManager, polkit). It requires `pyproject.toml`, `uv.lock` and tests,
-  and no Containerfile. vpn-relay is the first. Before this, the CLI Tool
+  and forbids a Containerfile (new `forbid_files` key). vpn-relay is the first. Before this, the CLI Tool
   profile's Containerfile requirement left such a repo with two bad options: an
   image nobody runs, or a red Constitution check.
 

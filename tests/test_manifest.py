@@ -412,8 +412,9 @@ def test_workflow_automation_needs_caller_scripts_and_sections(repo):
 def test_host_tool_needs_no_containerfile(repo):
     manifest = repo / ".specify/memory/constitution.md"
     manifest.write_text(manifest.read_text().replace("MCP Server", "Host Tool"))
-    (repo / "Containerfile").unlink()
     (repo / ".github/workflows/container.yml").unlink()
+    assert "FILES: `Containerfile` is not allowed by the profile" in violations(repo)
+    (repo / "Containerfile").unlink()
     assert violations(repo) == []
     (repo / "uv.lock").unlink()
     assert violations(repo) == ["FILES: nothing matches `uv.lock`"]
