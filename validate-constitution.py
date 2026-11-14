@@ -786,6 +786,7 @@ PROFILES_ADDED_IN_MANIFEST = {
     "Data Archive",
     "Security Gateway",
     "Workflow Automation",
+    "Host Tool",
 }
 VALIDATED_AT_MAIN = ("1.18.0", "1.19.0")
 """Releases whose validate.yml checks out main instead of its own tag (#42).
@@ -1059,6 +1060,12 @@ def check_repo_files(repo_root: Path, profiles: list[str], requirements: dict) -
     for pattern in fleet.get("files", []) + [f for r in rules for f in r.get("files", [])]:
         if not any(repo_root.glob(pattern)):
             violations.append(f"FILES: nothing matches `{pattern}`")
+
+    for pattern in [f for r in rules for f in r.get("forbid_files", [])]:
+        for found in sorted(repo_root.glob(pattern)):
+            violations.append(
+                f"FILES: `{found.relative_to(repo_root)}` is not allowed by the profile"
+            )
 
     if all(r.get("license_agpl", fleet.get("license_agpl", True)) for r in rules):
         licenses = [

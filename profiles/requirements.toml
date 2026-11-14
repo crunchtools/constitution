@@ -85,6 +85,7 @@ pattern = '^  "version"\s*:\s*"([^"]+)"'
 
 # Each profile adds to the fleet rules. Keys:
 #   files            globs that must each match at least one path
+#   forbid_files     globs that must match no path
 #   dependabot       extra Dependabot ecosystems
 #   license_agpl     override the fleet license rule
 #   sections         headings the manifest MUST carry (repo-specific facts)
@@ -111,6 +112,12 @@ http_client = true
 
 [profile."CLI Tool"]
 files = ["pyproject.toml", "uv.lock", "Containerfile*", "test*/**/*.py"]
+dependabot = ["uv"]
+
+[profile."Host Tool"]
+# Runs from a checkout as systemd units; no Containerfile (host-tool.md II).
+files = ["pyproject.toml", "uv.lock", "test*/**/*.py"]
+forbid_files = ["Containerfile*"]
 dependabot = ["uv"]
 
 [profile."Container Image"]
