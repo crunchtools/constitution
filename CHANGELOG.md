@@ -9,6 +9,8 @@ Entries through 1.14.0 are derived from the Ratification History table in
 
 ## [Unreleased]
 
+## [1.42.0] - 2026-11-14
+
 ### Added
 
 - Host Tool profile (`profiles/host-tool.md`) for Python tools that run from a
