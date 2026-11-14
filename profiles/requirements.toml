@@ -113,6 +113,11 @@ http_client = true
 files = ["pyproject.toml", "uv.lock", "Containerfile*", "test*/**/*.py"]
 dependabot = ["uv"]
 
+[profile."Host Tool"]
+# Runs from a checkout as systemd units; no Containerfile (host-tool.md II).
+files = ["pyproject.toml", "uv.lock", "test*/**/*.py"]
+dependabot = ["uv"]
+
 [profile."Container Image"]
 files = ["Containerfile*"]
 

@@ -786,6 +786,7 @@ PROFILES_ADDED_IN_MANIFEST = {
     "Data Archive",
     "Security Gateway",
     "Workflow Automation",
+    "Host Tool",
 }
 VALIDATED_AT_MAIN = ("1.18.0", "1.19.0")
 """Releases whose validate.yml checks out main instead of its own tag (#42).

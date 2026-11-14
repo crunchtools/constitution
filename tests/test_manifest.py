@@ -409,6 +409,16 @@ def test_workflow_automation_needs_caller_scripts_and_sections(repo):
     assert violations(repo) == []
 
 
+def test_host_tool_needs_no_containerfile(repo):
+    manifest = repo / ".specify/memory/constitution.md"
+    manifest.write_text(manifest.read_text().replace("MCP Server", "Host Tool"))
+    (repo / "Containerfile").unlink()
+    (repo / ".github/workflows/container.yml").unlink()
+    assert violations(repo) == []
+    (repo / "uv.lock").unlink()
+    assert violations(repo) == ["FILES: nothing matches `uv.lock`"]
+
+
 def test_bootc_image_needs_bootc_base(repo):
     manifest = repo / ".specify/memory/constitution.md"
     manifest.write_text(manifest.read_text().replace("MCP Server", "Bootc Image"))

@@ -201,6 +201,7 @@ Valid profiles:
 - **Data Archive** — see `profiles/data-archive.md`
 - **Security Gateway** — see `profiles/security-gateway.md`
 - **Workflow Automation** — see `profiles/workflow-automation.md`
+- **Host Tool** — see `profiles/host-tool.md`
 
 Every repo in the organization has a profile. There are no exemptions: a repo that fits none gets a new profile. A project MAY declare multiple profiles if it spans subsystems.
 
