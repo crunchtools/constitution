@@ -9,6 +9,12 @@ Entries through 1.14.0 are derived from the Ratification History table in
 
 ## [Unreleased]
 
+### Added
+- User machines keep the service tree in the user's home:
+  `~/Projects/<host>-services/<service>/`, backed up with `~/Projects`, with
+  caches, models, sockets and plaintext credentials filtered out (Scott's rule
+  for Dolza and Breetai).
+
 ## [1.42.0] - 2026-11-14
 
 ### Added
