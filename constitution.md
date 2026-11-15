@@ -520,6 +520,15 @@ unit start (XVII):
 --env-file /run/srv-secrets/postiz.crunchtools.com/postiz.env
 ```
 
+**On a user's own machine the same tree lives in that user's home.** A
+workstation or laptop (Dolza, Breetai) runs its services rootless as the user,
+so the tree is `~/Projects/<host>-services/<service>/` instead of
+`/srv/<service>/`, with the same `config/` and `data/` layout, and secrets on
+`$XDG_RUNTIME_DIR/srv-secrets/<service>/`. `~/Projects` is what the user's
+backup covers; regenerable caches, models, runtime sockets and any plaintext
+credential are excluded from it by the backup's filter, because secrets are
+restored from OpenBao, never from a copy.
+
 This keeps the image generic and reusable across deployments, and keeps secrets
 and per-deployment values out of image layers, where they would persist in the
 registry and in every derived image.
