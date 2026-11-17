@@ -16,6 +16,12 @@ Entries through 1.14.0 are derived from the Ratification History table in
   the sdlc config and a README `What's different here` section of at most 30
   lines (XIII); what the validator checks under v2 (XV); amendments ship as sdlc
   image releases (XVI). Not in force: v1 governs until the conversion lands.
+  Restores the v1 policy the first cut dropped with its mechanism: the MCP
+  security layers spelled out, agent runtime constraints, the CI trust
+  boundary, the workflow guard as a required check, a secrets scan with no
+  exception, CI-only publishing, the fork and host-config license exceptions,
+  required tests, maintainer approval for amendments, and the v1 validator
+  checks XV had lost.
 - XV rule 2: a third-party `uses:` names a full commit SHA, and a `docker://`
   step an image digest; `crunchtools/*` and `./` are exempt. Report mode only:
   the validator prints each unpinned reference as a warning (a GitHub
