@@ -1293,3 +1293,11 @@ def test_an_untagged_run_in_ci_is_latest(repo):
     write(repo, ".github/workflows/ci.yml", run)
     [found] = V.check_floating_images(repo, "1.45.0", V.load_requirements())
     assert "ci.yml runs quay.io/crunchtools/gourmand:latest" in found
+
+
+def test_a_published_image_run_untagged_in_the_same_workflow_is_checked(repo):
+    """Only the `image:` line container-release receives is exempt, not the name."""
+    run = PUBLISH + "  t:\n    steps:\n      - run: podman run quay.io/crunchtools/gourmand check\n"
+    write(repo, ".github/workflows/container.yml", run)
+    [found] = V.check_floating_images(repo, "1.45.0", V.load_requirements())
+    assert "runs quay.io/crunchtools/gourmand:latest" in found

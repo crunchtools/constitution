@@ -1641,6 +1641,23 @@ _TOOL_IMAGE = re.compile(
 )
 
 
+def _without_publish_targets(path: Path, text: str) -> str:
+    """The workflow text minus each `image:` line handed to container-release.yml.
+
+    That line names where a release publishes, not what runs; every other
+    mention of the same image, in any job, is still checked.
+    """
+    jobs = (load_yaml(path) or {}).get("jobs") or {}
+    for job in jobs.values():
+        if not isinstance(job, dict) or not _RELEASE_CALL.match(str(job.get("uses", ""))):
+            continue
+        target = str((job.get("with") or {}).get("image", ""))
+        if target:
+            line = rf"^[ \t]*image:[ \t]*['\"]?{re.escape(target)}['\"]?[ \t]*$"
+            text = re.sub(line, "", text, flags=re.M)
+    return text
+
+
 def check_floating_images(repo_root: Path, inherits: str, requirements: dict) -> list[str]:
     """XV rule 5: a crunchtools tool image in a hook or a CI job names its floating tag.
 
@@ -1656,16 +1673,11 @@ def check_floating_images(repo_root: Path, inherits: str, requirements: dict) ->
     violations: list[str] = []
     for path in [*workflow_files(repo_root), *([hooks] if hooks.is_file() else [])]:
         text = strip_yaml_comments(path.read_text(errors="ignore"))
-        jobs = (load_yaml(path) or {}).get("jobs") or {} if path != hooks else {}
-        published = {
-            str((job.get("with") or {}).get("image", ""))
-            for job in jobs.values()
-            if isinstance(job, dict) and _RELEASE_CALL.match(str(job.get("uses", "")))
-        }
+        if path != hooks:
+            text = _without_publish_targets(path, text)
         for image, tag, digest in dict.fromkeys(m.groups() for m in _TOOL_IMAGE.finditer(text)):
             want = floating.get(image)
-            untagged = not tag and not digest
-            if want is None or (untagged and f"quay.io/crunchtools/{image}" in published):
+            if want is None:
                 continue
             tag = tag or (None if digest else "latest")
             if tag == want:
