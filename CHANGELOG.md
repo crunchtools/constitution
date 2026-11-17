@@ -9,6 +9,8 @@ Entries through 1.14.0 are derived from the Ratification History table in
 
 ## [Unreleased]
 
+## [1.44.0] - 2026-11-17
+
 ### Added
 - `container-release.yml` takes `sign: true`: promote signs the gated digest
   with cosign v2 (`--tlog-upload=false`) in the `cosign-signing` environment
