@@ -237,21 +237,33 @@ def test_a_rebuild_of_the_released_commit_refreshes_the_release(w):
 
 def test_a_release_moves_latest_and_its_versions(w):
     w.release = {"v1.3.0": "c1", "v1.4.0": "c2"}
+    w.compare["c2"] = "identical"
     d = w.image("rel")
     moved = CR.promote(*parts(w), d, CR.Event("c2", "refs/tags/v1.4.0"))
     assert moved == ["1.4.0", "1.4", "latest"]
+
+
+def test_a_tag_off_the_default_branch_is_refused_in_promote(w):
+    """workflow_dispatch skips resolve, so promote enforces it too."""
+    w.release = {"v1.4.0": "c2"}
+    w.compare["c2"] = "diverged"
+    with pytest.raises(CR.Refused, match="not on main"):
+        CR.promote(*parts(w), w.image("rel"), CR.Event("c2", "refs/tags/v1.4.0"))
+    assert w.copies == []
 
 
 def test_a_release_never_moves_main(w):
     """A tag run, rebuilt or not, moves version tags and latest only."""
     w.release = {"v1.4.0": "c2"}
     w.tip = "c2"
+    w.compare["c2"] = "identical"
     moved = CR.promote(*parts(w), w.image("rel"), CR.Event("c2", "refs/tags/v1.4.0"))
     assert "main" not in moved
 
 
 def test_a_patch_to_an_old_line_never_takes_latest(w):
     w.release = {"v1.3.1": "c5", "v1.4.0": "c4"}
+    w.compare["c5"] = "behind"
     latest = w.image("1.4.0", "latest")
     moved = CR.promote(*parts(w), w.image("1.3.1"), CR.Event("c5", "refs/tags/v1.3.1"))
     assert moved == ["1.3.1", "1.3"] and w.tags["latest"] == latest
