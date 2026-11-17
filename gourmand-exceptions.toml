@@ -77,3 +77,9 @@ path = "scripts/container_release.py"
 pattern = "MCP_PROTOCOL"
 justification = "\"2025-06-18\" is the MCP protocol revision the boot gate sends in initialize, a protocol identifier and not a date that goes stale; servers negotiate down from it."
 classification = "by_design"
+
+[[exceptions]]
+check = "CH008-summary_litter"
+path = "v2/constitution.md"
+justification = "Draft of the v2 org-level constitution, this repo's product. It replaces constitution.md at the repo root when the sdlc conversion lands."
+classification = "by_design"

@@ -10,6 +10,12 @@ Entries through 1.14.0 are derived from the Ratification History table in
 ## [Unreleased]
 
 ### Added
+- Draft constitution v2 in `v2/constitution.md`: rules only, with every job
+  name, image tag, workflow file and pin moved to the sdlc image's docs; the
+  profiles folded into per-kind rules (XIV); per-repo constitutions replaced by
+  the sdlc config and a README `What's different here` section of at most 30
+  lines (XIII); what the validator checks under v2 (XV); amendments ship as sdlc
+  image releases (XVI). Not in force: v1 governs until the conversion lands.
 - XV rule 2: a third-party `uses:` names a full commit SHA, and a `docker://`
   step an image digest; `crunchtools/*` and `./` are exempt. Report mode only:
   the validator prints each unpinned reference as a warning (a GitHub
