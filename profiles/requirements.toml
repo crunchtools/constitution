@@ -16,10 +16,12 @@ files = ["CHANGELOG.md", ".pre-commit-config.yaml", ".github/dependabot.yml"]
 
 # XII since v1.30.0: a repo with a pyproject.toml runs its checks through
 # python-sdlc. These are the hooks repo it pins, the two hooks it must enable,
-# and the repos exempt because they build what the image contains.
+# and the repos exempt because they build what the image contains. Gatehouse
+# is not among them: python-sdlc runs its last release, as the standalone hook
+# always did, so it can review its own changes (gatehouse#134).
 sdlc_hooks_repo = "https://github.com/crunchtools/python-sdlc"
 sdlc_hooks = ["sdlc-commit", "sdlc-push"]
-sdlc_exempt = ["gourmand", "gatehouse", "python-sdlc"]
+sdlc_exempt = ["gourmand", "python-sdlc"]
 
 # Container release (container-image VII, since 1.39.0, RT#1550): repos that
 # keep their own promote workflow instead of calling container-release.yml.

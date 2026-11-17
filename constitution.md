@@ -407,8 +407,10 @@ on the laptop and in CI alike.
 - A release of Gourmand or Gatehouse triggers a python-sdlc release, and that
   release opens a version-bump pull request in every Python repo. The laptop
   then runs the reviewer CI runs.
-- Exempt: `gourmand`, `gatehouse` and `python-sdlc`, which build what the image
-  contains. The list is `sdlc_exempt` in `requirements.toml`.
+- Exempt: `gourmand` and `python-sdlc`, which build what the image contains.
+  The list is `sdlc_exempt` in `requirements.toml`. Gatehouse is not exempt:
+  python-sdlc runs its last release, so it reviews its own changes the way the
+  standalone hook did.
 - What stays in workflow YAML, because it is not a check: publishing,
   uploading results to GitHub's security tab, Gatehouse's PR review and
   triage, and Gourmand's reusable CI job.

@@ -207,7 +207,7 @@ def test_a_repo_with_no_pyproject_is_not_reported(tmp_path):
 
 
 def test_an_exempt_repo_is_not_reported(tmp_path):
-    """gourmand, gatehouse and python-sdlc have a pyproject and no gate."""
+    """gourmand and python-sdlc have a pyproject and no gate."""
     row = _audited(tmp_path, _Validator("1.29.0", sdlc=False, exempt=["example"]))
     assert PROBLEM not in row["problems"]
 

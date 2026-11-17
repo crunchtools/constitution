@@ -409,8 +409,9 @@ def _runs_sdlc_ci(workflow: dict) -> bool:
         for step in job.get("steps") or []:
             run = step.get("run", "") if isinstance(step, dict) else ""
             # The command word of a line must be `sdlc` (by any path), so
-            # `echo sdlc ci` does not count as running it.
-            if re.search(r"^\s*(?:\S*/)?sdlc\s+ci\b", str(run), re.M):
+            # `echo sdlc ci` does not count as running it. The command may be
+            # quoted, as a path held in a variable should be.
+            if re.search(r"^\s*[\"']?(?:\S*/)?sdlc[\"']?\s+ci\b", str(run), re.M):
                 return True
     return False
 
