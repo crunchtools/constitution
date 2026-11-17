@@ -93,3 +93,20 @@ def test_enforce_mode_fails(tmp_path, monkeypatch):
     manifest.write_text(f"> **Inherits:** v{V.own_version()}\n> **Profile:** Governance\n")
     found = V.validate(manifest)
     assert "PINS: ci.yml uses actions/checkout@v7, not a full commit SHA (XV rule 2)" in found
+
+
+def test_report_mode_annotates_in_ci():
+    env = {"GITHUB_ACTIONS": "true", "PATH": "/usr/bin:/bin"}
+    done = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "validate-constitution.py"),
+            str(ROOT / ".specify/memory/constitution.md"),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+    )
+    assert done.returncode == 0, done.stdout
+    assert "::warning title=Third-party pin::PINS: ci.yml uses actions/checkout@v7" in done.stdout
