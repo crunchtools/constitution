@@ -290,6 +290,11 @@ def test_sign_on_signs_with_cosign_v2_before_any_tag_moves():
     sign = next(s for s in steps if s.get("name") == "Sign the digest being promoted")
     install = next(s for s in steps if str(s.get("name", "")).startswith("Install cosign"))
     assert ids.index(install["name"]) < ids.index(sign["name"]) < ids.index("p")
+    p = next(s for s in steps if s.get("id") == "p")
+    # A failed signature must stop the job before p copies any tag.
+    for step in (install, sign, p):
+        assert "continue-on-error" not in step
+    assert install["if"] == sign["if"] == SIGN_IF and "if" not in p
     assert "/cosign/releases/download/v2." in install["run"] and "sha256sum -c" in install["run"]
     run = sign["run"]
     assert "cosign sign --yes --tlog-upload=false --key env://COSIGN_PRIVATE_KEY" in run
@@ -298,7 +303,6 @@ def test_sign_on_signs_with_cosign_v2_before_any_tag_moves():
     assert (
         sign["env"]["DIGEST"] == "${{ needs.resolve.outputs.digest || needs.build.outputs.digest }}"
     )
-    p = next(s for s in steps if s.get("id") == "p")
     assert p["env"]["DIGEST"] == sign["env"]["DIGEST"]  # signs exactly what promote copies
     assert sign["env"]["PUB"] == ".constitution/keys/crunchtools-bootc.pub"
     pub = (ROOT / "keys/crunchtools-bootc.pub").read_text()
