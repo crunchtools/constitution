@@ -1646,8 +1646,8 @@ def check_floating_images(repo_root: Path, inherits: str, requirements: dict) ->
 
     The images and their tags are `floating_images` in requirements.toml. A
     Containerfile `FROM` bundles a tool as a build input and is not read here.
-    An untagged image in a hook runs `:latest`; in a workflow it is the name a
-    release publishes to (container-release's `image:`), and is left alone.
+    An untagged image runs `:latest`, except the `image:` a job hands to
+    container-release.yml, which names where a release publishes.
     """
     if _version_tuple(inherits) < FLOATING_SINCE:
         return []
@@ -1656,9 +1656,16 @@ def check_floating_images(repo_root: Path, inherits: str, requirements: dict) ->
     violations: list[str] = []
     for path in [*workflow_files(repo_root), *([hooks] if hooks.is_file() else [])]:
         text = strip_yaml_comments(path.read_text(errors="ignore"))
+        jobs = (load_yaml(path) or {}).get("jobs") or {} if path != hooks else {}
+        published = {
+            str((job.get("with") or {}).get("image", ""))
+            for job in jobs.values()
+            if isinstance(job, dict) and _RELEASE_CALL.match(str(job.get("uses", "")))
+        }
         for image, tag, digest in dict.fromkeys(m.groups() for m in _TOOL_IMAGE.finditer(text)):
             want = floating.get(image)
-            if want is None or (path != hooks and not tag and not digest):
+            untagged = not tag and not digest
+            if want is None or (untagged and f"quay.io/crunchtools/{image}" in published):
                 continue
             tag = tag or (None if digest else "latest")
             if tag == want:
