@@ -18,6 +18,7 @@ Exit codes:
 
 import argparse
 import ast
+import hashlib
 import json
 import os
 import re
@@ -358,8 +359,146 @@ def is_sdlc_repo(repo_root: Path, inherits: str | None, requirements: dict) -> b
     )
 
 
+def floating_sdlc_hooks(config: dict, launcher: str) -> dict[str, dict]:
+    """The `repo: local` hooks whose entry runs the committed launcher, by id.
+
+    A second hook with an id already seen is kept as `<id>#2`, so it counts as
+    neither hook and the check names it, instead of silently using one.
+    """
+    found: dict[str, dict] = {}
+    for source in config.get("repos") or []:
+        if not isinstance(source, dict) or source.get("repo") != "local":
+            continue
+        for hook in source.get("hooks") or []:
+            if not isinstance(hook, dict):
+                continue
+            words = str(hook.get("entry", "")).split()
+            if words and words[0].removeprefix("./") == launcher:
+                key = str(hook.get("id"))
+                found[f"{key}#2" if key in found else key] = hook
+    return found
+
+
+def check_install_hook_types(config: dict) -> list[str]:
+    """Parsed, not matched: the indented block form of this list is as legal as
+    the inline one, and a line match sees only the first entry."""
+    declared = config.get("default_install_hook_types") or []
+    declared = declared if isinstance(declared, list) else [declared]
+    return [
+        f"XII: `default_install_hook_types` does not name `{stage}`, so "
+        f"`pre-commit install` never wires that hook"
+        for stage in ("pre-commit", "pre-push")
+        if stage not in declared
+    ]
+
+
+def check_floating_wiring(repo_root: Path, config: dict, requirements: dict) -> list[str]:
+    """XII since v1.46.0, any repo: the committed launcher, both hooks, the CI job.
+
+    Nothing pins a release: the launcher asks the image for its own runner, so
+    hooks and CI float with the image (python-sdlc#62). What floats is the
+    image, not the launcher: a committed file the gate trusts must be one
+    python-sdlc shipped, or a repo grades itself.
+    """
+    fleet = requirements.get("fleet", {})
+    launcher = fleet.get("sdlc_launcher", ".sdlc/bin/sdlc")
+    path = repo_root / launcher
+    violations = []
+    if path.is_symlink() or not path.is_file():
+        violations.append(f"XII: the hooks run `{launcher}`, which is not a file in this repo")
+    elif not os.access(path, os.X_OK):
+        violations.append(f"XII: `{launcher}` is not executable")
+    elif hashlib.sha256(path.read_bytes()).hexdigest() not in fleet.get(
+        "sdlc_bootstrap_sha256", []
+    ):
+        violations.append(
+            f"XII: `{launcher}` is not a python-sdlc bootstrap release "
+            f"(copy bin/sdlc-bootstrap unchanged, or run its scripts/convert_repo.py)"
+        )
+    hooks = floating_sdlc_hooks(config, launcher)
+    violations += [
+        f"XII: more than one hook is `{key.removesuffix('#2')}`; keep one"
+        for key in hooks
+        if key.endswith("#2")
+    ]
+    for hook_id, stage in (("sdlc-commit", "pre-commit"), ("sdlc-push", "pre-push")):
+        hook = hooks.get(hook_id)
+        command = hook_id.removeprefix("sdlc-")
+        if hook is None:
+            violations.append(
+                f"XII: .pre-commit-config.yaml has no `{hook_id}` hook running "
+                f"`{launcher} {command}`"
+            )
+            continue
+        words = str(hook.get("entry", "")).split()
+        if words[1:] != [command] or hook.get("language") != "system":
+            violations.append(
+                f"XII: the `{hook_id}` hook must be `language: system` with "
+                f"`entry: {launcher} {command}`"
+            )
+        stages = hook.get("stages") or ["pre-commit"]
+        if stage not in stages:
+            violations.append(f"XII: the `{hook_id}` hook does not run at `{stage}`")
+    violations += check_install_hook_types(config)
+    violations += check_floating_ci(repo_root, launcher)
+    return violations
+
+
+def _always_runs(block: dict) -> bool:
+    """No `if:` that could be false, and no `continue-on-error` that could be true."""
+    condition = block.get("if", True)
+    tolerated = block.get("continue-on-error", False)
+    return condition in (True, "true") and tolerated in (False, "false")
+
+
+def check_floating_ci(repo_root: Path, launcher: str) -> list[str]:
+    """The `sdlc ci` job in the floating form: it runs the launcher, and only that.
+
+    The job is the required check, so anything that lets it go green without
+    judging is a hole: a step that runs something else or swallows the exit
+    (`|| true`), an `if:` that skips it (a skipped required check counts as
+    passed), `continue-on-error`, or an image a pull request names itself.
+    SDLC_IMAGE comes from the repository variable, which only an admin sets.
+    """
+    wanted = {f"{launcher} ci", f"./{launcher} ci"}
+    violations: list[str] = []
+    found = False
+    for path in workflow_files(repo_root):
+        workflow = load_yaml(path) or {}
+        jobs = workflow.get("jobs") if isinstance(workflow, dict) else None
+        for job in (jobs or {}).values():
+            if not isinstance(job, dict) or job.get("name") != "sdlc ci":
+                continue
+            steps = [step for step in job.get("steps") or [] if isinstance(step, dict)]
+            runs = [step for step in steps if str(step.get("run", "")).strip() in wanted]
+            found = found or bool(runs)
+            where = f"{path.name}: the `sdlc ci` job"
+            if not _always_runs(job):
+                violations.append(f"XII: {where} has an `if:` or `continue-on-error`")
+            violations += [
+                f"XII: {where} runs `{launcher} ci` under an `if:` or `continue-on-error`"
+                for step in runs
+                if not _always_runs(step)
+            ]
+            for scope in (workflow, job, *runs):
+                image = (scope.get("env") or {}).get("SDLC_IMAGE")
+                if image is not None and str(image).strip() != "${{ vars.SDLC_IMAGE }}":
+                    violations.append(
+                        f"XII: {where} sets SDLC_IMAGE to `{image}`; only "
+                        f"`${{{{ vars.SDLC_IMAGE }}}}` may choose the image"
+                    )
+    if not found:
+        violations.append(
+            f"XII: no CI job named `sdlc ci` has a step whose run is exactly `{launcher} ci`"
+        )
+    return violations
+
+
 def check_sdlc_wiring(repo_root: Path, hooks: str, requirements: dict) -> list[str]:
-    """XII since v1.30.0: python-sdlc at one exact release, both hooks, the CI job."""
+    """XII since v1.30.0: python-sdlc at one exact release, both hooks, the CI job.
+
+    Superseded by check_floating_wiring; accepted until the fleet has converted.
+    """
     fleet = requirements.get("fleet", {})
     url = fleet.get("sdlc_hooks_repo", "https://github.com/crunchtools/python-sdlc")
     block = re.search(
@@ -379,17 +518,7 @@ def check_sdlc_wiring(repo_root: Path, hooks: str, requirements: dict) -> list[s
         for hook in fleet.get("sdlc_hooks", ["sdlc-commit", "sdlc-push"])
         if not re.search(rf"-\s*id:\s*{re.escape(hook)}[ \t]*$", block.group(1), re.M)
     ]
-    # Parsed, not matched: the indented block form of this list is as legal as
-    # the inline one, and a line match sees only the first entry.
-    parsed = load_yaml(repo_root / ".pre-commit-config.yaml") or {}
-    declared = parsed.get("default_install_hook_types") or []
-    declared = declared if isinstance(declared, list) else [declared]
-    violations += [
-        f"XII: `default_install_hook_types` does not name `{stage}`, so "
-        f"`pre-commit install` never wires that hook"
-        for stage in ("pre-commit", "pre-push")
-        if stage not in declared
-    ]
+    violations += check_install_hook_types(load_yaml(repo_root / ".pre-commit-config.yaml") or {})
     if not any(_runs_sdlc_ci(load_yaml(f) or {}) for f in workflow_files(repo_root)):
         violations.append("XII: no CI job named `sdlc ci` runs the `sdlc ci` command")
     return violations
@@ -444,9 +573,10 @@ def check_quality_gate_wiring(
     """XII since 1.17.0: the local gates, and the Gatehouse triage job.
 
     Reads the real files, like check_gourmand_ci_gate: prose saying a gate
-    exists is exactly what let the gates rot before. Since v1.30.0 a Python
-    repo's gates come from python-sdlc; every other repo's from the standalone
-    hooks.
+    exists is exactly what let the gates rot before. Since v1.46.0 any repo
+    whose hooks run the committed launcher is judged by that form alone. Until
+    the fleet has converted, a Python repo may still pin python-sdlc (v1.30.0)
+    and every other repo carry the standalone hooks.
     """
     if repo_root is None or _version_tuple(inherits) < GATES_SINCE:
         return []
@@ -456,7 +586,12 @@ def check_quality_gate_wiring(
     violations: list[str] = []
     config = repo_root / ".pre-commit-config.yaml"
     hooks = strip_yaml_comments(config.read_text()) if config.is_file() else ""
-    if is_sdlc_repo(repo_root, inherits, requirements):
+    parsed = load_yaml(config) if config.is_file() else None
+    parsed = parsed if isinstance(parsed, dict) else {}
+    launcher = requirements.get("fleet", {}).get("sdlc_launcher", ".sdlc/bin/sdlc")
+    if floating_sdlc_hooks(parsed, launcher):
+        violations += check_floating_wiring(repo_root, parsed, requirements)
+    elif is_sdlc_repo(repo_root, inherits, requirements):
         violations += check_sdlc_wiring(repo_root, hooks, requirements)
     else:
         violations += check_standalone_hooks(hooks)

@@ -13,7 +13,8 @@ gatehouse_min = "0.15.0"
 
 # XV rule 5 since v1.45.0: a crunchtools tool image in a hook or a CI job names
 # the tag its releases move. Gourmand cuts no releases, so it floats on `main`.
-floating_images = { gatehouse = "latest", python-sdlc = "latest", gourmand = "main" }
+# python-sdlc#62 renamed the image to `sdlc`; both names float until the old one is gone.
+floating_images = { gatehouse = "latest", python-sdlc = "latest", sdlc = "latest", gourmand = "main" }
 
 # XV rule 2: a third-party `uses:` names a full commit SHA (an image, a digest).
 # "report" prints each one as a warning; "enforce" fails validation.
@@ -30,6 +31,18 @@ files = ["CHANGELOG.md", ".pre-commit-config.yaml", ".github/dependabot.yml"]
 sdlc_hooks_repo = "https://github.com/crunchtools/python-sdlc"
 sdlc_hooks = ["sdlc-commit", "sdlc-push"]
 sdlc_exempt = ["gourmand", "python-sdlc"]
+# Since v1.46.0 the preferred wiring for every repo, Python or not: `repo: local`
+# hooks whose entry is this committed launcher (python-sdlc's bin/sdlc-bootstrap),
+# with no `rev:`. It asks the image for its own runner, so nothing pins a release.
+# The rev-pinned and standalone forms above are accepted until the fleet converts.
+sdlc_launcher = ".sdlc/bin/sdlc"
+# The bootstrap releases that launcher may be, by sha256. The image floats; the
+# file a gate trusts does not, or a repo could commit a script that passes
+# itself. A new bin/sdlc-bootstrap adds its hash here; old ones stay until the
+# fleet has moved off them.
+sdlc_bootstrap_sha256 = [
+  "6c4691c4aea0be66d6a6acd2efdf191a5038a1b3b8396b2fc60d14cd419eca72",  # python-sdlc#62 at a483867
+]
 
 # Container release (container-image VII, since 1.39.0, RT#1550): repos that
 # keep their own promote workflow instead of calling container-release.yml.
