@@ -663,12 +663,23 @@ def test_non_python_repo_keeps_the_standalone_hooks(repo):
     assert not [v for v in violations(repo) if v.startswith("XII")]
 
 
-def test_a_repo_that_builds_the_image_is_exempt(repo):
-    """gatehouse, gourmand and python-sdlc build what the image contains."""
-    exempt = repo.parent / "gatehouse"
+@pytest.mark.parametrize("name", ["gourmand", "python-sdlc"])
+def test_a_repo_that_builds_the_image_is_exempt(repo, name):
+    """gourmand and python-sdlc build what the image contains."""
+    exempt = repo.parent / name
     repo.rename(exempt)
     write(exempt, ".pre-commit-config.yaml", "repos:\n" + STANDALONE_BLOCK)
     assert not [v for v in violations(exempt) if v.startswith("XII")]
+
+
+def test_gatehouse_is_not_exempt(repo):
+    """python-sdlc runs Gatehouse's last release, so gatehouse wires it (#137)."""
+    gatehouse = repo.parent / "gatehouse"
+    repo.rename(gatehouse)
+    write(gatehouse, ".pre-commit-config.yaml", "repos:\n" + STANDALONE_BLOCK)
+    assert any(
+        "must pin https://github.com/crunchtools/python-sdlc" in v for v in violations(gatehouse)
+    )
 
 
 @pytest.mark.parametrize("rev", ["main", "0.2.0", "a1b2c3d4"])
@@ -744,6 +755,15 @@ def test_only_a_job_named_sdlc_ci_that_runs_it_counts(repo, workflow):
     write(repo, ".github/workflows/ci.yml", workflow)
     [found] = violations(repo)
     assert "no CI job named `sdlc ci`" in found
+
+
+@pytest.mark.parametrize(
+    "run", ['"$RUNNER_TEMP/sdlc/bin/sdlc" ci', "'/opt/sdlc/bin/sdlc' ci", "sdlc ci"]
+)
+def test_a_quoted_or_bare_sdlc_ci_counts(repo, run):
+    """gatehouse quotes the launcher path, as shell held in a variable should be."""
+    write(repo, ".github/workflows/ci.yml", SDLC_CI.replace("bin/sdlc ci", f"|\n          {run}"))
+    assert not [v for v in violations(repo) if "sdlc ci" in v]
 
 
 # The outbound HTTP contract (MCP Server profile 1.8.0, RT #1601). The fixture

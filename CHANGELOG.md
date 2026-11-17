@@ -15,6 +15,19 @@ Entries through 1.14.0 are derived from the Ratification History table in
   caches, models, sockets and plaintext credentials filtered out (Scott's rule
   for Dolza and Breetai).
 
+### Changed
+- Gatehouse is no longer exempt from python-sdlc (XII, `sdlc_exempt`), so it
+  needs the `sdlc-commit` and `sdlc-push` hooks and a `sdlc ci` job instead of
+  the standalone Gourmand and Gatehouse hooks (#137). It already runs them
+  (gatehouse#134); python-sdlc runs Gatehouse's last release, as the standalone
+  hook did, so nothing reviews itself. The change takes effect when gatehouse
+  moves its pin to this release. `gourmand` and `python-sdlc` stay exempt.
+
+### Fixed
+- XII's `sdlc ci` job check missed a launcher path in quotes
+  (`"$RUNNER_TEMP/sdlc/bin/sdlc" ci`), the way shell should hold a path in a
+  variable, and reported the job missing.
+
 ## [1.42.0] - 2026-11-14
 
 ### Added
