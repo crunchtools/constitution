@@ -1940,6 +1940,39 @@ def check_pin(inherits: str) -> list[str]:
     return []
 
 
+_COMMIT_SHA = re.compile(r"^[0-9a-f]{40}$")
+_IMAGE_DIGEST = re.compile(r"@sha256:[0-9a-f]{64}$")
+
+
+def check_third_party_pins(repo_root: Path) -> list[str]:
+    """XV rule 2: a third-party `uses:` names a full commit SHA, or an image digest.
+
+    Our own `crunchtools/*` workflows float at their major tag (XV rule 5) and
+    a local `./` path is this repo's own code; neither is third-party.
+    """
+    found = []
+    for path in workflow_files(repo_root):
+        jobs = (load_yaml(path) or {}).get("jobs") or {}
+        for job in jobs.values():
+            if not isinstance(job, dict):
+                continue
+            steps = [s for s in job.get("steps") or [] if isinstance(s, dict)]
+            for uses in [job.get("uses"), *(step.get("uses") for step in steps)]:
+                uses = str(uses or "")
+                if not uses or uses.startswith("./") or uses.lower().startswith("crunchtools/"):
+                    continue
+                if uses.startswith("docker://"):
+                    if not _IMAGE_DIGEST.search(uses):
+                        found.append(
+                            f"PINS: {path.name} uses {uses}, not an image digest (XV rule 2)"
+                        )
+                elif not _COMMIT_SHA.match(uses.rpartition("@")[2] if "@" in uses else ""):
+                    found.append(
+                        f"PINS: {path.name} uses {uses}, not a full commit SHA (XV rule 2)"
+                    )
+    return list(dict.fromkeys(found))
+
+
 def freshness_warning(inherits: str) -> str | None:
     """Warn, never fail, when the pin is more than one minor release behind."""
     latest = version_tuple(
@@ -2000,6 +2033,8 @@ def validate_manifest(
         violations += check_http_client(repo_root, inherits, profiles, requirements)
         violations += check_version_sync(repo_root, inherits, profiles, requirements)
         violations += check_visibility(profiles, requirements, slug)
+        if requirements.get("fleet", {}).get("third_party_pins") == "enforce":
+            violations += check_third_party_pins(repo_root)
     return violations
 
 
@@ -2153,6 +2188,19 @@ def main() -> int:
     if args.verbose and inherits and _version_tuple(inherits) >= MANIFEST_SINCE:
         print("Prose-only (not machine-checked): " + "; ".join(prose_only_rules()))
 
+    root = args.constitution.resolve().parents[2]
+    if (
+        load_requirements().get("fleet", {}).get("third_party_pins") == "report"
+        and is_repo_checkout(root)
+        and (pins := check_third_party_pins(root))
+    ):
+        print(
+            f"WARNING — {len(pins)} third-party ref(s) not pinned by SHA (report only, XV rule 2):"
+        )
+        for pin in pins:
+            print(f"  - {pin}")
+            if os.environ.get("GITHUB_ACTIONS"):
+                print(f"::warning title=Third-party pin::{pin}")
     if violations:
         print(f"FAIL — {len(violations)} violation(s):")
         for violation in violations:
