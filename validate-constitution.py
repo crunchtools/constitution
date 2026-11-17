@@ -1635,6 +1635,7 @@ def check_container_release(repo_root: Path, inherits: str, requirements: dict) 
 FLOATING_SINCE = (1, 45, 0)
 """First constitution version whose XV rule 5 floats crunchtools tool images."""
 
+_FRESH_PULL = re.compile(r"--pull[= ](?:newer|always)\b")
 _TOOL_IMAGE = re.compile(
     r"quay\.io/crunchtools/([a-z0-9._-]+)(?::([^\s\"'@]+)|@(sha256:[0-9a-f]{12}))"
 )
@@ -1667,7 +1668,7 @@ def check_floating_images(repo_root: Path, inherits: str, requirements: dict) ->
             f"FLOAT: .pre-commit-config.yaml runs quay.io/crunchtools/{m.group(1)} without "
             f"`--pull=newer`, so podman keeps the first copy it pulled (XV rule 5)"
             for line in strip_yaml_comments(hooks.read_text(errors="ignore")).splitlines()
-            if "--pull" not in line
+            if not _FRESH_PULL.search(line)
             for m in _TOOL_IMAGE.finditer(line)
             if m.group(1) in floating
         ]

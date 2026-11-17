@@ -1263,9 +1263,10 @@ def test_a_floating_image_check_waits_for_the_release_that_adds_it(repo):
     assert "review.yml runs quay.io/crunchtools/gatehouse:${version}" in found
 
 
-def test_a_hook_that_never_pulls_never_floats(repo):
-    """podman reuses a local image, so `:latest` without a pull stays the first one."""
-    hook = GATE_HOOK.format(image="gatehouse:latest").replace("--pull=newer ", "")
+@pytest.mark.parametrize("pull", ["", "--pull=never ", "--pull=missing "])
+def test_a_hook_that_never_pulls_never_floats(repo, pull):
+    """podman reuses a local image, so `:latest` without a fresh pull stays the first one."""
+    hook = GATE_HOOK.format(image="gatehouse:latest").replace("--pull=newer ", pull)
     write(repo, ".pre-commit-config.yaml", "repos:\n" + hook)
     [found] = V.check_floating_images(repo, "1.45.0", V.load_requirements())
     assert "without `--pull=newer`" in found
