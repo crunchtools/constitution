@@ -42,6 +42,27 @@ CONSTITUTION_MAJOR_SINCE = (1, 45, 0)
 PRE_COMMIT = ".pre-commit-config.yaml"
 
 
+def major_tag_refusal(version: str) -> str | None:
+    """Why pins cannot move to `@vN` yet, or None when refs/tags/vN names this release.
+
+    A repo rewritten to `@v1` before the tag exists, or while it still names an
+    older release, would run something other than what its `Inherits` adopts.
+    """
+    major = f"v{version.split('.')[0]}"
+
+    def commit(tag: str) -> str:
+        path = f"repos/{ORG}/constitution/commits/refs/tags/{tag}"
+        return gh("api", path, "--jq", ".sha", check=False).strip()
+
+    want, have = commit(f"v{version}"), commit(major)
+    if not want:
+        return f"v{version} is not tagged"
+    if have != want:
+        where = f"points at {have[:7]}" if have else "does not exist"
+        return f"{major} {where}, not v{version} ({want[:7]}); run major-tag.yml first"
+    return None
+
+
 def git(root: Path, *args: str) -> None:
     """Run git in a clone; a failure raises with git's own message."""
     result = subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True)
@@ -144,6 +165,11 @@ def main() -> int:
 
     validator = load_validator()
     version = args.version or validator.own_version()
+    if tuple(int(part) for part in version.split(".")) >= CONSTITUTION_MAJOR_SINCE and (
+        refusal := major_tag_refusal(version)
+    ):
+        print(f"refused: {refusal}", file=sys.stderr)
+        return 1
     failed = []
     with tempfile.TemporaryDirectory() as clone_root:
         for repo in select_repos(args.only):

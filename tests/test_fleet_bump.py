@@ -158,3 +158,31 @@ def test_one_failed_repo_does_not_stop_the_rest(monkeypatch, capsys):
     assert bump.main() == 1
     assert seen == ["a", "b", "c"]
     assert "rerun with --only b" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    ("tags", "refused"),
+    [
+        ({"v1.45.0": "aaa1111", "v1": "aaa1111"}, None),
+        ({"v1.45.0": "aaa1111"}, "v1 does not exist"),
+        ({"v1.45.0": "aaa1111", "v1": "bbb2222"}, "v1 points at bbb2222"),
+        ({}, "v1.45.0 is not tagged"),
+    ],
+)
+def test_pins_move_to_the_major_tag_only_once_it_names_the_release(monkeypatch, tags, refused):
+    """Rewriting to `@v1` before major-tag.yml moved it runs an older release."""
+
+    def gh(*args, check=True):
+        return tags.get(args[1].rsplit("/", 1)[-1], "")
+
+    monkeypatch.setattr(bump, "gh", gh)
+    found = bump.major_tag_refusal("1.45.0")
+    assert found == refused if refused is None else refused in found
+
+
+def test_main_refuses_before_touching_a_repo(monkeypatch, capsys):
+    monkeypatch.setattr(bump, "major_tag_refusal", lambda version: "v1 does not exist")
+    monkeypatch.setattr(bump, "select_repos", lambda only: pytest.fail("no repo may be touched"))
+    monkeypatch.setattr(bump.sys, "argv", ["fleet-bump.py", "--version", "1.45.0"])
+    assert bump.main() == 1
+    assert "refused: v1 does not exist" in capsys.readouterr().err
