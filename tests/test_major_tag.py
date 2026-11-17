@@ -141,3 +141,11 @@ def test_the_workflow_command_runs_as_written():
     )
     assert done.returncode == 0, done.stderr
     assert "nightly is not a release tag" in done.stdout
+
+
+def test_a_failed_tag_write_is_a_refusal_not_a_report():
+    """A rejected PATCH must fail the job, never print "now points at"."""
+    runner = FakeGitHub()
+    gh = GitHub("o/r", lambda argv: Result(1, "", "HTTP 422") if "-X" in argv else runner(argv))
+    with pytest.raises(Refused, match="gh api -X PATCH failed: HTTP 422"):
+        major_tag.deliver(gh, "v1.101.0", "main")
