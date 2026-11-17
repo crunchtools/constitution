@@ -1337,3 +1337,23 @@ def test_an_anchor_shared_with_the_release_job_is_still_checked(repo):
     write(repo, ".github/workflows/c.yml", flow)
     [found] = V.check_floating_images(repo, "1.45.0", V.load_requirements())
     assert "c.yml runs quay.io/crunchtools/gatehouse:0.15.0" in found
+
+
+@pytest.mark.parametrize(
+    ("env", "flagged"),
+    [
+        ("QUAY: quay.io/crunchtools/gourmand", False),  # a name python-sdlc builds $QUAY:<tag> from
+        ("IMAGE: quay.io/crunchtools/gourmand:1.0.0", True),  # a pinned run, by way of a variable
+        ("RUN: quay.io/crunchtools/gourmand", True),  # `podman run $RUN` runs :latest
+        ("ENVRUN: quay.io/crunchtools/gourmand", True),  # so does ${{ env.ENVRUN }}
+    ],
+)
+def test_an_untagged_env_name_is_not_a_run_but_a_tagged_one_is(repo, env, flagged):
+    steps = (
+        "      - run: skopeo copy docker://$QUAY:main docker://${QUAY}@sha256:x\n"
+        "      - run: podman run $RUN check\n"
+        "      - run: podman run ${{ env.ENVRUN }} check\n"
+    )
+    write(repo, ".github/workflows/w.yml", f"env:\n  {env}\njobs:\n  j:\n    steps:\n{steps}")
+    found = V.check_floating_images(repo, "1.45.0", V.load_requirements())
+    assert bool(found) is flagged

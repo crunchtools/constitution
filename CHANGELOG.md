@@ -9,6 +9,8 @@ Entries through 1.14.0 are derived from the Ratification History table in
 
 ## [Unreleased]
 
+## [1.45.0] - 2026-11-17
+
 ### Changed
 - XV rule 5: crunchtools refers to crunchtools at a moving tag. Calls to the
   constitution's workflows name `@v1`, like Gatehouse's `@v0` and Ashigaru's
@@ -24,7 +26,9 @@ Entries through 1.14.0 are derived from the Ratification History table in
 
 ### Added
 - `major-tag.yml` (`scripts/major_tag.py`, from Ashigaru) moves `v1` to each
-  published release, forward only.
+  published release, forward only. It refuses a tag that is not a published,
+  non-prerelease Release on the default branch, and `fleet-bump.py` refuses to
+  write `@vN` until `vN` names the target release.
 
 ### Fixed
 

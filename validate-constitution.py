@@ -1641,27 +1641,63 @@ _TOOL_IMAGE = re.compile(
 )
 
 
-def _without_publish_targets(path: Path, text: str) -> str:
-    """The workflow without the `with: image:` each container-release.yml job receives.
+_BARE_IMAGE = re.compile(r"^quay\.io/crunchtools/[a-z0-9._-]+$")
 
-    That node names where a release publishes, not what runs; every other
-    mention of the same image, in any job, is still checked. Unparsable YAML
-    is returned whole (and reported elsewhere).
+
+def _bare_use(name: str, text: str) -> bool:
+    """Whether the workflow uses variable `name` without appending a tag or digest."""
+    var = re.escape(name)
+    use = rf"(?:\$\{{{var}\}}|\${var}(?!\w)|\$\{{\{{\s*env\.{var}\s*\}}\}})"
+    return re.search(use + r"(?![:@])", text) is not None
+
+
+def _without_bare_names(env: object, text: str) -> object:
+    """An `env:` mapping without untagged image names that only build references.
+
+    `QUAY: quay.io/crunchtools/x`, used only as `$QUAY:<tag>` or `$QUAY@<digest>`,
+    names an image and runs nothing. Used bare (`podman run $IMAGE`) it runs
+    `:latest`, and a tagged value is a real pin; both stay.
+    """
+    if not isinstance(env, dict):
+        return env
+    return {
+        k: v
+        for k, v in env.items()
+        if not (_BARE_IMAGE.match(str(v).strip()) and not _bare_use(str(k), text))
+    }
+
+
+def _without_publish_targets(path: Path, text: str) -> str:
+    """The workflow without the image names that do not run anything.
+
+    Those are the `with: image:` each container-release.yml job receives, which
+    names where a release publishes, and an untagged image name as an `env:`
+    value. Every other mention, in any job, is still checked. Unparsable YAML is
+    returned whole (and reported elsewhere).
     """
     import yaml  # deferred, like load_yaml: only manifest mode needs it
 
     doc = load_yaml(path)
     if doc is None:
         return text
-    for job in (doc.get("jobs") or {}).values():
-        if (
-            isinstance(job, dict)
-            and _RELEASE_CALL.match(str(job.get("uses", "")))
-            and isinstance(job.get("with"), dict)
-        ):
-            # Rebound, not popped: a YAML anchor may share this mapping with
-            # another job, whose `image:` must still be checked.
+    # Every mapping is rebound, never edited in place: a YAML anchor may share
+    # it with another job, whose images must still be checked.
+    doc["env"] = _without_bare_names(doc.get("env"), text)
+    jobs = {k: dict(v) if isinstance(v, dict) else v for k, v in (doc.get("jobs") or {}).items()}
+    for job in jobs.values():
+        if not isinstance(job, dict):
+            continue
+        job["env"] = _without_bare_names(job.get("env"), text)
+        if isinstance(job.get("steps"), list):
+            job["steps"] = [
+                {**step, "env": _without_bare_names(step.get("env"), text)}
+                if isinstance(step, dict)
+                else step
+                for step in job["steps"]
+            ]
+        if _RELEASE_CALL.match(str(job.get("uses", ""))) and isinstance(job.get("with"), dict):
             job["with"] = {k: v for k, v in job["with"].items() if k != "image"}
+    doc["jobs"] = jobs
     return yaml.safe_dump(doc, width=float("inf"))
 
 
