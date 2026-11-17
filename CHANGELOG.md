@@ -9,6 +9,16 @@ Entries through 1.14.0 are derived from the Ratification History table in
 
 ## [Unreleased]
 
+## [1.46.1] - 2026-11-17
+
+### Fixed
+- XV rule 5's image check no longer reads what closes a reference as part of
+  its tag: `${IMAGE:-quay.io/crunchtools/gatehouse:latest}` failed as
+  `:latest}`, and `(...:latest).` as `:latest).` (gatehouse#151 had to move
+  its image into a plain `env:` value). A tag is a registry tag or a shell or
+  Actions expression that becomes one, so `:${version}` and
+  `:${{ inputs.tag }}` are still pins.
+
 ## [1.46.0] - 2026-11-17
 
 ### Added

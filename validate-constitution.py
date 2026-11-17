@@ -1771,8 +1771,12 @@ FLOATING_SINCE = (1, 45, 0)
 """First constitution version whose XV rule 5 floats crunchtools tool images."""
 
 _FRESH_PULL = re.compile(r"--pull[= ](?:newer|always)\b")
+# A tag is what a registry accepts, or a shell or Actions expression that
+# becomes one (`:${version}` is a pin the check must see), and nothing more: a
+# `}` or `)` closing what the reference sits in, or a YAML dump's `\n`, ends it.
+_TAG = r"(?:[A-Za-z0-9_.-]+|\$\{\{[^}]*\}\}|\$\{[^}]*\}|\$\w+)+"
 _TOOL_IMAGE = re.compile(
-    r"quay\.io/crunchtools/([a-z0-9._-]+)(?::([^\s\"'@]+)|@(sha256:[0-9a-f]{12}))?"
+    rf"quay\.io/crunchtools/([a-z0-9._-]+)(?::({_TAG})|@(sha256:[0-9a-f]{{12}}))?"
 )
 
 

@@ -1482,6 +1482,38 @@ def test_a_floating_image_check_waits_for_the_release_that_adds_it(repo):
     assert "review.yml runs quay.io/crunchtools/gatehouse:${version}" in found
 
 
+@pytest.mark.parametrize(
+    "run",
+    [
+        'IMAGE="${IMAGE:-quay.io/crunchtools/gatehouse:latest}"',
+        "echo (quay.io/crunchtools/gatehouse:latest).",
+        "set -eu\n          IMAGE=quay.io/crunchtools/gatehouse:latest\n          echo $IMAGE",
+    ],
+)
+def test_what_closes_a_floating_reference_is_not_its_tag(repo, run):
+    """gatehouse's review.yml: `${IMAGE:-...:latest}` was read as the tag `latest}`."""
+    flow = f"jobs:\n  t:\n    steps:\n      - run: |\n          {run}\n"
+    write(repo, ".github/workflows/review.yml", flow)
+    assert V.check_floating_images(repo, "1.45.0", V.load_requirements()) == []
+
+
+@pytest.mark.parametrize(
+    ("ref", "tag"),
+    [
+        ("gatehouse:${version}", "${version}"),
+        ("gatehouse:${{ inputs.tag }}", "${{ inputs.tag }}"),
+        ("gatehouse:$TAG", "$TAG"),
+        ("gatehouse:0.${minor}.0}", "0.${minor}.0"),
+    ],
+)
+def test_an_expression_tag_is_still_a_pin(repo, ref, tag):
+    """A tag a variable fills in is still not `:latest`, and ends where the expression does."""
+    flow = f'jobs:\n  t:\n    steps:\n      - run: podman run "quay.io/crunchtools/{ref}"\n'
+    write(repo, ".github/workflows/review.yml", flow)
+    [found] = V.check_floating_images(repo, "1.45.0", V.load_requirements())
+    assert f"runs quay.io/crunchtools/gatehouse:{tag};" in found
+
+
 @pytest.mark.parametrize("pull", ["", "--pull=never ", "--pull=missing "])
 def test_a_hook_that_never_pulls_never_floats(repo, pull):
     """podman reuses a local image, so `:latest` without a fresh pull stays the first one."""
