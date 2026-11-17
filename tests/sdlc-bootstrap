@@ -4,14 +4,16 @@
 # The launcher (bin/sdlc) ships inside quay.io/crunchtools/sdlc, so it floats
 # with the image tag exactly as the tools in the image do: `:latest` by
 # default, SDLC_IMAGE=main for what has merged and not been released, a
-# release such as SDLC_IMAGE=0.9.0, or any full ref such as a seat's localhost/
-# build. The image prints the launcher with its own ref written into it (`sdlc
-# launcher <ref>`), so the launcher and the image it starts cannot disagree.
+# release such as SDLC_IMAGE=0.9.0, or SDLC_IMAGE=@sha256:<digest>. Nothing
+# else: this file runs whatever it pulls, so it pulls from that one repository.
+# A seat trying a local build runs a python-sdlc clone's bin/sdlc instead. The
+# image prints the launcher with its own ref written into it (`sdlc launcher
+# <ref>`), so the launcher and the image it starts cannot disagree.
 #
 # A converted repo carries this file as .sdlc/bin/sdlc, and its hooks and its
 # CI job run it (scripts/convert_repo.py writes it). Nothing in it names a
-# release, so nothing ever bumps it. An `sdlc` RPM would install the same file
-# as /usr/bin/sdlc.
+# release, so nothing ever bumps it, and the constitution pins its bytes. An
+# `sdlc` RPM would install the same file as /usr/bin/sdlc.
 #
 # Host contract: podman and POSIX sh, nothing else. Never a pipe into `sh`: a
 # failed pull would hand sh nothing, and nothing runs and exits 0. An image
@@ -19,10 +21,29 @@
 
 set -u
 
-image=${SDLC_IMAGE:-latest}
-case $image in
-  */*) ;;
-  *) image=quay.io/crunchtools/sdlc:$image ;;
+FLEET=quay.io/crunchtools/sdlc
+refuse() {
+  printf 'sdlc: GATE CANNOT RUN: SDLC_IMAGE=%s is not main, latest, X.Y.Z or @sha256:<64 hex> of %s\n' \
+    "${SDLC_IMAGE:-}" "$FLEET" >&2
+  exit 2
+}
+
+# The value, with the repository named in full or not at all.
+want=${SDLC_IMAGE:-latest}
+case $want in
+  "$FLEET":*) want=${want#"$FLEET":} ;;
+  "$FLEET"@*) want=${want#"$FLEET"} ;;
+esac
+case $want in
+  main|latest) image=$FLEET:$want ;;
+  @sha256:*)
+    hex=${want#@sha256:}
+    case $hex in *[!0-9a-f]*) refuse ;; esac
+    [ "${#hex}" -eq 64 ] || refuse
+    image=$FLEET$want ;;
+  *[!0-9.]*|.*|*.|*..*|*.*.*.*) refuse ;;
+  *.*.*) image=$FLEET:$want ;;
+  *) refuse ;;
 esac
 
 dir=$(mktemp -d) || exit 2
@@ -37,4 +58,5 @@ if ! podman --events-backend=none run --rm --log-driver=none --network=none \
   printf 'sdlc: GATE CANNOT RUN: %s could not print its launcher\n' "$image" >&2
   exit 2
 fi
-sh "$dir/sdlc" "$@"
+# The launcher reads SDLC_IMAGE too; it gets the full reference checked here.
+SDLC_IMAGE=$image sh "$dir/sdlc" "$@"
