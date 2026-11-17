@@ -9,6 +9,13 @@ Entries through 1.14.0 are derived from the Ratification History table in
 
 ## [Unreleased]
 
+### Added
+- `container-release.yml` takes `sign: true`: promote signs the gated digest
+  with cosign v2 (`--tlog-upload=false`) in the `cosign-signing` environment
+  before any tag moves, and verifies it against `keys/crunchtools-bootc.pub`.
+  Callers pass `COSIGN_PRIVATE_KEY` and `COSIGN_PASSWORD` by name; without
+  `sign`, nothing changes (rhel10-bootc-server#47).
+
 ## [1.43.0] - 2026-11-17
 
 ### Added
