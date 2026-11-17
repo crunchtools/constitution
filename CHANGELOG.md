@@ -9,6 +9,13 @@ Entries through 1.14.0 are derived from the Ratification History table in
 
 ## [Unreleased]
 
+### Added
+- XV rule 2: a third-party `uses:` names a full commit SHA, and a `docker://`
+  step an image digest; `crunchtools/*` and `./` are exempt. Report mode only:
+  the validator prints each unpinned reference as a warning (a GitHub
+  annotation in CI) and still passes. `third_party_pins = "enforce"` in
+  requirements.toml makes it a `PINS:` violation.
+
 ## [1.45.0] - 2026-11-17
 
 ### Changed

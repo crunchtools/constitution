@@ -15,6 +15,10 @@ gatehouse_min = "0.15.0"
 # the tag its releases move. Gourmand cuts no releases, so it floats on `main`.
 floating_images = { gatehouse = "latest", python-sdlc = "latest", gourmand = "main" }
 
+# XV rule 2: a third-party `uses:` names a full commit SHA (an image, a digest).
+# "report" prints each one as a warning; "enforce" fails validation.
+third_party_pins = "report"
+
 # Files every repo carries (globs relative to the repo root).
 files = ["CHANGELOG.md", ".pre-commit-config.yaml", ".github/dependabot.yml"]
 

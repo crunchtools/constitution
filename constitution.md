@@ -571,6 +571,14 @@ and the build broke with zero code changes to point at.
    for every ecosystem present in the repo, including `github-actions` —
    a `uses: some-action@v1.2.3` pin goes stale exactly like a lockfile
    entry does, and Dependabot covers both from the same config file.
+   A third-party `uses:` names a full 40-character commit SHA, with its
+   version as a comment (`actions/checkout@<sha> # v7.0.1`), which Dependabot
+   updates like any other pin; a `docker://` step names an image digest. A tag
+   can be moved under every caller at once, and a SHA cannot. Our own
+   `crunchtools/*` workflows float at their major tag instead (rule 5), and a
+   `./` path is the repo's own code. The validator reports each unpinned
+   reference as a warning; `third_party_pins` in `requirements.toml` turns that
+   into a failure once the fleet is migrated.
 3. **Updates land as PRs, gated by the same CI as any other change.**
    Dependabot MUST run on a schedule (`weekly` is the default cadence
    used across crunchtools projects, matching the existing weekly CVE
@@ -604,8 +612,8 @@ and the build broke with zero code changes to point at.
    - A pre-commit `rev:` stays an exact release: pre-commit never refetches a
      moved tag. A hook repo floats by what it runs (python-sdlc's image), not
      by its rev.
-   - Third-party actions and images keep their pins exactly as they are. That
-     is the supply-chain boundary, and it does not move.
+   - Third-party actions and images stay pinned by commit SHA or digest
+     (rule 2). That is the supply-chain boundary, and it does not move.
    - Rollback is moving the major tag back one release (the command is in
      `major-tag.yml`), or copying `rollback-latest` back over `latest` for an
      image (Container Image profile). Where a repo has a canary, it passes on
