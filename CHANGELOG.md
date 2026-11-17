@@ -9,6 +9,8 @@ Entries through 1.14.0 are derived from the Ratification History table in
 
 ## [Unreleased]
 
+## [1.43.0] - 2026-11-17
+
 ### Added
 - User machines keep the service tree in the user's home:
   `~/Projects/<host>-services/<service>/`, backed up with `~/Projects`, with
