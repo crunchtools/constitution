@@ -1233,7 +1233,7 @@ def test_backslash_continuation_is_joined(repo):
     assert container_violations(repo) == []
 
 
-GATE_HOOK = "      entry: podman run --rm quay.io/crunchtools/{image} check\n"
+GATE_HOOK = "      entry: podman run --rm --pull=newer quay.io/crunchtools/{image} check\n"
 
 
 @pytest.mark.parametrize(
@@ -1261,3 +1261,11 @@ def test_a_floating_image_check_waits_for_the_release_that_adds_it(repo):
     assert V.check_floating_images(repo, "1.44.0", V.load_requirements()) == []
     [found] = V.check_floating_images(repo, "1.45.0", V.load_requirements())
     assert "review.yml runs quay.io/crunchtools/gatehouse:${version}" in found
+
+
+def test_a_hook_that_never_pulls_never_floats(repo):
+    """podman reuses a local image, so `:latest` without a pull stays the first one."""
+    hook = GATE_HOOK.format(image="gatehouse:latest").replace("--pull=newer ", "")
+    write(repo, ".pre-commit-config.yaml", "repos:\n" + hook)
+    [found] = V.check_floating_images(repo, "1.45.0", V.load_requirements())
+    assert "without `--pull=newer`" in found

@@ -1662,6 +1662,15 @@ def check_floating_images(repo_root: Path, inherits: str, requirements: dict) ->
                 f"FLOAT: {path.name} runs quay.io/crunchtools/{image}{ref}; "
                 f"name `:{want}`, which each release moves (XV rule 5)"
             )
+    if hooks.is_file():
+        violations += [
+            f"FLOAT: .pre-commit-config.yaml runs quay.io/crunchtools/{m.group(1)} without "
+            f"`--pull=newer`, so podman keeps the first copy it pulled (XV rule 5)"
+            for line in strip_yaml_comments(hooks.read_text(errors="ignore")).splitlines()
+            if "--pull" not in line
+            for m in _TOOL_IMAGE.finditer(line)
+            if m.group(1) in floating
+        ]
     return violations
 
 
