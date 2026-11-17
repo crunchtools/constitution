@@ -936,13 +936,99 @@ def test_a_launcher_that_is_not_a_bootstrap_release_fails(repo, launcher):
     assert "is not a python-sdlc bootstrap release" in found
 
 
-@pytest.mark.parametrize("run", ["bin/sdlc ci", "./tools/sdlc ci", "sdlc ci"])
+@pytest.mark.parametrize(
+    "run",
+    [
+        "bin/sdlc ci",
+        "./tools/sdlc ci",
+        "sdlc ci",
+        ".sdlc/bin/sdlc ci || true",
+        "|\n          .sdlc/bin/sdlc ci\n          exit 0",
+    ],
+)
 def test_a_floating_repo_ci_must_run_the_committed_launcher(repo, run):
     """The hooks run the pinned bootstrap; CI judging with another sdlc defeats it."""
     float_repo(repo)
     write(repo, ".github/workflows/ci.yml", SDLC_CI.replace("bin/sdlc ci", run))
     [found] = violations(repo)
-    assert "runs `.sdlc/bin/sdlc ci`" in found
+    assert "run is exactly `.sdlc/bin/sdlc ci`" in found
+
+
+FLOAT_CI = """name: CI
+on: pull_request
+{wf_env}jobs:
+  sdlc:
+    name: sdlc ci
+    runs-on: ubuntu-latest
+{job_extra}    steps:
+      - name: sdlc ci
+{step_extra}        run: .sdlc/bin/sdlc ci
+"""
+
+
+def float_ci(repo: Path, wf_env: str = "", job_extra: str = "", step_extra: str = "") -> None:
+    write(
+        repo,
+        ".github/workflows/ci.yml",
+        FLOAT_CI.format(wf_env=wf_env, job_extra=job_extra, step_extra=step_extra),
+    )
+
+
+@pytest.mark.parametrize(
+    "where", ["step_extra", "job_extra", "wf_env"], ids=["step", "job", "workflow"]
+)
+@pytest.mark.parametrize("image", ["ghcr.io/attacker/sdlc:evil", "main", "${{ env.X }}"])
+def test_a_floating_ci_image_comes_only_from_the_variable(repo, where, image):
+    """A pull request must not choose the image that judges it (#157 B2)."""
+    float_repo(repo)
+    indent = {"step_extra": 8, "job_extra": 4, "wf_env": 0}[where]
+    pad = " " * indent
+    float_ci(repo, **{where: f"{pad}env:\n{pad}  SDLC_IMAGE: '{image}'\n"})
+    [found] = violations(repo)
+    assert "sets SDLC_IMAGE" in found
+
+
+def test_the_repository_variable_may_choose_the_image(repo):
+    float_repo(repo)
+    float_ci(repo, step_extra="        env:\n          SDLC_IMAGE: ${{ vars.SDLC_IMAGE }}\n")
+    assert violations(repo) == []
+
+
+@pytest.mark.parametrize(
+    ("where", "line"),
+    [
+        ("job_extra", "    if: false\n"),
+        ("job_extra", "    if: github.actor != 'x'\n"),
+        ("job_extra", "    continue-on-error: true\n"),
+        ("step_extra", "        if: false\n"),
+        ("step_extra", "        continue-on-error: ${{ true }}\n"),
+    ],
+)
+def test_the_floating_sdlc_ci_job_always_runs_and_counts(repo, where, line):
+    """A skipped required check reads as passed; a tolerated failure as green."""
+    float_repo(repo)
+    float_ci(repo, **{where: line})
+    [found] = violations(repo)
+    assert "`if:` or `continue-on-error`" in found
+
+
+def test_an_if_that_is_always_true_is_allowed(repo):
+    float_repo(repo)
+    float_ci(repo, job_extra="    if: true\n", step_extra="        continue-on-error: false\n")
+    assert violations(repo) == []
+
+
+def test_a_duplicate_floating_hook_is_named(repo):
+    float_repo(repo)
+    write(
+        repo,
+        ".pre-commit-config.yaml",
+        FLOATING
+        + "      - id: sdlc-push\n        entry: .sdlc/bin/sdlc push\n"
+        + "        language: system\n        stages: [pre-push]\n",
+    )
+    [found] = violations(repo)
+    assert "more than one hook is `sdlc-push`" in found
 
 
 @pytest.mark.parametrize("hook", ["sdlc-commit", "sdlc-push"])

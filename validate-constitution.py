@@ -360,8 +360,12 @@ def is_sdlc_repo(repo_root: Path, inherits: str | None, requirements: dict) -> b
 
 
 def floating_sdlc_hooks(config: dict, launcher: str) -> dict[str, dict]:
-    """The `repo: local` hooks whose entry runs the committed launcher, by id."""
-    found = {}
+    """The `repo: local` hooks whose entry runs the committed launcher, by id.
+
+    A second hook with an id already seen is kept as `<id>#2`, so it counts as
+    neither hook and the check names it, instead of silently using one.
+    """
+    found: dict[str, dict] = {}
     for source in config.get("repos") or []:
         if not isinstance(source, dict) or source.get("repo") != "local":
             continue
@@ -370,7 +374,8 @@ def floating_sdlc_hooks(config: dict, launcher: str) -> dict[str, dict]:
                 continue
             words = str(hook.get("entry", "")).split()
             if words and words[0].removeprefix("./") == launcher:
-                found[str(hook.get("id"))] = hook
+                key = str(hook.get("id"))
+                found[f"{key}#2" if key in found else key] = hook
     return found
 
 
@@ -411,6 +416,11 @@ def check_floating_wiring(repo_root: Path, config: dict, requirements: dict) -> 
             f"(copy bin/sdlc-bootstrap unchanged, or run its scripts/convert_repo.py)"
         )
     hooks = floating_sdlc_hooks(config, launcher)
+    violations += [
+        f"XII: more than one hook is `{key.removesuffix('#2')}`; keep one"
+        for key in hooks
+        if key.endswith("#2")
+    ]
     for hook_id, stage in (("sdlc-commit", "pre-commit"), ("sdlc-push", "pre-push")):
         hook = hooks.get(hook_id)
         command = hook_id.removeprefix("sdlc-")
@@ -430,8 +440,57 @@ def check_floating_wiring(repo_root: Path, config: dict, requirements: dict) -> 
         if stage not in stages:
             violations.append(f"XII: the `{hook_id}` hook does not run at `{stage}`")
     violations += check_install_hook_types(config)
-    if not any(_runs_sdlc_ci(load_yaml(f) or {}, launcher) for f in workflow_files(repo_root)):
-        violations.append(f"XII: no CI job named `sdlc ci` runs `{launcher} ci`")
+    violations += check_floating_ci(repo_root, launcher)
+    return violations
+
+
+def _always_runs(block: dict) -> bool:
+    """No `if:` that could be false, and no `continue-on-error` that could be true."""
+    condition = block.get("if", True)
+    tolerated = block.get("continue-on-error", False)
+    return condition in (True, "true") and tolerated in (False, "false")
+
+
+def check_floating_ci(repo_root: Path, launcher: str) -> list[str]:
+    """The `sdlc ci` job in the floating form: it runs the launcher, and only that.
+
+    The job is the required check, so anything that lets it go green without
+    judging is a hole: a step that runs something else or swallows the exit
+    (`|| true`), an `if:` that skips it (a skipped required check counts as
+    passed), `continue-on-error`, or an image a pull request names itself.
+    SDLC_IMAGE comes from the repository variable, which only an admin sets.
+    """
+    wanted = {f"{launcher} ci", f"./{launcher} ci"}
+    violations: list[str] = []
+    found = False
+    for path in workflow_files(repo_root):
+        workflow = load_yaml(path) or {}
+        jobs = workflow.get("jobs") if isinstance(workflow, dict) else None
+        for job in (jobs or {}).values():
+            if not isinstance(job, dict) or job.get("name") != "sdlc ci":
+                continue
+            steps = [step for step in job.get("steps") or [] if isinstance(step, dict)]
+            runs = [step for step in steps if str(step.get("run", "")).strip() in wanted]
+            found = found or bool(runs)
+            where = f"{path.name}: the `sdlc ci` job"
+            if not _always_runs(job):
+                violations.append(f"XII: {where} has an `if:` or `continue-on-error`")
+            violations += [
+                f"XII: {where} runs `{launcher} ci` under an `if:` or `continue-on-error`"
+                for step in runs
+                if not _always_runs(step)
+            ]
+            for scope in (workflow, job, *runs):
+                image = (scope.get("env") or {}).get("SDLC_IMAGE")
+                if image is not None and str(image).strip() != "${{ vars.SDLC_IMAGE }}":
+                    violations.append(
+                        f"XII: {where} sets SDLC_IMAGE to `{image}`; only "
+                        f"`${{{{ vars.SDLC_IMAGE }}}}` may choose the image"
+                    )
+    if not found:
+        violations.append(
+            f"XII: no CI job named `sdlc ci` has a step whose run is exactly `{launcher} ci`"
+        )
     return violations
 
 
@@ -465,15 +524,13 @@ def check_sdlc_wiring(repo_root: Path, hooks: str, requirements: dict) -> list[s
     return violations
 
 
-def _runs_sdlc_ci(workflow: dict, launcher: str | None = None) -> bool:
+def _runs_sdlc_ci(workflow: dict) -> bool:
     """A JOB named `sdlc ci` whose steps run the `sdlc ci` command.
 
     Parsed, not matched: a regex for `name: sdlc ci` is satisfied by a
     workflow's or a step's name just as well as a job's, and a job carrying the
-    right name while running something else would pass it too. With a
-    `launcher`, the command must be that committed file, not any `sdlc`.
+    right name while running something else would pass it too.
     """
-    command = rf"(?:\./)?{re.escape(launcher)}" if launcher else r"[\"']?(?:\S*/)?sdlc[\"']?"
     jobs = workflow.get("jobs") if isinstance(workflow, dict) else None
     for job in (jobs or {}).values():
         if not isinstance(job, dict) or job.get("name") != "sdlc ci":
@@ -483,7 +540,7 @@ def _runs_sdlc_ci(workflow: dict, launcher: str | None = None) -> bool:
             # The command word of a line must be `sdlc` (by any path), so
             # `echo sdlc ci` does not count as running it. The command may be
             # quoted, as a path held in a variable should be.
-            if re.search(rf"^\s*{command}\s+ci\b", str(run), re.M):
+            if re.search(r"^\s*[\"']?(?:\S*/)?sdlc[\"']?\s+ci\b", str(run), re.M):
                 return True
     return False
 
