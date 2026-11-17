@@ -1,10 +1,19 @@
-"""major_tag.py: the major tag moves forward only, and only for a release."""
+"""major_tag.py: the major tag moves forward only, and only for a published release on main."""
+
+import json
+import os
+import subprocess
+from pathlib import Path
 
 import pytest
+import yaml
 
 import major_tag
+from container_release import GitHub, Refused, Result
 
+ROOT = Path(__file__).resolve().parents[1]
 TAGS = ["v0.9.0", "v1", "v1.44.0", "v1.45.0", "v1.100.0", "v2.0.0-rc1", "vnext"]
+SHA = "abcdef0123"
 
 
 @pytest.mark.parametrize(
@@ -24,42 +33,60 @@ def test_only_the_newest_release_of_a_major_moves_its_tag(tag, expected):
     assert major_tag.major_tag(tag, TAGS) == expected
 
 
-def delivered(monkeypatch, tag):
-    calls = []
+class FakeGitHub:
+    """Answers the calls deliver makes; records every tag write."""
 
-    def gh(*args):
-        if "--jq" in args:
-            return "".join(f"refs/tags/{name}\n" for name in TAGS)
-        if args[:2] == ("api", f"repos/o/r/commits/{tag}"):
-            return '{"sha": "abcdef0123"}'
-        calls.append(args)
-        return ""
+    def __init__(self, release=None, compare="behind"):
+        self.release = {"draft": False, "prerelease": False} if release is None else release
+        self.compare = compare
+        self.writes: list[list[str]] = []
 
-    monkeypatch.setattr(major_tag, "gh", gh)
-    return major_tag.deliver("o/r", tag), calls
+    def __call__(self, argv):
+        path = next((a for a in argv if a.startswith("repos/")), "")
+        if "-X" in argv:
+            self.writes.append(argv)
+            return Result(0, "", "")
+        missing = self.release == "missing"
+        answers = {
+            "/releases/tags/": Result(1, "", "HTTP 404: Not Found")
+            if missing
+            else Result(0, json.dumps(self.release), ""),
+            "/commits/": Result(0, json.dumps({"sha": SHA}), ""),
+            "/compare/": Result(0, json.dumps({"status": self.compare}), ""),
+            "/matching-refs/": Result(0, "".join(f"refs/tags/{name}\n" for name in TAGS), ""),
+        }
+        unexpected = Result(1, "", f"unexpected call {argv}")
+        return next((r for part, r in answers.items() if part in path), unexpected)
 
 
-def test_an_existing_major_tag_is_moved_to_the_release(monkeypatch):
-    said, calls = delivered(monkeypatch, "v1.101.0")
-    assert calls == [
-        (
+def deliver(tag, **fake):
+    runner = FakeGitHub(**fake)
+    return major_tag.deliver(GitHub("o/r", runner), tag, "main"), runner.writes
+
+
+def test_an_existing_major_tag_is_moved_to_the_release():
+    said, writes = deliver("v1.101.0")
+    assert writes == [
+        [
+            "gh",
             "api",
             "-X",
             "PATCH",
             "repos/o/r/git/refs/tags/v1",
             "-f",
-            "sha=abcdef0123",
+            f"sha={SHA}",
             "-F",
             "force=true",
-        )
+        ]
     ]
     assert said == "v1 now points at v1.101.0 (abcdef0)"
 
 
-def test_the_first_release_of_a_major_creates_its_tag(monkeypatch):
-    _, calls = delivered(monkeypatch, "v2.0.0")
-    assert calls == [
-        (
+def test_the_first_release_of_a_major_creates_its_tag():
+    _, writes = deliver("v2.0.0")
+    assert writes == [
+        [
+            "gh",
             "api",
             "-X",
             "POST",
@@ -67,19 +94,50 @@ def test_the_first_release_of_a_major_creates_its_tag(monkeypatch):
             "-f",
             "ref=refs/tags/v2",
             "-f",
-            "sha=abcdef0123",
-        )
+            f"sha={SHA}",
+        ]
     ]
 
 
-def test_an_older_patch_moves_nothing(monkeypatch):
-    said, calls = delivered(monkeypatch, "v1.45.1")
-    assert calls == []
+def test_an_older_patch_moves_nothing():
+    said, writes = deliver("v1.45.1")
+    assert writes == []
     assert "stays where it is" in said
 
 
-def test_a_non_release_asks_github_nothing(monkeypatch):
-    asked = []
-    monkeypatch.setattr(major_tag, "gh", lambda *args: asked.append(args) or "")
-    assert "not a release tag" in major_tag.deliver("o/r", "nightly")
-    assert asked == []
+@pytest.mark.parametrize(
+    "release",
+    [{"draft": False, "prerelease": True}, {"draft": True, "prerelease": False}, "missing"],
+)
+def test_a_tag_that_is_not_a_published_release_is_refused(release):
+    with pytest.raises(Refused, match="not a published, non-prerelease release"):
+        deliver("v1.101.0", release=release)
+
+
+@pytest.mark.parametrize("compare", ["ahead", "diverged"])
+def test_a_tag_off_main_is_refused(compare):
+    """The same guard container-release uses for an off-branch v* tag (#148)."""
+    with pytest.raises(Refused, match="not on main"):
+        deliver("v1.101.0", compare=compare)
+
+
+def test_a_non_release_asks_github_nothing():
+    said, writes = deliver("nightly")
+    assert "not a release tag" in said and writes == []
+
+
+def test_the_workflow_command_runs_as_written():
+    """Run the step's own `run:` line, without conftest's sys.path patch.
+
+    `python3 -I` dropped scripts/ from sys.path, so the import failed and `v1`
+    would never have been created.
+    """
+    flow = yaml.safe_load((ROOT / ".github/workflows/major-tag.yml").read_text())
+    [step] = [s for s in flow["jobs"]["move"]["steps"] if s.get("name") == "Move the tag"]
+    env = {k: v for k, v in os.environ.items() if k != "PYTHONPATH"}
+    env |= {"GITHUB_REPOSITORY": "o/r", "TAG": "nightly", "BRANCH": "main"}
+    done = subprocess.run(
+        ["bash", "-c", step["run"]], cwd=ROOT, env=env, capture_output=True, text=True, check=False
+    )
+    assert done.returncode == 0, done.stderr
+    assert "nightly is not a release tag" in done.stdout
