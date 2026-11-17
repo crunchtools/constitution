@@ -275,6 +275,12 @@ def promote(reg: Registry, gh: GitHub, digest: str, event: Event) -> list[str]:
         m = SEMVER.match(name)
         if not m:
             raise Refused(f"tag '{name}' is not vX.Y.Z")
+        # resolve makes this check only on push; a workflow_dispatch on a tag skips it.
+        if not gh.on_branch(event.sha, event.branch):
+            raise Refused(
+                f"{event.ref} names {event.sha}, which is not on {event.branch}; "
+                f"only what {event.branch} carries is released"
+            )
         version = (int(m[1]), int(m[2]), int(m[3]))
         tags = _release_tags(version, releases)
     else:
