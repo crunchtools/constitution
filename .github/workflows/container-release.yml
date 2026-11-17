@@ -22,6 +22,11 @@
 #
 # Secrets are passed by name, never `secrets: inherit`: the gates job runs the
 # caller's own boot and contract commands and holds no credentials at all.
+#
+# `sign: true` signs the digest inside promote, before any tag moves, with the
+# fleet cosign key; it verifies against keys/crunchtools-bootc.pub here
+# (rhel10-bootc-server#47). Only promote holds the key, so a pull request's
+# candidate is never signed.
 
 name: Container release
 
@@ -130,6 +135,13 @@ on:
           sending that to its own repo would rebuild the base forever.
         type: string
         default: parent-image-updated
+      sign:
+        description: >-
+          Sign the promoted digest with cosign before any tag moves. The job
+          runs in the `cosign-signing` environment (main and v* only); pass
+          COSIGN_PRIVATE_KEY and COSIGN_PASSWORD by name.
+        type: boolean
+        default: false
       constitution-ref:
         description: "Internal: the canary tests the candidate scripts. Leave empty."
         type: string
@@ -153,6 +165,14 @@ on:
         required: false
       REGISTRY_REDHAT_IO_PASSWORD:
         description: "Only with redhat-registry: true"
+        required: false
+      # Environment secrets still have to be passed by the caller; one that is
+      # not resolves to an empty string, which the sign step refuses.
+      COSIGN_PRIVATE_KEY:
+        description: "Only with sign: true (the cosign-signing environment's)"
+        required: false
+      COSIGN_PASSWORD:
+        description: "Only with sign: true"
         required: false
     outputs:
       digest:
@@ -418,6 +438,9 @@ jobs:
       (startsWith(github.ref, 'refs/tags/v') || github.ref == format('refs/heads/{0}', inputs.default-branch)) &&
       ((needs.resolve.result == 'success' && needs.resolve.outputs.digest != '') || needs.mark.result == 'success')
     runs-on: ubuntu-latest
+    # An empty name is no environment: a caller without sign never touches
+    # (or auto-creates) cosign-signing.
+    environment: ${{ inputs.sign && 'cosign-signing' || '' }}
     # Check-then-copy must not interleave; never cancel a promotion halfway.
     concurrency:
       group: container-promote-${{ github.repository }}
@@ -434,6 +457,42 @@ jobs:
           ref: ${{ inputs.constitution-ref || 'v1.43.0' }}
           path: .constitution
           persist-credentials: false
+      # Signed before promote copies, so no tag ever points at an unsigned
+      # digest. cosign v2: v3 stores signatures as OCI referrers, which
+      # c/image (and so bootc and podman auto-update) cannot read; c/image
+      # does not check Rekor, so nothing is uploaded there. A run that promote
+      # then supersedes leaves a signed digest of a commit on main, untagged.
+      - name: Install cosign v2.6.5
+        if: inputs.sign
+        run: |
+          set -eu
+          curl -fsSLo "$RUNNER_TEMP/cosign" https://github.com/sigstore/cosign/releases/download/v2.6.5/cosign-linux-amd64
+          echo "c3b4f5410e608af03a5eb0aaac84a4313d8da131248e08ff1759ac70c79d1644  $RUNNER_TEMP/cosign" | sha256sum -c
+          sudo install -m 0755 "$RUNNER_TEMP/cosign" /usr/local/bin/cosign
+      - name: Sign the digest being promoted
+        if: inputs.sign
+        env:
+          COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
+          COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
+          QUAY_USERNAME: ${{ secrets.QUAY_USERNAME }}
+          QUAY_PASSWORD: ${{ secrets.QUAY_PASSWORD }}
+          IMAGE: ${{ inputs.image }}
+          DIGEST: ${{ needs.resolve.outputs.digest || needs.build.outputs.digest }}
+          PUB: .constitution/keys/crunchtools-bootc.pub
+        run: |
+          set -euo pipefail
+          [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::'$DIGEST' is not a sha256 digest" >&2; exit 1; }
+          [ -n "$COSIGN_PRIVATE_KEY" ] || { echo "::error::sign: true but no COSIGN_PRIVATE_KEY: pass it by name from the cosign-signing environment; nothing was promoted" >&2; exit 1; }
+          cosign public-key --key env://COSIGN_PRIVATE_KEY > "$RUNNER_TEMP/secret.pub"
+          cmp -s "$RUNNER_TEMP/secret.pub" "$PUB" || { echo "::error::COSIGN_PRIVATE_KEY is not the private half of keys/crunchtools-bootc.pub" >&2; exit 1; }
+          printf '%s' "$QUAY_PASSWORD" | cosign login quay.io -u "$QUAY_USERNAME" --password-stdin
+          if cosign verify --insecure-ignore-tlog --key "$PUB" "$IMAGE@$DIGEST" >/dev/null 2>&1; then
+            echo "::notice::$IMAGE@$DIGEST is already signed (a release of a digest main promoted)"
+          else
+            cosign sign --yes --tlog-upload=false --key env://COSIGN_PRIVATE_KEY "$IMAGE@$DIGEST"
+          fi
+          cosign verify --insecure-ignore-tlog --key "$PUB" "$IMAGE@$DIGEST" >/dev/null
+          echo "::notice::signed $IMAGE@$DIGEST"
       - id: p
         env:
           QUAY_USERNAME: ${{ secrets.QUAY_USERNAME }}
@@ -454,6 +513,7 @@ jobs:
           IMAGE: ${{ inputs.image }}
           DIGEST: ${{ steps.p.outputs.digest }}
           TAGS: ${{ steps.p.outputs.tags }}
+          SIGN: ${{ inputs.sign }}
         run: |
           {
             echo "### Promoted, not rebuilt"
@@ -463,6 +523,10 @@ jobs:
             for t in $TAGS; do echo "- \`$t\`"; done
             [ -n "$TAGS" ] || echo "Nothing moved: a newer commit owns the branch."
             echo
+            if [ "$SIGN" = true ]; then
+              echo "Signed: \`cosign verify --insecure-ignore-tlog --key crunchtools-bootc.pub $IMAGE@$DIGEST\`"
+              echo
+            fi
             echo "Rollback: \`skopeo copy --all --preserve-digests docker://$IMAGE:rollback-main docker://$IMAGE:main\` (or \`rollback-latest\` / \`latest\`)."
           } >> "$GITHUB_STEP_SUMMARY"
       - name: Token for the downstream dispatch

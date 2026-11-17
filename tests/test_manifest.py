@@ -251,6 +251,61 @@ def test_container_release_inputs_parse_and_dispatch_the_configured_event():
     assert "`parent-image-updated`" in profile
 
 
+SIGN_IF = "inputs.sign"
+
+
+def _promote_steps(sign: bool) -> list[dict]:
+    """The promote steps that run for a given `sign` input (only `if: inputs.sign` varies)."""
+    import yaml
+
+    workflow = yaml.safe_load((ROOT / ".github/workflows/container-release.yml").read_text())
+    steps = workflow["jobs"]["promote"]["steps"]
+    return [s for s in steps if s.get("if") != SIGN_IF or sign]
+
+
+def test_sign_is_opt_in_and_off_changes_nothing():
+    """A caller that does not set `sign` runs promote exactly as before: no
+    environment, no cosign, no signing secret read (rhel10-bootc-server#47)."""
+    import yaml
+
+    workflow = yaml.safe_load((ROOT / ".github/workflows/container-release.yml").read_text())
+    call = workflow[True]["workflow_call"]
+    assert call["inputs"]["sign"] == {**call["inputs"]["sign"], "type": "boolean", "default": False}
+    for name in ("COSIGN_PRIVATE_KEY", "COSIGN_PASSWORD"):
+        assert call["secrets"][name]["required"] is False
+    promote = workflow["jobs"]["promote"]
+    # An empty environment name is no environment; sign alone selects cosign-signing.
+    assert promote["environment"] == "${{ inputs.sign && 'cosign-signing' || '' }}"
+    off = yaml.safe_dump(_promote_steps(sign=False))
+    assert "secrets.COSIGN" not in off
+    assert not any(c in off for c in ("cosign sign", "cosign login", "Install cosign"))
+    for job, spec in workflow["jobs"].items():
+        if job != "promote":
+            assert "COSIGN" not in yaml.safe_dump(spec), job
+
+
+def test_sign_on_signs_with_cosign_v2_before_any_tag_moves():
+    steps = _promote_steps(sign=True)
+    ids = [s.get("id") or s.get("name") for s in steps]
+    sign = next(s for s in steps if s.get("name") == "Sign the digest being promoted")
+    install = next(s for s in steps if str(s.get("name", "")).startswith("Install cosign"))
+    assert ids.index(install["name"]) < ids.index(sign["name"]) < ids.index("p")
+    assert "/cosign/releases/download/v2." in install["run"] and "sha256sum -c" in install["run"]
+    run = sign["run"]
+    assert "cosign sign --yes --tlog-upload=false --key env://COSIGN_PRIVATE_KEY" in run
+    # Once to skip an already signed release digest, once to prove the signature landed.
+    assert run.count("cosign verify --insecure-ignore-tlog --key") == len(("skip", "prove"))
+    assert (
+        sign["env"]["DIGEST"] == "${{ needs.resolve.outputs.digest || needs.build.outputs.digest }}"
+    )
+    p = next(s for s in steps if s.get("id") == "p")
+    assert p["env"]["DIGEST"] == sign["env"]["DIGEST"]  # signs exactly what promote copies
+    assert sign["env"]["PUB"] == ".constitution/keys/crunchtools-bootc.pub"
+    pub = (ROOT / "keys/crunchtools-bootc.pub").read_text()
+    assert pub.startswith("-----BEGIN PUBLIC KEY-----\n")
+    assert pub.endswith("-----END PUBLIC KEY-----\n")
+
+
 def test_example_container_caller_pins_this_release():
     example = (ROOT / "examples/container.yml").read_text()
     assert f"container-release.yml@v{VERSION}\n" in example
