@@ -462,12 +462,11 @@ jobs:
       - name: Refuse a digest or tag promote must not take
         env:
           GH_TOKEN: ${{ github.token }}
-          IMAGE: ${{ inputs.image }}
           DIGEST: ${{ needs.resolve.outputs.digest || needs.build.outputs.digest }}
           BRANCH: ${{ inputs.default-branch }}
         run: |
           python3 -I .constitution/scripts/container_release.py check \
-            --image "$IMAGE" --digest "$DIGEST" --branch "$BRANCH"
+            --digest "$DIGEST" --branch "$BRANCH"
       # Signed before promote copies, so no tag ever points at an unsigned
       # digest. cosign v2: v3 stores signatures as OCI referrers, which
       # c/image (and so bootc and podman auto-update) cannot read; c/image

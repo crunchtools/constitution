@@ -273,7 +273,7 @@ def test_check_refuses_an_off_branch_tag_before_anything_is_signed(w, monkeypatc
     """promote's first step, ahead of cosign: a dispatch on an off-main tag stops here (#146)."""
     monkeypatch.setattr(CR.GitHub.__init__, "__defaults__", (w.gh,))
     d = w.image("x")
-    args = ["check", "--image", IMAGE, "--repo", REPO, "--digest", d, "--sha", "c9"]
+    args = ["check", "--repo", REPO, "--digest", d, "--sha", "c9"]
     w.compare["c9"] = "ahead"
     assert CR.main([*args, "--ref", "refs/tags/v1.4.0"]) == 1
     w.compare["c9"] = "behind"

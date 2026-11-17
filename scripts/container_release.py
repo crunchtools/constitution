@@ -603,7 +603,8 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     for name in ("resolve", "mark", "check", "promote"):
         p = sub.add_parser(name)
-        p.add_argument("--image", required=True)
+        # check reads GitHub only; the others name the registry repository.
+        p.add_argument("--image", required=name != "check")
         p.add_argument("--repo", default=os.environ.get("GITHUB_REPOSITORY", ""))
         p.add_argument("--sha", default=os.environ.get("GITHUB_SHA", ""))
         p.add_argument("--ref", default=os.environ.get("GITHUB_REF", ""))
@@ -637,6 +638,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 timeout=a.timeout,
             )
             BOOTS[a.profile](spec)
+        elif a.action == "check":
+            check(GitHub(a.repo), a.digest, Event(a.sha, a.ref, a.branch))
         else:
             _registry_action(a)
     except Superseded as exc:
@@ -658,8 +661,6 @@ def _registry_action(a: argparse.Namespace) -> None:
         output("rebuild", "false" if digest else "true")
     elif a.action == "mark":
         reg.copy(a.digest, f"gated-{a.sha}")
-    elif a.action == "check":
-        check(gh, a.digest, Event(a.sha, a.ref, a.branch, a.cascade))
     else:
         event = Event(a.sha, a.ref, a.branch, a.cascade)
         output("tags", " ".join(promote(reg, gh, a.digest, event)))
