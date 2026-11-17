@@ -1320,3 +1320,20 @@ def test_an_unparsable_workflow_is_scanned_whole(repo):
     )
     [found] = V.check_floating_images(repo, "1.45.0", V.load_requirements())
     assert "broken.yml runs quay.io/crunchtools/gatehouse:0.1.0" in found
+
+
+def test_an_anchor_shared_with_the_release_job_is_still_checked(repo):
+    """Popping `image` in place also removed it from every alias of the mapping."""
+    flow = """jobs:
+  container:
+    uses: crunchtools/constitution/.github/workflows/container-release.yml@v1
+    with: &w
+      image: quay.io/crunchtools/gatehouse:0.15.0
+  other:
+    runs-on: ubuntu-latest
+    container: *w
+    steps: []
+"""
+    write(repo, ".github/workflows/c.yml", flow)
+    [found] = V.check_floating_images(repo, "1.45.0", V.load_requirements())
+    assert "c.yml runs quay.io/crunchtools/gatehouse:0.15.0" in found

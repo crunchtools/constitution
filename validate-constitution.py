@@ -1659,7 +1659,9 @@ def _without_publish_targets(path: Path, text: str) -> str:
             and _RELEASE_CALL.match(str(job.get("uses", "")))
             and isinstance(job.get("with"), dict)
         ):
-            job["with"].pop("image", None)
+            # Rebound, not popped: a YAML anchor may share this mapping with
+            # another job, whose `image:` must still be checked.
+            job["with"] = {k: v for k, v in job["with"].items() if k != "image"}
     return yaml.safe_dump(doc, width=float("inf"))
 
 
