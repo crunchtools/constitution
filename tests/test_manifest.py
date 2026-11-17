@@ -290,6 +290,11 @@ def test_sign_on_signs_with_cosign_v2_before_any_tag_moves():
     sign = next(s for s in steps if s.get("name") == "Sign the digest being promoted")
     install = next(s for s in steps if str(s.get("name", "")).startswith("Install cosign"))
     assert ids.index(install["name"]) < ids.index(sign["name"]) < ids.index("p")
+    guard = next(s for s in steps if "container_release.py check" in s.get("run", ""))
+    # Every path, signed or not, is checked before anything is signed or copied (#146).
+    assert ids.index(guard["name"]) < ids.index(install["name"])
+    assert "if" not in guard and "continue-on-error" not in guard
+    assert guard["env"]["DIGEST"] == sign["env"]["DIGEST"]
     p = next(s for s in steps if s.get("id") == "p")
     # A failed signature must stop the job before p copies any tag.
     for step in (install, sign, p):
