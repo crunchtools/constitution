@@ -9,6 +9,8 @@ Subcommands, each run by one job of that workflow:
   resolve   on a push to the default branch or a v* tag: find the digest a
             pull request (or main) already gated, so nothing is rebuilt.
   mark      after the gates pass: tag the tested digest gated-<sha>.
+  check     refuse, before anything is signed, what promote would refuse:
+            not a digest, a tag that is not vX.Y.Z or not on the branch.
   promote   move main / latest / semver to a gated digest by copy, refusing
             to move a floating tag backwards, and verify every copy.
   boot      the boot gate: does the image actually start and answer.
@@ -197,6 +199,21 @@ class GitHub:
 # ------------------------------------------------------------------ resolve
 
 
+def refuse_off_branch(gh: GitHub, sha: str, ref: str, branch: str) -> None:
+    """A tag names a commit the branch carries, or nothing is released.
+
+    Through the API with the job's token, so a private repo needs no fetch.
+    """
+    try:
+        on_branch = gh.on_branch(sha, branch)
+    except Refused as exc:
+        raise Refused(f"{ref} names {sha}; cannot confirm it is on {branch}: {exc}") from exc
+    if not on_branch:
+        raise Refused(
+            f"{ref} names {sha}, which is not on {branch}; only what {branch} carries is released"
+        )
+
+
 def resolve(
     reg: Registry, gh: GitHub, sha: str, ref: str, branch: str = "main"
 ) -> tuple[str | None, str]:
@@ -211,15 +228,7 @@ def resolve(
     only what the branch carries is released.
     """
     if ref.startswith("refs/tags/"):
-        try:
-            on_branch = gh.on_branch(sha, branch)
-        except Refused as exc:
-            raise Refused(f"{ref} names {sha}; cannot confirm it is on {branch}: {exc}") from exc
-        if not on_branch:
-            raise Refused(
-                f"{ref} names {sha}, which is not on {branch}; "
-                f"only what {branch} carries is released"
-            )
+        refuse_off_branch(gh, sha, ref, branch)
     marker = reg.digest(f":gated-{sha}")
     if marker:
         return marker, f"gated-{sha} exists"
@@ -258,6 +267,24 @@ class Event:
     cascade: bool = False
 
 
+def check(gh: GitHub, digest: str, event: Event) -> tuple[int, int, int] | None:
+    """Refuse what must never be signed or promoted; the release version, if a tag.
+
+    resolve runs only on push, so a workflow_dispatch or schedule run on a v*
+    ref reaches promote without it; this is the check every path makes (#146).
+    """
+    if not DIGEST.match(digest):
+        raise Refused(f"'{digest}' is not a sha256 digest")
+    if not event.ref.startswith("refs/tags/"):
+        return None
+    name = event.ref.removeprefix("refs/tags/")
+    m = SEMVER.match(name)
+    if not m:
+        raise Refused(f"tag '{name}' is not vX.Y.Z")
+    refuse_off_branch(gh, event.sha, event.ref, event.branch)
+    return (int(m[1]), int(m[2]), int(m[3]))
+
+
 def promote(reg: Registry, gh: GitHub, digest: str, event: Event) -> list[str]:
     """Move the floating tags this event earns to `digest`; return them.
 
@@ -265,23 +292,11 @@ def promote(reg: Registry, gh: GitHub, digest: str, event: Event) -> list[str]:
     release, so its `latest` tracks the default branch with `main`
     (container-image profile, "The cascade is the one exception").
     """
-    if not DIGEST.match(digest):
-        raise Refused(f"'{digest}' is not a sha256 digest")
+    version = check(gh, digest, event)
     moved: list[str] = []
     releases = gh.release_tags()
 
-    if event.ref.startswith("refs/tags/"):
-        name = event.ref.removeprefix("refs/tags/")
-        m = SEMVER.match(name)
-        if not m:
-            raise Refused(f"tag '{name}' is not vX.Y.Z")
-        # resolve makes this check only on push; a workflow_dispatch on a tag skips it.
-        if not gh.on_branch(event.sha, event.branch):
-            raise Refused(
-                f"{event.ref} names {event.sha}, which is not on {event.branch}; "
-                f"only what {event.branch} carries is released"
-            )
-        version = (int(m[1]), int(m[2]), int(m[3]))
+    if version:
         tags = _release_tags(version, releases)
     else:
         tip = gh.tip(event.branch)
@@ -586,9 +601,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = ap.add_subparsers(dest="action", required=True)
 
-    for name in ("resolve", "mark", "promote"):
+    for name in ("resolve", "mark", "check", "promote"):
         p = sub.add_parser(name)
-        p.add_argument("--image", required=True)
+        # check reads GitHub only; the others name the registry repository.
+        p.add_argument("--image", required=name != "check")
         p.add_argument("--repo", default=os.environ.get("GITHUB_REPOSITORY", ""))
         p.add_argument("--sha", default=os.environ.get("GITHUB_SHA", ""))
         p.add_argument("--ref", default=os.environ.get("GITHUB_REF", ""))
@@ -622,6 +638,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 timeout=a.timeout,
             )
             BOOTS[a.profile](spec)
+        elif a.action == "check":
+            check(GitHub(a.repo), a.digest, Event(a.sha, a.ref, a.branch))
         else:
             _registry_action(a)
     except Superseded as exc:

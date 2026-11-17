@@ -14,6 +14,9 @@ Entries through 1.14.0 are derived from the Ratification History table in
 - `container_release.py promote` refuses a `v*` tag ref whose commit is not on the
   default branch. `resolve` made that check only on `push`, so a `workflow_dispatch`
   on an off-main tag could sign and release it.
+- That check also runs as promote's first step (`container_release.py check`),
+  before cosign: with `sign: true`, the refusal inside promote came after the
+  digest was already signed (#146).
 
 ## [1.44.0] - 2026-11-17
 

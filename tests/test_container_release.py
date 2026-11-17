@@ -269,6 +269,19 @@ def test_a_patch_to_an_old_line_never_takes_latest(w):
     assert moved == ["1.3.1", "1.3"] and w.tags["latest"] == latest
 
 
+def test_check_refuses_an_off_branch_tag_before_anything_is_signed(w, monkeypatch):
+    """promote's first step, ahead of cosign: a dispatch on an off-main tag stops here (#146)."""
+    monkeypatch.setattr(CR.GitHub.__init__, "__defaults__", (w.gh,))
+    d = w.image("x")
+    args = ["check", "--repo", REPO, "--digest", d, "--sha", "c9"]
+    w.compare["c9"] = "ahead"
+    assert CR.main([*args, "--ref", "refs/tags/v1.4.0"]) == 1
+    w.compare["c9"] = "behind"
+    assert CR.main([*args, "--ref", "refs/tags/v1.4.0"]) == 0
+    assert CR.main([*args, "--ref", "refs/heads/main"]) == 0
+    assert not w.copies
+
+
 def test_a_tag_that_is_not_semver_is_refused(w):
     with pytest.raises(CR.Refused, match=r"not vX\.Y\.Z"):
         CR.promote(*parts(w), w.image("x"), CR.Event("c1", "refs/tags/v1.4"))
