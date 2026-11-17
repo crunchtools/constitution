@@ -789,12 +789,6 @@ PROFILES_ADDED_IN_MANIFEST = {
     "Workflow Automation",
     "Host Tool",
 }
-VALIDATED_AT_MAIN = ("1.18.0", "1.19.0")
-"""Releases whose validate.yml checks out main instead of its own tag (#42).
-
-A repo pinned to one of them reaches this validator whatever it inherits, so
-for those two an Inherits older than the validator is not a violation; the
-workflow check still holds their pin and Inherits together."""
 MANIFEST_HEADER = ("Version", "Ratified", "Status")  # beside Inherits and Profile (VII)
 VALID_PROFILES |= PROFILES_ADDED_IN_MANIFEST
 
@@ -959,6 +953,34 @@ def inline_gourmand_jobs(flows: "Workflows") -> list[str]:
     return found
 
 
+def reusable_ref_violations(
+    name: str, owner: str, match: re.Match, floor: tuple[int, ...] | None
+) -> list[str]:
+    """XV rule 5: a crunchtools reusable workflow is called at its major tag.
+
+    An exact release is accepted as an incident hold-back; a branch or a commit
+    is not. `floor` is the oldest release accepted, when the fleet sets one.
+    """
+    ref = match.group(2)
+    if ref is None:  # a local ./ call, a repo calling itself
+        return []
+    call = f"{owner} {match.group(1)}.yml@{ref}"
+    major = MAJOR_TAG.match(ref)
+    pinned = version_tuple(ref)
+    if major:
+        if floor and int(major.group(1)) < floor[0]:
+            return [f"WORKFLOWS: {name} calls {call}, below the supported major v{floor[0]}"]
+        return []
+    if pinned is None:
+        return [
+            f"WORKFLOWS: {name} calls {call}, not a release tag; "
+            f"use the major tag (@v{floor[0] if floor else 1})"
+        ]
+    if floor and pinned < floor:
+        return [f"WORKFLOWS: {name} pins {call}, below the supported v{'.'.join(map(str, floor))}"]
+    return []
+
+
 def check_gate_workflows(repo_root: Path, inherits: str, requirements: dict) -> list[str]:
     """XII and #22: the gates exist, on the right triggers, at a supported tag."""
     flows = Workflows(repo_root)
@@ -1002,39 +1024,9 @@ def check_gate_workflows(repo_root: Path, inherits: str, requirements: dict) -> 
 
     floor = version_tuple(requirements.get("fleet", {}).get("gatehouse_min"))
     for name, _, _, match in gatehouse:
-        ref = match.group(2)
-        if ref is None:  # a local ./ call, gatehouse calling itself
-            continue
-        major = MAJOR_TAG.match(ref)
-        pinned = version_tuple(ref)
-        if major:  # the tag each release moves; XII
-            if floor and int(major.group(1)) < floor[0]:
-                violations.append(
-                    f"WORKFLOWS: {name} calls gatehouse {match.group(1)}.yml@{ref}, below the "
-                    f"supported major v{floor[0]}"
-                )
-        elif pinned is None:
-            violations.append(
-                f"WORKFLOWS: {name} calls gatehouse {match.group(1)}.yml@{ref}, not a release tag; "
-                f"use the major tag (@v{floor[0] if floor else 0})"
-            )
-        elif floor and pinned < floor:
-            violations.append(
-                f"WORKFLOWS: {name} pins gatehouse {match.group(1)}.yml@{ref}, below the "
-                f"supported v{'.'.join(map(str, floor))}"
-            )
-
+        violations += reusable_ref_violations(name, "gatehouse", match, floor)
     for name, _, _, match in constitution:
-        ref = match.group(2)
-        if (
-            match.group(1) == "validate"
-            and ref is not None
-            and version_tuple(ref) != version_tuple(inherits)
-        ):
-            violations.append(
-                f"WORKFLOWS: {name} runs validate.yml@{ref} but the manifest inherits v{inherits}; "
-                f"the pin and Inherits move together"
-            )
+        violations += reusable_ref_violations(name, "constitution", match, None)
 
     for name, raw in flows.raw.items():
         # validate.yml itself checks the constitution out, at its own pinned sha.
@@ -1099,8 +1091,8 @@ def check_repo_files(repo_root: Path, profiles: list[str], requirements: dict) -
         i.startswith("crunchtools/constitution") for i in ignored
     ):
         violations.append(
-            "FILES: dependabot.yml must ignore crunchtools/constitution; its pin moves "
-            "with Inherits through scripts/fleet-bump.py, never alone"
+            "FILES: dependabot.yml must ignore crunchtools/constitution; it is called "
+            "at its major tag, and a new major moves through scripts/fleet-bump.py"
         )
 
     for r in rules:
@@ -1511,7 +1503,7 @@ CONTAINER_RELEASE_SINCE = (1, 39, 0)
 """First constitution version whose container-image VII is machine-checked (RT#1550)."""
 
 _RELEASE_CALL = re.compile(
-    r"^crunchtools/constitution/\.github/workflows/container-release\.yml@v\d+\.\d+\.\d+$"
+    r"^crunchtools/constitution/\.github/workflows/container-release\.yml@v\d+(?:\.\d+\.\d+)?$"
 )
 # Publishing, not building: a job may build an image locally to run its tests
 # (rotv's BUILD_ENV=test integration image); what VII governs is which bytes
@@ -1635,8 +1627,41 @@ def check_container_release(repo_root: Path, inherits: str, requirements: dict) 
     elif not custom and not unpublished and not calls:
         violations.append(
             "CONTAINER: a Containerfile is present but no workflow job calls "
-            "crunchtools/constitution/.github/workflows/container-release.yml@vX.Y.Z (VII, RT#1550)"
+            "crunchtools/constitution/.github/workflows/container-release.yml@v1 (VII, RT#1550)"
         )
+    return violations
+
+
+FLOATING_SINCE = (1, 45, 0)
+"""First constitution version whose XV rule 5 floats crunchtools tool images."""
+
+_TOOL_IMAGE = re.compile(
+    r"quay\.io/crunchtools/([a-z0-9._-]+)(?::([^\s\"'@]+)|@(sha256:[0-9a-f]{12}))"
+)
+
+
+def check_floating_images(repo_root: Path, inherits: str, requirements: dict) -> list[str]:
+    """XV rule 5: a crunchtools tool image in a hook or a CI job names its floating tag.
+
+    The images and their tags are `floating_images` in requirements.toml. A
+    Containerfile `FROM` bundles a tool as a build input and is not read here.
+    """
+    if _version_tuple(inherits) < FLOATING_SINCE:
+        return []
+    floating = requirements.get("fleet", {}).get("floating_images", {})
+    hooks = repo_root / ".pre-commit-config.yaml"
+    violations: list[str] = []
+    for path in [*workflow_files(repo_root), *([hooks] if hooks.is_file() else [])]:
+        text = strip_yaml_comments(path.read_text(errors="ignore"))
+        for image, tag, digest in dict.fromkeys(m.groups() for m in _TOOL_IMAGE.finditer(text)):
+            want = floating.get(image)
+            if want is None or tag == want:
+                continue
+            ref = f":{tag}" if tag else f"@{digest}"
+            violations.append(
+                f"FLOAT: {path.name} runs quay.io/crunchtools/{image}{ref}; "
+                f"name `:{want}`, which each release moves (XV rule 5)"
+            )
     return violations
 
 
@@ -1818,8 +1843,13 @@ def check_visibility(profiles: list[str], requirements: dict, slug: str | None) 
     return [] if repo.get("private") else ["VISIBILITY: Host Config repos MUST be private"]
 
 
-def check_pin(inherits: str, pinned: bool) -> list[str]:
-    """The declared version and the validator judging it are the same release."""
+def check_pin(inherits: str) -> list[str]:
+    """The validator judging a repo is at least the release it inherits.
+
+    Repos call validate.yml at the major tag (XV rule 5), so the validator is
+    usually newer than `Inherits`. That is not a violation: a check a release
+    adds applies only to repos inheriting that release.
+    """
     mine = own_version()
     if mine is None:
         return []
@@ -1830,11 +1860,6 @@ def check_pin(inherits: str, pinned: bool) -> list[str]:
         return [f"PIN: manifest inherits '{inherits}', which is not a vX.Y.Z release"]
     if declared > ours:
         return [f"PIN: manifest inherits v{inherits}, newer than this validator (v{mine})"]
-    if pinned and inherits != mine and inherits not in VALIDATED_AT_MAIN:
-        return [
-            f"PIN: manifest inherits v{inherits} but CI validated with v{mine}; "
-            f"bump Inherits and the validate.yml pin together"
-        ]
     return []
 
 
@@ -1847,7 +1872,7 @@ def freshness_warning(inherits: str) -> str | None:
     if latest and pinned and (latest[0] > pinned[0] or latest[1] - pinned[1] > 1):
         return (
             f"constitution v{'.'.join(map(str, latest))} is out; this repo inherits v{inherits}. "
-            f"Run scripts/fleet-bump.py or bump Inherits and the validate.yml pin"
+            f"Run scripts/fleet-bump.py or bump Inherits"
         )
     return None
 
@@ -1865,7 +1890,7 @@ def is_repo_checkout(repo_root: Path | None) -> TypeGuard[Path]:
 
 
 def validate_manifest(
-    text: str, header: dict[str, str], repo_root: Path | None, pinned: bool, slug: str | None
+    text: str, header: dict[str, str], repo_root: Path | None, slug: str | None
 ) -> list[str]:
     """All manifest-era checks. File and workflow checks need a real checkout."""
     inherits = extract_inherits_version(header) or ""
@@ -1883,7 +1908,7 @@ def validate_manifest(
         for field in MANIFEST_HEADER
         if not header.get(field)
     ]
-    violations += check_pin(inherits, pinned)
+    violations += check_pin(inherits)
     violations += check_manifest_text(text, profiles, requirements)
     if is_repo_checkout(repo_root):
         violations += check_changelog(repo_root)
@@ -1893,6 +1918,7 @@ def validate_manifest(
         violations += check_repo_files(repo_root, profiles, requirements)
         violations += check_locked_install(repo_root, requirements)
         violations += check_container_release(repo_root, inherits, requirements)
+        violations += check_floating_images(repo_root, inherits, requirements)
         violations += check_tests_contain(repo_root, inherits, profiles, requirements)
         violations += check_http_client(repo_root, inherits, profiles, requirements)
         violations += check_version_sync(repo_root, inherits, profiles, requirements)
@@ -1945,7 +1971,6 @@ def validate(
     profile_override: str | None = None,
     skill_dir: Path | None = None,
     *,
-    pinned: bool = False,
     repo_slug: str | None = None,
 ) -> list[str]:
     """Validate a per-repo constitution.
@@ -1962,11 +1987,6 @@ def validate(
 
     skill_dir: a Claude Skill directory whose SKILL.md the pre-manifest Claude
     Skill checks inspect.
-
-    pinned: CI mode, set by validate.yml. A manifest repo fails unless its
-    `Inherits` equals this validator's own version, because CI runs the
-    validator from the tag the repo pins. Leave it off when validating from
-    another checkout (pre-commit, fleet-drift.py).
 
     repo_slug (owner/name) is only needed for API checks when validating a repo
     other than the one $GITHUB_REPOSITORY names, as fleet-drift.py does.
@@ -1987,7 +2007,7 @@ def validate(
 
     inherits = extract_inherits_version(header)
     if inherits and _version_tuple(inherits) >= MANIFEST_SINCE:
-        return validate_manifest(text, header, repo_root, pinned, repo_slug)
+        return validate_manifest(text, header, repo_root, repo_slug)
 
     return (
         check_universal(text, header)
@@ -2022,7 +2042,7 @@ def main() -> int:
     parser.add_argument(
         "--pinned",
         action="store_true",
-        help="CI mode (validate.yml): Inherits must equal this validator's version",
+        help="Accepted from older callers; no effect since 1.45.0 (XV rule 5)",
     )
     parser.add_argument(
         "--freshness",
@@ -2047,7 +2067,6 @@ def main() -> int:
         args.constitution,
         profile_override=args.profile,
         skill_dir=args.skill_dir,
-        pinned=args.pinned,
     )
 
     if args.freshness and inherits and (warning := freshness_warning(inherits)):

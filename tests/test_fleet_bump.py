@@ -69,6 +69,25 @@ def test_bump_moves_inherits_and_pin_together(tmp_path):
     assert "validate.yml@v1.19.0" in (flows / "constitution.yml").read_text()
 
 
+def test_from_1_45_0_the_constitution_pin_becomes_the_major_tag(tmp_path):
+    """XV rule 5: Inherits moves; the call floats on `@v1` and stays there."""
+    manifest = tmp_path / ".specify/memory/constitution.md"
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text("> **Inherits:** [crunchtools/constitution](https://example.com) v1.41.0\n")
+    flows = tmp_path / ".github/workflows"
+    flows.mkdir(parents=True)
+    (flows / "container.yml").write_text(
+        "uses: crunchtools/constitution/.github/workflows/container-release.yml@v1.41.0\n"
+        "uses: crunchtools/constitution/.github/workflows/dependency-audit.yml@v1\n"
+    )
+    bump.bump(tmp_path, "1.45.0")
+    assert "v1.45.0" in manifest.read_text()
+    assert (flows / "container.yml").read_text() == (
+        "uses: crunchtools/constitution/.github/workflows/container-release.yml@v1\n"
+        "uses: crunchtools/constitution/.github/workflows/dependency-audit.yml@v1\n"
+    )
+
+
 def gate_callers(tmp_path):
     manifest = tmp_path / ".specify/memory/constitution.md"
     manifest.parent.mkdir(parents=True)

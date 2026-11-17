@@ -57,12 +57,12 @@ python validate-constitution.py path/to/constitution.md --verbose
 - the header: `Inherits`, and `Profile` (comma-separated for several)
 - no section restating a numbered section of the constitution or a declared profile
 - the gates, on the right triggers: Gourmand, the `Gatehouse` workflow (guard, review, triage), retriage, constitution validation and Dependabot auto-merge
-- pins: gatehouse at or above the supported release, and validate.yml at the inherited tag
+- refs: crunchtools workflows at their major tag (an exact release is accepted, a branch or commit is not), and from v1.45.0 crunchtools tool images in hooks and CI at their floating tag (XV rule 5)
 - files: CHANGELOG, LICENSE (AGPL-3.0 unless the profile says otherwise), both pre-commit hooks, no `language: system` hook that needs a host install (v1.20.0+), Dependabot coverage, and each profile's files, per [`profiles/requirements.toml`](profiles/requirements.toml)
 
 Repos still inheriting an older version get the pre-manifest prose checks.
 
-`--pinned` (CI) fails when `Inherits` differs from the validator's own version. `--freshness` warns when the pin is more than one minor release behind.
+A repo is judged by the rules of the version `Inherits` names; one newer than the validator fails. `--freshness` warns when `Inherits` is more than one minor release behind. `--pinned` is accepted from older callers and does nothing.
 
 Exit code `0` = pass, `1` = violations found, `2` = usage error.
 
@@ -72,7 +72,7 @@ Copy these into the repo (see constitution.md VII, XII and XV):
 
 | Example | Destination |
 |---|---|
-| [`examples/constitution.yml`](examples/constitution.yml) | `.github/workflows/constitution.yml`: validation at the pinned tag |
+| [`examples/constitution.yml`](examples/constitution.yml) | `.github/workflows/constitution.yml`: validation at the major tag (`@v1`) |
 | [`examples/dependabot-automerge.yml`](examples/dependabot-automerge.yml) | `.github/workflows/dependabot-automerge.yml` |
 | [`examples/dependabot.yml`](examples/dependabot.yml) or [`dependabot-uv.yml`](examples/dependabot-uv.yml) | `.github/dependabot.yml` |
 | gatehouse [`examples/`](https://github.com/crunchtools/gatehouse/tree/master/examples) | `gatehouse.yml`, `gatehouse-retriage.yml`, `gourmand.yml`, pre-commit hooks |
@@ -82,7 +82,8 @@ Then turn on `allow_auto_merge` for the repo.
 ## Fleet tools
 
 - `scripts/fleet-drift.py` audits every non-archived repo in the org and exits `1` if any is out of policy. It runs as the `Fleet Drift` workflow, triggered weekly by Hermes.
-- `scripts/fleet-bump.py` runs after a release is tagged. It opens a PR in each manifest repo that moves `Inherits` and the validate.yml pin together, and queues it for auto-merge.
+- `.github/workflows/major-tag.yml` (`scripts/major_tag.py`) moves `v1` to each published release, which is what delivers it to the fleet.
+- `scripts/fleet-bump.py` runs after a release is tagged. It opens a PR in each manifest repo that moves `Inherits` and turns any exact crunchtools workflow pin into its major tag, and queues it for auto-merge.
 - `validate-cascade.py` checks that image rebuilds cascade along the `FROM` graph.
 
 ## License

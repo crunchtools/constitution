@@ -9,6 +9,22 @@ Entries through 1.14.0 are derived from the Ratification History table in
 
 ## [Unreleased]
 
+### Changed
+- XV rule 5: crunchtools refers to crunchtools at a moving tag. Calls to the
+  constitution's workflows name `@v1`, like Gatehouse's `@v0` and Ashigaru's
+  `@v2`; crunchtools tool images in hooks and CI name `:latest` (Gourmand
+  `:main`, `floating_images` in requirements.toml); a pre-commit `rev:` and
+  third-party pins stay exact. `Inherits` alone is the version a repo is judged
+  by: the validator no longer fails a repo whose `Inherits` is older than
+  itself, accepts `@v1` for validate.yml and container-release.yml, and from
+  1.45.0 fails a tool image at an exact tag. `--pinned` is a no-op.
+  `fleet-bump.py` turns exact constitution pins into `@v1`. Governance profile
+  1.1.0.
+
+### Added
+- `major-tag.yml` (`scripts/major_tag.py`, from Ashigaru) moves `v1` to each
+  published release, forward only.
+
 ### Fixed
 
 - `container_release.py promote` refuses a `v*` tag ref whose commit is not on the

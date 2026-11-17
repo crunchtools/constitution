@@ -56,6 +56,12 @@ def test_a_repo_that_calls_container_release_passes(tmp_path):
     assert check(make(tmp_path, container=workflow(CALL))) == []
 
 
+def test_a_repo_that_calls_the_major_tag_passes(tmp_path):
+    """XV rule 5: `@v1` is the call; the exact release stays accepted as a hold-back."""
+    major = CALL.replace("@v1.39.0", "@v1")
+    assert check(make(tmp_path, container=workflow(major))) == []
+
+
 def test_the_old_dual_build_fails_on_every_count(tmp_path):
     found = check(make(tmp_path, container=OLD_DUAL_BUILD))
     assert any("GHCR" in v for v in found)

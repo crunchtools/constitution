@@ -155,7 +155,7 @@ def violations(root: Path, **kwargs) -> list[str]:
 
 
 def test_compliant_repo_passes(repo):
-    assert violations(repo, pinned=True) == []
+    assert violations(repo) == []
 
 
 def test_restated_fleet_section_fails(repo):
@@ -171,10 +171,24 @@ def test_restated_profile_section_fails(repo):
     assert any("mcp-server.md" in v for v in violations(repo))
 
 
-def test_pin_must_match_inherits(repo):
+@pytest.mark.parametrize("ref", ["v1", "v1.17.0"])
+def test_validate_at_the_major_tag_or_a_held_back_release_passes(repo, ref):
+    """XV rule 5: the call floats on `@v1`; an exact release is an incident hold-back."""
     flow = repo / ".github/workflows/constitution.yml"
-    flow.write_text(flow.read_text().replace(f"@v{VERSION}", "@v1.17.0"))
-    assert any("the pin and Inherits move together" in v for v in violations(repo))
+    flow.write_text(flow.read_text().replace("validate.yml@v1", f"validate.yml@{ref}"))
+    assert violations(repo) == []
+
+
+@pytest.mark.parametrize("ref", ["main", "abc1234"])
+def test_a_constitution_call_at_a_branch_or_commit_fails(repo, ref):
+    flow = repo / ".github/workflows/dependabot-automerge.yml"
+    flow.write_text(
+        flow.read_text().replace("dependabot-automerge.yml@v1", f"dependabot-automerge.yml@{ref}")
+    )
+    assert any(
+        f"constitution dependabot-automerge.yml@{ref}, not a release tag" in v
+        for v in violations(repo)
+    )
 
 
 @pytest.mark.parametrize("name", ["validate.yml", "dependency-audit.yml"])
@@ -315,15 +329,23 @@ def test_sign_on_signs_with_cosign_v2_before_any_tag_moves():
     assert pub.endswith("-----END PUBLIC KEY-----\n")
 
 
-def test_example_container_caller_pins_this_release():
+@pytest.mark.parametrize(
+    ("name", "call"),
+    [
+        ("constitution.yml", "validate.yml@v1\n"),
+        ("dependabot-automerge.yml", "dependabot-automerge.yml@v1\n"),
+        ("container.yml", "container-release.yml@v1\n"),
+        ("security.yml", "dependency-audit.yml@v1\n"),
+    ],
+)
+def test_examples_call_the_major_tag(name, call):
+    """XV rule 5: a copied caller floats; the release it runs moves under it."""
+    assert call in (ROOT / "examples" / name).read_text()
+
+
+def test_example_container_caller_passes_no_secrets_wholesale():
     example = (ROOT / "examples/container.yml").read_text()
-    assert f"container-release.yml@v{VERSION}\n" in example
     assert "secrets: inherit" not in example
-
-
-def test_example_security_caller_pins_this_release():
-    example = (ROOT / "examples/security.yml").read_text()
-    assert f"dependency-audit.yml@v{VERSION}\n" in example
 
 
 @pytest.mark.parametrize("bad", ["main", "v1.2", "1.2.3.4", "abc1234", ""])
@@ -336,20 +358,19 @@ def test_malformed_inherits_is_reported_not_raised(bad, monkeypatch):
     `Inherits:` crashed on exactly the input it exists to catch.
     """
     monkeypatch.setattr(V, "own_version", lambda: "1.30.0")
-    violations = V.check_pin(bad, pinned=True)
+    violations = V.check_pin(bad)
     assert any(v.startswith("PIN:") and "not a vX.Y.Z release" in v for v in violations)
 
 
-def test_pinned_mode_rejects_other_version(repo, monkeypatch):
-    monkeypatch.setattr(V, "own_version", lambda: "9.9.9")
-    assert any(v.startswith("PIN:") for v in violations(repo, pinned=True))
+def test_a_newer_validator_judges_an_older_inherits(repo, monkeypatch):
+    """`@v1` moves on every release; a repo that has not adopted it still passes."""
+    monkeypatch.setattr(V, "own_version", lambda: "1.99.0")
+    assert violations(repo) == []
 
 
-@pytest.mark.parametrize("old", V.VALIDATED_AT_MAIN)
-def test_releases_that_validated_at_main_still_pass(repo, old):
-    """v1.19.0's release failed every repo pinned to v1.18.0 (#42)."""
-    inherit(repo, old)
-    assert violations(repo, pinned=True) == []
+def test_an_inherits_newer_than_the_validator_fails(repo, monkeypatch):
+    monkeypatch.setattr(V, "own_version", lambda: "1.0.0")
+    assert any(v.startswith("PIN:") and "newer than this validator" in v for v in violations(repo))
 
 
 def test_stale_gatehouse_pin_fails(repo):
@@ -711,7 +732,7 @@ def test_web_application_tags_are_deploy_markers(repo):
 
 
 def test_python_repo_on_python_sdlc_passes(repo):
-    assert violations(repo, pinned=True) == []
+    assert violations(repo) == []
 
 
 def test_python_repo_on_the_standalone_hooks_fails(repo):
@@ -789,7 +810,7 @@ def test_a_block_style_hook_type_list_is_read(repo):
             "default_install_hook_types:\n  - pre-commit\n  - pre-push",
         ),
     )
-    assert violations(repo, pinned=True) == []
+    assert violations(repo) == []
 
 
 def test_ci_must_run_sdlc_ci(repo):
@@ -918,12 +939,12 @@ def http_violations(root: Path) -> list[str]:
 def test_http_contract_skipped_without_an_http_import(repo):
     """A server that speaks no HTTP passes, and keeps passing."""
     write(repo, "src/example_server/tools.py", "def list_entries() -> list[str]:\n    return []\n")
-    assert violations(repo, pinned=True) == []
+    assert violations(repo) == []
 
 
 def test_compliant_client_passes(repo):
     add_client(repo, COMPLIANT_CLIENT)
-    assert violations(repo, pinned=True) == []
+    assert violations(repo) == []
 
 
 def test_nameless_client_is_reported(repo):
@@ -1060,7 +1081,7 @@ def test_streaming_without_a_comparison_passes_at_an_older_pin(repo):
 
 def test_flat_layout_skip_is_printed(repo, capsys):
     write(repo, "client.py", NAMELESS_CLIENT)
-    violations(repo, pinned=True)
+    violations(repo)
     assert "HTTP: skipped, no Python under src/" in capsys.readouterr().out
 
 
@@ -1210,3 +1231,33 @@ def test_backslash_continuation_is_joined(repo):
         "RUN pip install --no-cache-dir --no-deps .\n",
     )
     assert container_violations(repo) == []
+
+
+GATE_HOOK = "      entry: podman run --rm quay.io/crunchtools/{image} check\n"
+
+
+@pytest.mark.parametrize(
+    ("image", "ok"),
+    [
+        ("gatehouse:latest", True),
+        ("gourmand:main", True),
+        ("python-sdlc:latest", True),
+        ("mcp-example:1.2.3", True),  # not a tool image; out of scope
+        ("gatehouse:0.23.0", False),
+        ("gourmand:latest", False),  # Gourmand cuts no releases; `latest` is v1.0.0 for good
+        ("python-sdlc@sha256:0123456789abcdef", False),
+    ],
+)
+def test_tool_images_in_hooks_and_ci_float(repo, image, ok):
+    """XV rule 5 since 1.45.0: python-sdlc's own hook ran Gatehouse 0.23.0 and got a 401."""
+    write(repo, ".pre-commit-config.yaml", "repos:\n" + GATE_HOOK.format(image=image))
+    found = V.check_floating_images(repo, "1.45.0", V.load_requirements())
+    assert (found == []) is ok
+    assert all(v.startswith("FLOAT: .pre-commit-config.yaml") for v in found)
+
+
+def test_a_floating_image_check_waits_for_the_release_that_adds_it(repo):
+    write(repo, ".github/workflows/review.yml", GATE_HOOK.format(image="gatehouse:${version}"))
+    assert V.check_floating_images(repo, "1.44.0", V.load_requirements()) == []
+    [found] = V.check_floating_images(repo, "1.45.0", V.load_requirements())
+    assert "review.yml runs quay.io/crunchtools/gatehouse:${version}" in found

@@ -105,8 +105,8 @@ Container images are published to one registry. GHCR was dropped on 2026-11-11
 ### Release CI: build once, promote what was tested
 
 Every repo with a Containerfile calls the reusable workflow
-`crunchtools/constitution/.github/workflows/container-release.yml` at a
-release tag (copy `examples/container.yml`), unless it is listed in
+`crunchtools/constitution/.github/workflows/container-release.yml` at its
+major tag, `@v1` (copy `examples/container.yml`, XV rule 5), unless it is listed in
 `container_release_custom` in `profiles/requirements.toml`. Since 1.39.0 the
 validator checks this. One build per change: the pull request builds its head
 commit and gates that digest; the merge promotes the PR's digest without
@@ -207,7 +207,7 @@ Every repo in the organization has a profile. There are no exemptions: a repo th
 
 **Rules (since 1.18.0):**
 - **Reference, don't restate.** The manifest MUST NOT carry a section whose title is a numbered section of this constitution or of a declared profile. Restated copies are what drifted (#22): commands, job names and pins changed upstream while dozens of copies kept the old ones. The validator fails on a restated section.
-- **The pin is the version.** `.github/workflows/constitution.yml` (copy [`examples/constitution.yml`](examples/constitution.yml)) calls `crunchtools/constitution/.github/workflows/validate.yml@vX.Y.Z`. That workflow runs the validator, profiles and [`profiles/requirements.toml`](profiles/requirements.toml) from the same tag, never HEAD, and fails when `Inherits` differs from the tag. `Inherits` and the pin move together in one PR, opened by `scripts/fleet-bump.py` after each release.
+- **`Inherits` is the version; the call floats.** `.github/workflows/constitution.yml` (copy [`examples/constitution.yml`](examples/constitution.yml)) calls `crunchtools/constitution/.github/workflows/validate.yml@v1`, the major tag each release moves (XV rule 5). That workflow runs the validator, profiles and [`profiles/requirements.toml`](profiles/requirements.toml) from the release the tag points at, never HEAD. A repo is judged by the rules of the version its `Inherits` names: a check a release adds MUST apply only to repos inheriting that release or later, so moving the tag never fails a repo that has not adopted it. An `Inherits` newer than the validator fails. `scripts/fleet-bump.py` moves `Inherits` after each release. Until 1.45.0 the call named the exact release and moved with `Inherits`; that bump was manual, and every repo sat at v1.41.0 three releases later.
 - **The repo is judged by its files, not its prose.** From 1.18.0 the validator checks the real workflows, `.pre-commit-config.yaml`, `dependabot.yml`, LICENSE and profile files against `requirements.toml`. Rules that cannot be checked mechanically are listed as prose-only in the validator's verbose output.
 - **Drift is reported.** `scripts/fleet-drift.py` (workflow `Fleet Drift`, triggered weekly by Hermes) audits every repo and goes red when one is out of policy: pre-manifest, failing validation, more than one minor release behind, auto-merge off, or Dependabot PRs older than 14 days.
 
@@ -221,8 +221,8 @@ Repos inheriting a version before 1.18.0 are validated by the older rules until 
 2. Document rationale in the PR description.
 3. Require maintainer approval.
 4. Bump the constitution version upon merge (semver rules apply).
-5. Tag the release (`vX.Y.Z`) and publish a GitHub Release. Every version is tagged; a version that cannot be pinned cannot be enforced.
-6. Run `scripts/fleet-bump.py` to open the `Inherits` + pin PR in every manifest repo. A bump auto-merges when the repo passes the new release; otherwise it waits for a fix in that repo.
+5. Tag the release (`vX.Y.Z`) and publish a GitHub Release. Every version is tagged. Publishing moves `v1` to it (`major-tag.yml`), which delivers the release to every repo; the commit already passed CI and the container-release canary on main.
+6. Run `scripts/fleet-bump.py` to open the `Inherits` PR in every manifest repo, adopting the new rules. A bump auto-merges when the repo passes them; otherwise it waits for a fix in that repo.
 
 ---
 
@@ -324,7 +324,7 @@ Canonical drop-in workflow files are maintained in [`crunchtools/gatehouse/examp
 | [`pre-commit.yaml`](https://github.com/crunchtools/gatehouse/blob/master/examples/pre-commit.yaml) | Gourmand and Gatehouse pre-commit hooks — merge into `.pre-commit-config.yaml` |
 | [`gatehouse-retriage.yml`](https://github.com/crunchtools/gatehouse/blob/master/examples/gatehouse-retriage.yml) | Re-runs triage when a finding gets a reply — add as `.github/workflows/gatehouse-retriage.yml` |
 
-These files are the fleet-owned wiring: copy them unchanged. They call Gatehouse at its major tag (`@v0`), which each Gatehouse release moves once its images are pushed, so a release reaches every repo with no pull request there. A repo MAY name an exact release (`@vX.Y.Z`) to hold itself back during an incident; a branch or a commit is not accepted. The same holds for a Workflow Automation repo's caller file (`crunchtools/ashigaru` at `@v2`). What this gives up is a per-repo trial of each release; what it buys is that no repo runs a stale gate, and a bad release is undone by moving one tag back. A single bundled reusable workflow was considered and rejected (#22): the gates need different triggers (`pull_request` for Gourmand, `pull_request_target` for review and triage, `workflow_run` for retriage), and nesting renames the check names that branch rules and retriage look up.
+These files are the fleet-owned wiring: copy them unchanged. They call Gatehouse at its major tag (`@v0`), which each Gatehouse release moves once its images are pushed, so a release reaches every repo with no pull request there. A repo MAY name an exact release (`@vX.Y.Z`) to hold itself back during an incident; a branch or a commit is not accepted. The same holds for a Workflow Automation repo's caller file (`crunchtools/ashigaru` at `@v2`) and for every other crunchtools reference (XV rule 5). What this gives up is a per-repo trial of each release; what it buys is that no repo runs a stale gate, and a bad release is undone by moving one tag back. A single bundled reusable workflow was considered and rejected (#22): the gates need different triggers (`pull_request` for Gourmand, `pull_request_target` for review and triage, `workflow_run` for retriage), and nesting renames the check names that branch rules and retriage look up.
 
 Required checks, set once in the organization ruleset: `Protect workflows`, `Gatehouse triage / Gatehouse triage`, `Code Quality (Gourmand) / Code Quality (Gourmand)` and `Constitution / Validate constitution`.
 
@@ -362,7 +362,9 @@ on the laptop and in CI alike.
 
 **Rules:**
 - A repo with a `pyproject.toml` is a Python repo. It MUST run its checks
-  through python-sdlc, pinned at one exact release (`vX.Y.Z`):
+  through python-sdlc. Its hook `rev:` names one exact release (`vX.Y.Z`),
+  because pre-commit never refetches a moved tag; the image that release runs
+  is `latest` (XV rule 5):
 
   | Command | Runs | Config block in `pyproject.toml` |
   |---|---|---|
@@ -404,9 +406,10 @@ on the laptop and in CI alike.
   Python repo missing from it has a gate that cannot block; a repo in it that
   is not a Python repo has a required check that will never report, which
   blocks every merge there instead.
-- A release of Gourmand or Gatehouse triggers a python-sdlc release, and that
-  release opens a version-bump pull request in every Python repo. The laptop
-  then runs the reviewer CI runs.
+- A release of Gourmand or Gatehouse triggers a python-sdlc release, which
+  moves `latest`, and every Python repo runs it on its next push and CI run,
+  with no pull request there. The laptop runs the reviewer CI runs. Only a
+  change to the launcher, `bin/sdlc`, needs a `rev:` bump.
 - Exempt: `gourmand` and `python-sdlc`, which build what the image contains.
   The list is `sdlc_exempt` in `requirements.toml`. Gatehouse is not exempt:
   python-sdlc runs its last release, so it reviews its own changes the way the
@@ -581,15 +584,40 @@ and the build broke with zero code changes to point at.
    ecosystems wait for a human. Dependabot PRs left open more than 14 days
    show up in the drift report.
 
-5. **The fleet's own reusable workflows are not pinned per repo.** A call to
-   `crunchtools/gatehouse` or to a Workflow Automation repo names the major
-   tag, which the release moves (XII). There is no per-repo version to keep
-   current, so rule 2 has nothing to update; Dependabot proposes only a new
-   major, and that waits for a human like any other.
+5. **Crunchtools refers to crunchtools at a moving tag.** Exact pins between
+   our own repos cost more than the breakage they prevented. On 2026-11-17
+   every repo called the constitution's workflows at v1.41.0, three releases
+   behind; Gatehouse's review ran its own not-yet-pushed image and failed
+   every review, twice; python-sdlc's own hook ran Gatehouse 0.23.0 and
+   failed locally with a 401.
+   - A call to a crunchtools reusable workflow (constitution, gatehouse,
+     ashigaru, python-sdlc) names its major tag: `@v1`, `@v0`, `@v2`. Each
+     repo's release moves that tag, forward only (`major-tag.yml`). An exact
+     release (`@vX.Y.Z`) is accepted to hold a repo back during an incident; a
+     branch or a commit is not.
+   - A crunchtools tool image in a hook or a CI job names the tag its
+     releases move: `:latest`, or `:main` for Gourmand, which cuts none (XII).
+     The list is `floating_images` in `requirements.toml`. A hook runs it with
+     `--pull=newer`, or podman keeps the first copy it pulled. A Containerfile
+     `FROM` that bundles a tool into an image is a build input, not a
+     reference, and keeps its version.
+   - A pre-commit `rev:` stays an exact release: pre-commit never refetches a
+     moved tag. A hook repo floats by what it runs (python-sdlc's image), not
+     by its rev.
+   - Third-party actions and images keep their pins exactly as they are. That
+     is the supply-chain boundary, and it does not move.
+   - Rollback is moving the major tag back one release (the command is in
+     `major-tag.yml`), or copying `rollback-latest` back over `latest` for an
+     image (Container Image profile). Where a repo has a canary, it passes on
+     the release commit before the tag moves; the constitution's is
+     `container-release-canary.yml`.
+   There is no per-repo version to keep current, so rule 2 has nothing to
+   update; Dependabot proposes only a new major, and that waits for a human
+   like any other.
 
 6. **uv projects scan with the fleet's dependency audit.** `security.yml` calls
-   [`dependency-audit.yml`](.github/workflows/dependency-audit.yml) at the
-   inherited tag (copy [`examples/security.yml`](examples/security.yml)). It
+   [`dependency-audit.yml`](.github/workflows/dependency-audit.yml) at `@v1`
+   (copy [`examples/security.yml`](examples/security.yml)). It
    fails a pull request with a vulnerable dependency and keeps one alert issue
    on the default branch: rewritten while anything is vulnerable, closed by
    the first clean scan. Fifteen per-repo copies had drifted: twelve counted
@@ -615,8 +643,8 @@ and the build broke with zero code changes to point at.
 
 Canonical files: [`examples/dependabot.yml`](examples/dependabot.yml)
 (github-actions only) and [`examples/dependabot-uv.yml`](examples/dependabot-uv.yml)
-(uv and github-actions). Both ignore `crunchtools/constitution`, whose pin
-moves with `Inherits` (VII). Other ecosystems follow the same shape — add one
+(uv and github-actions). Both ignore `crunchtools/constitution`: it is called
+at its major tag, and a new major moves through `scripts/fleet-bump.py`. Other ecosystems follow the same shape — add one
 `package-ecosystem` block per manifest/lockfile present in the repo.
 
 ---
