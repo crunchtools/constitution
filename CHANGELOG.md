@@ -24,9 +24,9 @@ Entries through 1.14.0 are derived from the Ratification History table in
   moves its pin to this release. `gourmand` and `python-sdlc` stay exempt.
 
 ### Fixed
-- XII's `sdlc ci` job check missed a launcher path in quotes
-  (`"$RUNNER_TEMP/sdlc/bin/sdlc" ci`), the way shell should hold a path in a
-  variable, and reported the job missing.
+- XII's `sdlc ci` job check missed a quoted command
+  (`"$RUNNER_TEMP/sdlc/bin/sdlc" ci`, `"sdlc" ci`), the way shell should hold
+  a path in a variable, and reported the job missing.
 
 ## [1.42.0] - 2026-11-14
 

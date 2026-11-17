@@ -746,6 +746,9 @@ def test_ci_must_run_sdlc_ci(repo):
         # Mentioning the command is not running it.
         "name: CI\non: pull_request\njobs:\n  t:\n    name: sdlc ci\n    runs-on: x\n"
         "    steps:\n      - run: echo sdlc ci\n",
+        # Nor is mentioning a quoted one.
+        "name: CI\non: pull_request\njobs:\n  t:\n    name: sdlc ci\n    runs-on: x\n"
+        '    steps:\n      - run: |\n          echo "$RUNNER_TEMP/sdlc/bin/sdlc" ci\n',
         # The right job name, running something else.
         "name: CI\non: pull_request\njobs:\n  t:\n    name: sdlc ci\n    runs-on: x\n"
         "    steps:\n      - run: uv run pytest\n",
@@ -758,7 +761,7 @@ def test_only_a_job_named_sdlc_ci_that_runs_it_counts(repo, workflow):
 
 
 @pytest.mark.parametrize(
-    "run", ['"$RUNNER_TEMP/sdlc/bin/sdlc" ci', "'/opt/sdlc/bin/sdlc' ci", "sdlc ci"]
+    "run", ['"$RUNNER_TEMP/sdlc/bin/sdlc" ci', "'/opt/sdlc/bin/sdlc' ci", '"sdlc" ci', "sdlc ci"]
 )
 def test_a_quoted_or_bare_sdlc_ci_counts(repo, run):
     """gatehouse quotes the launcher path, as shell held in a variable should be."""
