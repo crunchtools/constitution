@@ -67,7 +67,7 @@ jobs:
             echo "Head branch is in $GITHUB_REPOSITORY; allowing."; exit 0
           fi
           # Both sides of a rename: `gh pr diff --name-only` lists only the new
-          # path, so a fork could move a workflow out of .github/workflows/ unseen.
+          # path, so a fork could move a file out of .github/workflows/ or .sdlc/ unseen.
           changed="$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files" \
             --jq '.[] | .filename, (.previous_filename // empty)')"
           if echo "$changed" | grep -qE '^(\.github/workflows|\.sdlc)/'; then
