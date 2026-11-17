@@ -1309,3 +1309,14 @@ def test_the_same_image_line_in_another_job_is_still_checked(repo):
     write(repo, ".github/workflows/container.yml", PUBLISH + other)
     [found] = V.check_floating_images(repo, "1.45.0", V.load_requirements())
     assert "runs quay.io/crunchtools/gourmand:latest" in found
+
+
+def test_an_unparsable_workflow_is_scanned_whole(repo):
+    """Broken YAML has no publish target to drop, so nothing in it is exempt."""
+    write(
+        repo,
+        ".github/workflows/broken.yml",
+        "jobs: [\n  podman run quay.io/crunchtools/gatehouse:0.1.0\n",
+    )
+    [found] = V.check_floating_images(repo, "1.45.0", V.load_requirements())
+    assert "broken.yml runs quay.io/crunchtools/gatehouse:0.1.0" in found
