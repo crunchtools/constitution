@@ -1301,3 +1301,11 @@ def test_a_published_image_run_untagged_in_the_same_workflow_is_checked(repo):
     write(repo, ".github/workflows/container.yml", run)
     [found] = V.check_floating_images(repo, "1.45.0", V.load_requirements())
     assert "runs quay.io/crunchtools/gourmand:latest" in found
+
+
+def test_the_same_image_line_in_another_job_is_still_checked(repo):
+    """Removing the publish target by its text would hide an identical line elsewhere."""
+    other = "  svc:\n    container:\n      image: quay.io/crunchtools/gourmand\n    steps: []\n"
+    write(repo, ".github/workflows/container.yml", PUBLISH + other)
+    [found] = V.check_floating_images(repo, "1.45.0", V.load_requirements())
+    assert "runs quay.io/crunchtools/gourmand:latest" in found

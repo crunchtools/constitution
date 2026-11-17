@@ -1642,20 +1642,25 @@ _TOOL_IMAGE = re.compile(
 
 
 def _without_publish_targets(path: Path, text: str) -> str:
-    """The workflow text minus each `image:` line handed to container-release.yml.
+    """The workflow without the `with: image:` each container-release.yml job receives.
 
-    That line names where a release publishes, not what runs; every other
-    mention of the same image, in any job, is still checked.
+    That node names where a release publishes, not what runs; every other
+    mention of the same image, in any job, is still checked. Unparsable YAML
+    is returned whole (and reported elsewhere).
     """
-    jobs = (load_yaml(path) or {}).get("jobs") or {}
-    for job in jobs.values():
-        if not isinstance(job, dict) or not _RELEASE_CALL.match(str(job.get("uses", ""))):
-            continue
-        target = str((job.get("with") or {}).get("image", ""))
-        if target:
-            line = rf"^[ \t]*image:[ \t]*['\"]?{re.escape(target)}['\"]?[ \t]*$"
-            text = re.sub(line, "", text, flags=re.M)
-    return text
+    import yaml  # deferred, like load_yaml: only manifest mode needs it
+
+    doc = load_yaml(path)
+    if doc is None:
+        return text
+    for job in (doc.get("jobs") or {}).values():
+        if (
+            isinstance(job, dict)
+            and _RELEASE_CALL.match(str(job.get("uses", "")))
+            and isinstance(job.get("with"), dict)
+        ):
+            job["with"].pop("image", None)
+    return yaml.safe_dump(doc, width=float("inf"))
 
 
 def check_floating_images(repo_root: Path, inherits: str, requirements: dict) -> list[str]:
