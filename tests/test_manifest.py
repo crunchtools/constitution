@@ -872,9 +872,14 @@ repos:
 """
 
 
+# python-sdlc's bin/sdlc-bootstrap from python-sdlc#62, byte for byte: the
+# validator accepts only a launcher whose sha256 is in requirements.toml.
+BOOTSTRAP = (Path(__file__).parent / "sdlc-bootstrap").read_text()
+
+
 def float_repo(root: Path) -> None:
     write(root, ".pre-commit-config.yaml", FLOATING)
-    write(root, ".sdlc/bin/sdlc", "#!/bin/sh\n")
+    write(root, ".sdlc/bin/sdlc", BOOTSTRAP)
     (root / ".sdlc/bin/sdlc").chmod(0o755)
     write(root, ".github/workflows/ci.yml", SDLC_CI.replace("bin/sdlc ci", ".sdlc/bin/sdlc ci"))
 
@@ -918,6 +923,26 @@ def test_the_launcher_must_be_executable(repo):
     (repo / ".sdlc/bin/sdlc").chmod(0o644)
     [found] = violations(repo)
     assert "is not executable" in found
+
+
+@pytest.mark.parametrize(
+    "launcher", ["#!/bin/sh\nexit 0\n", BOOTSTRAP.replace("exit 2", "exit 0"), BOOTSTRAP + "\n"]
+)
+def test_a_launcher_that_is_not_a_bootstrap_release_fails(repo, launcher):
+    """A committed script that exits 0 would let a repo pass its own gate."""
+    float_repo(repo)
+    write(repo, ".sdlc/bin/sdlc", launcher)
+    [found] = violations(repo)
+    assert "is not a python-sdlc bootstrap release" in found
+
+
+@pytest.mark.parametrize("run", ["bin/sdlc ci", "./tools/sdlc ci", "sdlc ci"])
+def test_a_floating_repo_ci_must_run_the_committed_launcher(repo, run):
+    """The hooks run the pinned bootstrap; CI judging with another sdlc defeats it."""
+    float_repo(repo)
+    write(repo, ".github/workflows/ci.yml", SDLC_CI.replace("bin/sdlc ci", run))
+    [found] = violations(repo)
+    assert "runs `.sdlc/bin/sdlc ci`" in found
 
 
 @pytest.mark.parametrize("hook", ["sdlc-commit", "sdlc-push"])

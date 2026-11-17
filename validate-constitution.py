@@ -18,6 +18,7 @@ Exit codes:
 
 import argparse
 import ast
+import hashlib
 import json
 import os
 import re
@@ -390,7 +391,9 @@ def check_floating_wiring(repo_root: Path, config: dict, requirements: dict) -> 
     """XII since v1.46.0, any repo: the committed launcher, both hooks, the CI job.
 
     Nothing pins a release: the launcher asks the image for its own runner, so
-    hooks and CI float with the image (python-sdlc#62).
+    hooks and CI float with the image (python-sdlc#62). What floats is the
+    image, not the launcher: a committed file the gate trusts must be one
+    python-sdlc shipped, or a repo grades itself.
     """
     fleet = requirements.get("fleet", {})
     launcher = fleet.get("sdlc_launcher", ".sdlc/bin/sdlc")
@@ -400,6 +403,13 @@ def check_floating_wiring(repo_root: Path, config: dict, requirements: dict) -> 
         violations.append(f"XII: the hooks run `{launcher}`, which is not a file in this repo")
     elif not os.access(path, os.X_OK):
         violations.append(f"XII: `{launcher}` is not executable")
+    elif hashlib.sha256(path.read_bytes()).hexdigest() not in fleet.get(
+        "sdlc_bootstrap_sha256", []
+    ):
+        violations.append(
+            f"XII: `{launcher}` is not a python-sdlc bootstrap release "
+            f"(copy bin/sdlc-bootstrap unchanged, or run its scripts/convert_repo.py)"
+        )
     hooks = floating_sdlc_hooks(config, launcher)
     for hook_id, stage in (("sdlc-commit", "pre-commit"), ("sdlc-push", "pre-push")):
         hook = hooks.get(hook_id)
@@ -420,8 +430,8 @@ def check_floating_wiring(repo_root: Path, config: dict, requirements: dict) -> 
         if stage not in stages:
             violations.append(f"XII: the `{hook_id}` hook does not run at `{stage}`")
     violations += check_install_hook_types(config)
-    if not any(_runs_sdlc_ci(load_yaml(f) or {}) for f in workflow_files(repo_root)):
-        violations.append("XII: no CI job named `sdlc ci` runs the `sdlc ci` command")
+    if not any(_runs_sdlc_ci(load_yaml(f) or {}, launcher) for f in workflow_files(repo_root)):
+        violations.append(f"XII: no CI job named `sdlc ci` runs `{launcher} ci`")
     return violations
 
 
@@ -455,13 +465,15 @@ def check_sdlc_wiring(repo_root: Path, hooks: str, requirements: dict) -> list[s
     return violations
 
 
-def _runs_sdlc_ci(workflow: dict) -> bool:
+def _runs_sdlc_ci(workflow: dict, launcher: str | None = None) -> bool:
     """A JOB named `sdlc ci` whose steps run the `sdlc ci` command.
 
     Parsed, not matched: a regex for `name: sdlc ci` is satisfied by a
     workflow's or a step's name just as well as a job's, and a job carrying the
-    right name while running something else would pass it too.
+    right name while running something else would pass it too. With a
+    `launcher`, the command must be that committed file, not any `sdlc`.
     """
+    command = rf"(?:\./)?{re.escape(launcher)}" if launcher else r"[\"']?(?:\S*/)?sdlc[\"']?"
     jobs = workflow.get("jobs") if isinstance(workflow, dict) else None
     for job in (jobs or {}).values():
         if not isinstance(job, dict) or job.get("name") != "sdlc ci":
@@ -471,7 +483,7 @@ def _runs_sdlc_ci(workflow: dict) -> bool:
             # The command word of a line must be `sdlc` (by any path), so
             # `echo sdlc ci` does not count as running it. The command may be
             # quoted, as a path held in a variable should be.
-            if re.search(r"^\s*[\"']?(?:\S*/)?sdlc[\"']?\s+ci\b", str(run), re.M):
+            if re.search(rf"^\s*{command}\s+ci\b", str(run), re.M):
                 return True
     return False
 

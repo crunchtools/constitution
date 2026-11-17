@@ -36,6 +36,13 @@ sdlc_exempt = ["gourmand", "python-sdlc"]
 # with no `rev:`. It asks the image for its own runner, so nothing pins a release.
 # The rev-pinned and standalone forms above are accepted until the fleet converts.
 sdlc_launcher = ".sdlc/bin/sdlc"
+# The bootstrap releases that launcher may be, by sha256. The image floats; the
+# file a gate trusts does not, or a repo could commit a script that passes
+# itself. A new bin/sdlc-bootstrap adds its hash here; old ones stay until the
+# fleet has moved off them.
+sdlc_bootstrap_sha256 = [
+  "87e8649a0724b40e68d2e3f331fb5b3dca5b9b8adb29254f2e88bc9c9c2cd6c1",  # python-sdlc#62
+]
 
 # Container release (container-image VII, since 1.39.0, RT#1550): repos that
 # keep their own promote workflow instead of calling container-release.yml.

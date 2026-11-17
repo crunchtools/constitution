@@ -1,0 +1,40 @@
+#!/bin/sh
+# Run `sdlc` with no `rev:` to pin: get the launcher from the image, then run it.
+#
+# The launcher (bin/sdlc) ships inside quay.io/crunchtools/sdlc, so it floats
+# with the image tag exactly as the tools in the image do: `:latest` by
+# default, SDLC_IMAGE=main for what has merged and not been released, a
+# release such as SDLC_IMAGE=0.9.0, or any full ref such as a seat's localhost/
+# build. The image prints the launcher with its own ref written into it (`sdlc
+# launcher <ref>`), so the launcher and the image it starts cannot disagree.
+#
+# A converted repo carries this file as .sdlc/bin/sdlc, and its hooks and its
+# CI job run it (scripts/convert_repo.py writes it). Nothing in it names a
+# release, so nothing ever bumps it. An `sdlc` RPM would install the same file
+# as /usr/bin/sdlc.
+#
+# Host contract: podman and POSIX sh, nothing else. Never a pipe into `sh`: a
+# failed pull would hand sh nothing, and nothing runs and exits 0. An image
+# that cannot print its launcher is a 2 -- the gate could not run.
+
+set -u
+
+image=${SDLC_IMAGE:-latest}
+case $image in
+  */*) ;;
+  *) image=quay.io/crunchtools/sdlc:$image ;;
+esac
+
+dir=$(mktemp -d) || exit 2
+trap 'rm -rf "$dir"' EXIT
+trap 'exit 2' HUP INT TERM
+
+# --pull=newer: :latest moves, and a stale local copy is how a two-week-old
+# reviewer once judged trentina. Offline, podman keeps the copy it has.
+if ! podman --events-backend=none run --rm --log-driver=none --network=none \
+       --cap-drop=all --security-opt=no-new-privileges --pull=newer \
+       -- "$image" launcher "$image" > "$dir/sdlc" || [ ! -s "$dir/sdlc" ]; then
+  printf 'sdlc: GATE CANNOT RUN: %s could not print its launcher\n' "$image" >&2
+  exit 2
+fi
+sh "$dir/sdlc" "$@"
