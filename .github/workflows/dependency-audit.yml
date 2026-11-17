@@ -1,13 +1,13 @@
 # Reusable dependency CVE scan for uv projects (XV).
 #
-# Callers pin this file to a release tag, which fleet-bump moves with Inherits:
+# Callers name the major tag, which each release moves (XV rule 5):
 #
 #   jobs:
 #     dependency-audit:
 #       permissions:
 #         contents: read
 #         issues: write
-#       uses: crunchtools/constitution/.github/workflows/dependency-audit.yml@v1.44.0
+#       uses: crunchtools/constitution/.github/workflows/dependency-audit.yml@v1
 #
 # from a workflow that runs on pull_request, on push to the default branch and on
 # a weekly schedule. A pull request with a vulnerable dependency fails. On the

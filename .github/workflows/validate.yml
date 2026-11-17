@@ -1,12 +1,12 @@
 # Reusable constitution validation (issue #22).
 #
-# Callers pin this file to a release tag:
+# Callers name the major tag, which each release moves (XV rule 5):
 #
-#   uses: crunchtools/constitution/.github/workflows/validate.yml@v1.44.0
+#   uses: crunchtools/constitution/.github/workflows/validate.yml@v1
 #
-# That tag IS the version the repo is judged by: the validator, profiles and
-# requirements.toml are checked out at the release this file belongs to,
-# never at HEAD. That release is written below as a literal (`ref:`), and
+# The validator, profiles and requirements.toml are checked out at the release
+# this file belongs to, never at HEAD; the repo is judged by the rules of the
+# version its `Inherits:` names. That release is written below as a literal (`ref:`), and
 # tests/test_manifest.py fails when it is not this constitution's version: a
 # reusable workflow has no context that names its own ref. Until v1.19.1 this
 # read `github.job_workflow_sha`, which is empty, so every pinned repo was

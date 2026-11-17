@@ -11,6 +11,10 @@
 # oldest major tag accepted, and an exact pin (`@vX.Y.Z`) must be at least this.
 gatehouse_min = "0.15.0"
 
+# XV rule 5 since v1.45.0: a crunchtools tool image in a hook or a CI job names
+# the tag its releases move. Gourmand cuts no releases, so it floats on `main`.
+floating_images = { gatehouse = "latest", python-sdlc = "latest", gourmand = "main" }
+
 # Files every repo carries (globs relative to the repo root).
 files = ["CHANGELOG.md", ".pre-commit-config.yaml", ".github/dependabot.yml"]
 

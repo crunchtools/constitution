@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""Open the pin-bump PR in every fleet repo after a constitution release (issue #22).
+"""Open the Inherits-bump PR in every fleet repo after a constitution release (issue #22).
 
-A repo's `Inherits:`, its validate.yml pin and its pre-commit hook rev are one
-version and move in one PR; Dependabot ignores the constitution pin so it can't
-bump one without the others. For each manifest repo behind the target this
-rewrites them (the hook rev where the repo has a pre-commit config), opens a PR
-and queues it for auto-merge. Validation at the new tag decides whether it lands;
+A repo's `Inherits:` and its pre-commit hook rev move in one PR. Before v1.45.0
+the validate.yml pin moved with them; from v1.45.0 an exact constitution
+workflow pin becomes the major tag (`@v1`), which each release moves (XV rule
+5), and stays there. For each manifest repo behind the target this rewrites
+them (the hook rev where the repo has a pre-commit config), opens a PR and
+queues it for auto-merge. Validation at the new tag decides whether it lands;
 a repo the new rules break keeps its PR open for a human, and the drift report
 lists it.
 
@@ -37,7 +38,29 @@ MAJOR_TAGGED = re.compile(
     r"(crunchtools/(?:gatehouse|ashigaru)/\.github/workflows/[\w-]+\.yml@v\d+)\.\d+\.\d+"
 )
 MAJOR_TAGS_SINCE = (1, 24, 0)
+CONSTITUTION_MAJOR_SINCE = (1, 45, 0)
 PRE_COMMIT = ".pre-commit-config.yaml"
+
+
+def major_tag_refusal(version: str) -> str | None:
+    """Why pins cannot move to `@vN` yet, or None when refs/tags/vN names this release.
+
+    A repo rewritten to `@v1` before the tag exists, or while it still names an
+    older release, would run something other than what its `Inherits` adopts.
+    """
+    major = f"v{version.split('.')[0]}"
+
+    def commit(tag: str) -> str:
+        path = f"repos/{ORG}/constitution/commits/refs/tags/{tag}"
+        return gh("api", path, "--jq", ".sha", check=False).strip()
+
+    want, have = commit(f"v{version}"), commit(major)
+    if not want:
+        return f"v{version} is not tagged"
+    if have != want:
+        where = f"points at {have[:7]}" if have else "does not exist"
+        return f"{major} {where}, not v{version} ({want[:7]}); run major-tag.yml first"
+    return None
 
 
 def git(root: Path, *args: str) -> None:
@@ -50,10 +73,12 @@ def git(root: Path, *args: str) -> None:
 def bump(root: Path, version: str) -> list[Path]:
     """Rewrite Inherits, every constitution workflow pin and the pre-commit hook rev.
 
-    From v1.24.0 an exact Gatehouse or Ashigaru pin also becomes its major tag.
-    Returns changed files.
+    From v1.24.0 an exact Gatehouse or Ashigaru pin also becomes its major tag,
+    and from v1.45.0 so does a constitution pin. Returns changed files.
     """
-    gates_use_major_tags = tuple(int(part) for part in version.split(".")) >= MAJOR_TAGS_SINCE
+    target = tuple(int(part) for part in version.split("."))
+    gates_use_major_tags = target >= MAJOR_TAGS_SINCE
+    pin = f"v{target[0]}" if target >= CONSTITUTION_MAJOR_SINCE else f"v{version}"
     changed = []
     targets = [root / MANIFEST, *sorted((root / ".github" / "workflows").glob("*.y*ml"))]
     if (root / PRE_COMMIT).is_file():
@@ -61,7 +86,7 @@ def bump(root: Path, version: str) -> list[Path]:
     for path in targets:
         text = path.read_text()
         new = INHERITS.sub(rf"\g<1>v{version}", text) if path.name == "constitution.md" else text
-        new = PIN.sub(rf"\g<1>v{version}", new)
+        new = PIN.sub(rf"\g<1>{pin}", new)
         if gates_use_major_tags:
             new = MAJOR_TAGGED.sub(r"\g<1>", new)
         if path.name == PRE_COMMIT:
@@ -89,11 +114,10 @@ def open_bump_pr(root: Path, name: str, version: str, changed: list[Path]) -> st
         "--title",
         f"chore: inherit constitution v{version}",
         "--body",
-        f"Moves `Inherits:` and the validate.yml pin to v{version} together "
-        f"(opened by constitution/scripts/fleet-bump.py). From v1.24.0 this also turns an "
-        f"exact Gatehouse or Ashigaru pin into its major tag (`@v0`, `@v2`), which their "
-        f"releases move. Auto-merges if the repo passes "
-        f"validation at the new tag; otherwise it needs a fix here.",
+        f"Moves `Inherits:` to v{version} (opened by constitution/scripts/fleet-bump.py). "
+        f"An exact crunchtools workflow pin becomes its major tag (`@v1`, `@v0`, `@v2`), "
+        f"which each release moves (constitution XV rule 5). Auto-merges if the repo "
+        f"passes validation; otherwise it needs a fix here.",
     ).strip()
     queue = subprocess.run(
         ["gh", "pr", "merge", "--auto", "--squash", url], capture_output=True, text=True
@@ -141,6 +165,11 @@ def main() -> int:
 
     validator = load_validator()
     version = args.version or validator.own_version()
+    if tuple(int(part) for part in version.split(".")) >= CONSTITUTION_MAJOR_SINCE and (
+        refusal := major_tag_refusal(version)
+    ):
+        print(f"refused: {refusal}", file=sys.stderr)
+        return 1
     failed = []
     with tempfile.TemporaryDirectory() as clone_root:
         for repo in select_repos(args.only):

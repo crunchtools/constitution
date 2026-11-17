@@ -1,8 +1,9 @@
 # Build once, gate the digest, promote what was tested (container-image VII).
 #
-# Callers pin this file to a release tag; copy examples/container.yml:
+# Callers name the major tag, which each release moves (XV rule 5); copy
+# examples/container.yml:
 #
-#   uses: crunchtools/constitution/.github/workflows/container-release.yml@v1.44.0
+#   uses: crunchtools/constitution/.github/workflows/container-release.yml@v1
 #
 # One build per change. A pull request builds its head commit, gates that
 # digest and marks it gated-<sha>. The merge to the default branch does NOT

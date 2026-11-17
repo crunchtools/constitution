@@ -2,8 +2,8 @@
 #
 # github-actions is required for every repo. Add the ecosystems your profile
 # names (uv for MCP Server and CLI Tool; see examples/dependabot-uv.yml).
-# crunchtools/constitution is ignored: its pin moves with `Inherits:` through
-# scripts/fleet-bump.py, and a lone pin bump would fail validation.
+# crunchtools/constitution is ignored: it is called at its major tag (`@v1`),
+# and a new major moves through scripts/fleet-bump.py, not a lone bump.
 
 version: 2
 updates:
