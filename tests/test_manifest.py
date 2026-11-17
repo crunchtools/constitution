@@ -1246,6 +1246,8 @@ GATE_HOOK = "      entry: podman run --rm --pull=newer quay.io/crunchtools/{imag
         ("gatehouse:0.23.0", False),
         ("gourmand:latest", False),  # Gourmand cuts no releases; `latest` is v1.0.0 for good
         ("python-sdlc@sha256:0123456789abcdef", False),
+        ("gatehouse", True),  # untagged runs `:latest`
+        ("gourmand", False),  # ...which for Gourmand is v1.0.0 for good
     ],
 )
 def test_tool_images_in_hooks_and_ci_float(repo, image, ok):
@@ -1270,3 +1272,9 @@ def test_a_hook_that_never_pulls_never_floats(repo, pull):
     write(repo, ".pre-commit-config.yaml", "repos:\n" + hook)
     [found] = V.check_floating_images(repo, "1.45.0", V.load_requirements())
     assert "without `--pull=newer`" in found
+
+
+def test_an_untagged_image_in_a_workflow_is_a_publish_target(repo):
+    """container-release's `image:` names where a release goes, not what runs."""
+    write(repo, ".github/workflows/container.yml", "      image: quay.io/crunchtools/gourmand\n")
+    assert V.check_floating_images(repo, "1.45.0", V.load_requirements()) == []

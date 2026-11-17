@@ -1637,7 +1637,7 @@ FLOATING_SINCE = (1, 45, 0)
 
 _FRESH_PULL = re.compile(r"--pull[= ](?:newer|always)\b")
 _TOOL_IMAGE = re.compile(
-    r"quay\.io/crunchtools/([a-z0-9._-]+)(?::([^\s\"'@]+)|@(sha256:[0-9a-f]{12}))"
+    r"quay\.io/crunchtools/([a-z0-9._-]+)(?::([^\s\"'@]+)|@(sha256:[0-9a-f]{12}))?"
 )
 
 
@@ -1646,6 +1646,8 @@ def check_floating_images(repo_root: Path, inherits: str, requirements: dict) ->
 
     The images and their tags are `floating_images` in requirements.toml. A
     Containerfile `FROM` bundles a tool as a build input and is not read here.
+    An untagged image in a hook runs `:latest`; in a workflow it is the name a
+    release publishes to (container-release's `image:`), and is left alone.
     """
     if _version_tuple(inherits) < FLOATING_SINCE:
         return []
@@ -1656,7 +1658,10 @@ def check_floating_images(repo_root: Path, inherits: str, requirements: dict) ->
         text = strip_yaml_comments(path.read_text(errors="ignore"))
         for image, tag, digest in dict.fromkeys(m.groups() for m in _TOOL_IMAGE.finditer(text)):
             want = floating.get(image)
-            if want is None or tag == want:
+            if want is None or (path != hooks and not tag and not digest):
+                continue
+            tag = tag or (None if digest else "latest")
+            if tag == want:
                 continue
             ref = f":{tag}" if tag else f"@{digest}"
             violations.append(
