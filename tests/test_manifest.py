@@ -854,6 +854,112 @@ def test_a_quoted_or_bare_sdlc_ci_counts(repo, run):
     assert not [v for v in violations(repo) if "sdlc ci" in v]
 
 
+# XII since v1.46.0: the floating launcher, preferred for every repo (python-sdlc#62).
+
+FLOATING = """default_install_hook_types: [pre-commit, pre-push]
+
+repos:
+  - repo: local
+    hooks:
+      - id: sdlc-commit
+        entry: .sdlc/bin/sdlc commit
+        language: system
+        stages: [pre-commit, pre-merge-commit]
+      - id: sdlc-push
+        entry: .sdlc/bin/sdlc push
+        language: system
+        stages: [pre-push]
+"""
+
+
+def float_repo(root: Path) -> None:
+    write(root, ".pre-commit-config.yaml", FLOATING)
+    write(root, ".sdlc/bin/sdlc", "#!/bin/sh\n")
+    (root / ".sdlc/bin/sdlc").chmod(0o755)
+    write(root, ".github/workflows/ci.yml", SDLC_CI.replace("bin/sdlc ci", ".sdlc/bin/sdlc ci"))
+
+
+def test_a_python_repo_on_the_floating_launcher_passes(repo):
+    float_repo(repo)
+    assert violations(repo) == []
+
+
+def test_a_non_python_repo_on_the_floating_launcher_passes(repo):
+    """syslog, a container-only repo, converts too: no standalone hooks needed."""
+    (repo / "pyproject.toml").unlink()
+    float_repo(repo)
+    assert not [v for v in violations(repo) if v.startswith("XII")]
+
+
+@pytest.mark.parametrize("old", ["1.17.0", "1.41.0"])
+def test_the_floating_launcher_needs_no_inherits_bump(repo, old):
+    """Accepting a form is not a new requirement, so it is not version-gated."""
+    inherit(repo, old)
+    float_repo(repo)
+    assert not [v for v in violations(repo) if v.startswith("XII")]
+
+
+def test_the_launcher_must_be_committed(repo):
+    float_repo(repo)
+    (repo / ".sdlc/bin/sdlc").unlink()
+    assert any("not a file in this repo" in v for v in violations(repo))
+
+
+def test_the_launcher_must_not_be_a_symlink(repo):
+    float_repo(repo)
+    target = repo / "elsewhere"
+    (repo / ".sdlc/bin/sdlc").rename(target)
+    (repo / ".sdlc/bin/sdlc").symlink_to(target)
+    assert any("not a file in this repo" in v for v in violations(repo))
+
+
+def test_the_launcher_must_be_executable(repo):
+    float_repo(repo)
+    (repo / ".sdlc/bin/sdlc").chmod(0o644)
+    [found] = violations(repo)
+    assert "is not executable" in found
+
+
+@pytest.mark.parametrize("hook", ["sdlc-commit", "sdlc-push"])
+def test_a_floating_repo_needs_both_hooks(repo, hook):
+    float_repo(repo)
+    write(repo, ".pre-commit-config.yaml", FLOATING.replace(f"id: {hook}", "id: other"))
+    [found] = violations(repo)
+    assert f"no `{hook}` hook" in found
+
+
+@pytest.mark.parametrize(
+    ("old", "new", "message"),
+    [
+        (".sdlc/bin/sdlc push", ".sdlc/bin/sdlc commit", "`entry: .sdlc/bin/sdlc push`"),
+        (
+            "sdlc push\n        language: system",
+            "sdlc push\n        language: script",
+            "language: system",
+        ),
+        ("stages: [pre-push]", "stages: [pre-commit]", "does not run at `pre-push`"),
+        ("[pre-commit, pre-push]", "[pre-commit]", "does not name `pre-push`"),
+    ],
+)
+def test_a_floating_hook_must_run_what_its_name_says(repo, old, new, message):
+    float_repo(repo)
+    write(repo, ".pre-commit-config.yaml", FLOATING.replace(old, new, 1))
+    assert any(message in v for v in violations(repo))
+
+
+def test_a_floating_repo_must_run_sdlc_ci(repo):
+    float_repo(repo)
+    (repo / ".github/workflows/ci.yml").unlink()
+    [found] = violations(repo)
+    assert "no CI job named `sdlc ci`" in found
+
+
+def test_a_dotted_launcher_path_counts(repo):
+    float_repo(repo)
+    write(repo, ".pre-commit-config.yaml", FLOATING.replace("entry: .sdlc", "entry: ./.sdlc"))
+    assert violations(repo) == []
+
+
 # The outbound HTTP contract (MCP Server profile 1.8.0, RT #1601). The fixture
 # repo carries no `src/`, so the check skips it and every test above stays green;
 # each test here adds a client and breaks one thing about it.

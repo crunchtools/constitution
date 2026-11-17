@@ -9,7 +9,17 @@ Entries through 1.14.0 are derived from the Ratification History table in
 
 ## [Unreleased]
 
+## [1.46.0] - 2026-11-17
+
 ### Added
+- XII: the floating sdlc launcher is the preferred wiring for every repo kind
+  (python-sdlc#62). `.sdlc/bin/sdlc` is committed and executable, the
+  `sdlc-commit` and `sdlc-push` hooks are `repo: local`, `language: system`,
+  `entry: .sdlc/bin/sdlc commit|push`, with no `rev:`, and the `sdlc ci` job
+  runs `.sdlc/bin/sdlc ci`. A repo in this form is judged by it alone, at any
+  `Inherits`. The rev-pinned python-sdlc hook and the standalone hooks are
+  still accepted until the fleet has converted. New `sdlc_launcher` key;
+  `sdlc` joins `floating_images`.
 - XV rule 2: a third-party `uses:` names a full commit SHA, and a `docker://`
   step an image digest; `crunchtools/*` and `./` are exempt. Report mode only:
   the validator prints each unpinned reference as a warning (a GitHub

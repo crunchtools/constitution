@@ -358,8 +358,78 @@ def is_sdlc_repo(repo_root: Path, inherits: str | None, requirements: dict) -> b
     )
 
 
+def floating_sdlc_hooks(config: dict, launcher: str) -> dict[str, dict]:
+    """The `repo: local` hooks whose entry runs the committed launcher, by id."""
+    found = {}
+    for source in config.get("repos") or []:
+        if not isinstance(source, dict) or source.get("repo") != "local":
+            continue
+        for hook in source.get("hooks") or []:
+            if not isinstance(hook, dict):
+                continue
+            words = str(hook.get("entry", "")).split()
+            if words and words[0].removeprefix("./") == launcher:
+                found[str(hook.get("id"))] = hook
+    return found
+
+
+def check_install_hook_types(config: dict) -> list[str]:
+    """Parsed, not matched: the indented block form of this list is as legal as
+    the inline one, and a line match sees only the first entry."""
+    declared = config.get("default_install_hook_types") or []
+    declared = declared if isinstance(declared, list) else [declared]
+    return [
+        f"XII: `default_install_hook_types` does not name `{stage}`, so "
+        f"`pre-commit install` never wires that hook"
+        for stage in ("pre-commit", "pre-push")
+        if stage not in declared
+    ]
+
+
+def check_floating_wiring(repo_root: Path, config: dict, requirements: dict) -> list[str]:
+    """XII since v1.46.0, any repo: the committed launcher, both hooks, the CI job.
+
+    Nothing pins a release: the launcher asks the image for its own runner, so
+    hooks and CI float with the image (python-sdlc#62).
+    """
+    fleet = requirements.get("fleet", {})
+    launcher = fleet.get("sdlc_launcher", ".sdlc/bin/sdlc")
+    path = repo_root / launcher
+    violations = []
+    if path.is_symlink() or not path.is_file():
+        violations.append(f"XII: the hooks run `{launcher}`, which is not a file in this repo")
+    elif not os.access(path, os.X_OK):
+        violations.append(f"XII: `{launcher}` is not executable")
+    hooks = floating_sdlc_hooks(config, launcher)
+    for hook_id, stage in (("sdlc-commit", "pre-commit"), ("sdlc-push", "pre-push")):
+        hook = hooks.get(hook_id)
+        command = hook_id.removeprefix("sdlc-")
+        if hook is None:
+            violations.append(
+                f"XII: .pre-commit-config.yaml has no `{hook_id}` hook running "
+                f"`{launcher} {command}`"
+            )
+            continue
+        words = str(hook.get("entry", "")).split()
+        if words[1:] != [command] or hook.get("language") != "system":
+            violations.append(
+                f"XII: the `{hook_id}` hook must be `language: system` with "
+                f"`entry: {launcher} {command}`"
+            )
+        stages = hook.get("stages") or ["pre-commit"]
+        if stage not in stages:
+            violations.append(f"XII: the `{hook_id}` hook does not run at `{stage}`")
+    violations += check_install_hook_types(config)
+    if not any(_runs_sdlc_ci(load_yaml(f) or {}) for f in workflow_files(repo_root)):
+        violations.append("XII: no CI job named `sdlc ci` runs the `sdlc ci` command")
+    return violations
+
+
 def check_sdlc_wiring(repo_root: Path, hooks: str, requirements: dict) -> list[str]:
-    """XII since v1.30.0: python-sdlc at one exact release, both hooks, the CI job."""
+    """XII since v1.30.0: python-sdlc at one exact release, both hooks, the CI job.
+
+    Superseded by check_floating_wiring; accepted until the fleet has converted.
+    """
     fleet = requirements.get("fleet", {})
     url = fleet.get("sdlc_hooks_repo", "https://github.com/crunchtools/python-sdlc")
     block = re.search(
@@ -379,17 +449,7 @@ def check_sdlc_wiring(repo_root: Path, hooks: str, requirements: dict) -> list[s
         for hook in fleet.get("sdlc_hooks", ["sdlc-commit", "sdlc-push"])
         if not re.search(rf"-\s*id:\s*{re.escape(hook)}[ \t]*$", block.group(1), re.M)
     ]
-    # Parsed, not matched: the indented block form of this list is as legal as
-    # the inline one, and a line match sees only the first entry.
-    parsed = load_yaml(repo_root / ".pre-commit-config.yaml") or {}
-    declared = parsed.get("default_install_hook_types") or []
-    declared = declared if isinstance(declared, list) else [declared]
-    violations += [
-        f"XII: `default_install_hook_types` does not name `{stage}`, so "
-        f"`pre-commit install` never wires that hook"
-        for stage in ("pre-commit", "pre-push")
-        if stage not in declared
-    ]
+    violations += check_install_hook_types(load_yaml(repo_root / ".pre-commit-config.yaml") or {})
     if not any(_runs_sdlc_ci(load_yaml(f) or {}) for f in workflow_files(repo_root)):
         violations.append("XII: no CI job named `sdlc ci` runs the `sdlc ci` command")
     return violations
@@ -444,9 +504,10 @@ def check_quality_gate_wiring(
     """XII since 1.17.0: the local gates, and the Gatehouse triage job.
 
     Reads the real files, like check_gourmand_ci_gate: prose saying a gate
-    exists is exactly what let the gates rot before. Since v1.30.0 a Python
-    repo's gates come from python-sdlc; every other repo's from the standalone
-    hooks.
+    exists is exactly what let the gates rot before. Since v1.46.0 any repo
+    whose hooks run the committed launcher is judged by that form alone. Until
+    the fleet has converted, a Python repo may still pin python-sdlc (v1.30.0)
+    and every other repo carry the standalone hooks.
     """
     if repo_root is None or _version_tuple(inherits) < GATES_SINCE:
         return []
@@ -456,7 +517,12 @@ def check_quality_gate_wiring(
     violations: list[str] = []
     config = repo_root / ".pre-commit-config.yaml"
     hooks = strip_yaml_comments(config.read_text()) if config.is_file() else ""
-    if is_sdlc_repo(repo_root, inherits, requirements):
+    parsed = load_yaml(config) if config.is_file() else None
+    parsed = parsed if isinstance(parsed, dict) else {}
+    launcher = requirements.get("fleet", {}).get("sdlc_launcher", ".sdlc/bin/sdlc")
+    if floating_sdlc_hooks(parsed, launcher):
+        violations += check_floating_wiring(repo_root, parsed, requirements)
+    elif is_sdlc_repo(repo_root, inherits, requirements):
         violations += check_sdlc_wiring(repo_root, hooks, requirements)
     else:
         violations += check_standalone_hooks(hooks)
