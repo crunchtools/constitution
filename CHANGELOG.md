@@ -9,6 +9,12 @@ Entries through 1.14.0 are derived from the Ratification History table in
 
 ## [Unreleased]
 
+### Fixed
+- The `hardcoded_years` exception on `scripts/container_release.py` now names
+  its finding by item (`2025`) instead of the pattern `MCP_PROTOCOL`, which the
+  finding does not contain. Gourmand is about to honour `pattern` (crunchtools/gourmand#43),
+  and the old text would have stopped suppressing the finding.
+
 ## [1.47.0] - 2026-11-18
 
 ### Changed
