@@ -32,7 +32,22 @@ permissions: {}
 jobs:
   audit:
     name: Dependency CVE Scan
-    runs-on: ubuntu-latest
+    # Our own runners when the organization names them (crunchtools/trentina's
+    # security.yml is the model): the CALLER's same-repository pull request on
+    # CACHED_RUNNER_LABEL, its push, schedule, manual run, release or merge
+    # queue on UNCACHED_RUNNER_LABEL. A fork's or Dependabot's pull request, a
+    # Dependabot branch, and every other event -- pull_request_target, comments,
+    # workflow_run, whose code may be a stranger's -- stay on GitHub's machines.
+    # Clearing a variable sends its jobs back to GitHub-hosted: the kill switch.
+    runs-on: >-
+      ${{ github.event_name == 'pull_request'
+          && github.event.pull_request.head.repo.full_name == github.repository
+          && github.event.pull_request.user.login != 'dependabot[bot]'
+          && (vars.CACHED_RUNNER_LABEL || 'ubuntu-latest')
+          || contains(fromJSON('["push","schedule","workflow_dispatch","release","merge_group"]'), github.event_name)
+          && !startsWith(github.ref, 'refs/heads/dependabot/')
+          && (vars.UNCACHED_RUNNER_LABEL || 'ubuntu-latest')
+          || 'ubuntu-latest' }}
     permissions:
       contents: read
       issues: write
