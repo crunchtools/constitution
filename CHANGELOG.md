@@ -9,6 +9,12 @@ Entries through 1.14.0 are derived from the Ratification History table in
 
 ## [Unreleased]
 
+### Changed
+- A seat MAY hold its Ashigaru Desk key besides its gateway token: seat-role
+  only, a `0600` tmpfs file read through `ASHIGARU_API_KEY_FILE`, rotated with
+  the gateway token and revocable at the Desk; a honeypot holds none
+  (Autonomous Agent profile V, X; crunchtools/developer#75).
+
 ## [1.48.0] - 2026-11-18
 
 ### Changed
