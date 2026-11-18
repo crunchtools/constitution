@@ -14,11 +14,13 @@ Entries through 1.14.0 are derived from the Ratification History table in
   (a375). The weekly rebuild is what carries errata, and it fails on purpose
   when something stops fitting (rhel10-bootc-server's mt76 kmod overlay refuses
   a patch that no longer applies); until now the only notice was GitHub's email
-  to whoever last edited the cron line. A new `alert` job runs on
-  `failure() && github.event_name == 'schedule'` and, through
+  to whoever last edited the cron line. A new `alert` job runs after
+  every `schedule` and `workflow_dispatch` run and, through
   `scripts/release_alert.py`, opens one issue per repo titled "Scheduled
   container release failed" (label `container-release`) with the run link and
-  the failed jobs, or comments on the one already open. No new inputs or
+  the failed jobs, or comments on the one already open; the next scheduled
+  run that passes, or a passing `workflow_dispatch` of the default branch,
+  closes it. No new inputs or
   secrets: it uses the caller's `GITHUB_TOKEN` and names no permissions of its
   own, because a nested job asking for `issues: write` would fail every caller
   that grants less, on every event. The workflow-level `permissions: {}` goes

@@ -208,21 +208,21 @@ def test_container_release_checks_out_this_release():
     assert "ref: v" not in workflow.replace(f"@v{VERSION}", "")
 
 
-def _alert_fires(condition: str, event: str, any_failed: bool) -> bool:
-    """Evaluate the alert job's `if:` as Actions does; a term it does not know raises."""
-    terms = {"failure()": any_failed, "github.event_name == 'schedule'": event == "schedule"}
-    return all(terms[term.strip()] for term in condition.split("&&"))
-
-
-@pytest.mark.parametrize("event", ["schedule", "pull_request", "push", "workflow_dispatch"])
-@pytest.mark.parametrize("any_failed", [True, False])
-def test_the_alert_job_fires_only_on_a_failed_schedule(event, any_failed):
-    """a375: a red weekly rebuild files an issue; a red PR or a green schedule never does."""
+def test_the_alert_job_runs_only_on_runs_that_judge_the_default_branch():
+    """a375: schedule and dispatch reach release_alert.py, which files only for a failed
+    schedule (tests/test_release_alert.py); a pull request or push never runs the job."""
     import yaml
 
     jobs = yaml.safe_load((ROOT / ".github/workflows/container-release.yml").read_text())["jobs"]
     alert = jobs["alert"]
-    assert _alert_fires(alert["if"], event, any_failed) == (event == "schedule" and any_failed)
+    assert alert["if"] == (
+        "!cancelled() && "
+        """contains(fromJSON('["schedule","workflow_dispatch"]'), github.event_name)"""
+    )
+    # A dispatch of another branch reaches the script as `other`, which does nothing.
+    step = alert["steps"][-1]
+    assert "&& 'other' || github.event_name" in step["env"]["EVENT"]
+    assert "inputs.default-branch" in step["env"]["EVENT"]
     # failure() only sees the jobs it needs: every other job, so none can fail unseen.
     assert set(alert["needs"]) == set(jobs) - {"alert"}
 

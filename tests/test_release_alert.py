@@ -27,14 +27,24 @@ def test_only_failure_results_count_as_failed():
     assert R.failed({"a": {"result": "success"}}) == []
 
 
-@pytest.mark.parametrize("event", ["pull_request", "push", "workflow_dispatch", "merge_group"])
+@pytest.mark.parametrize("event", ["pull_request", "push", "workflow_dispatch", "other"])
 def test_only_a_schedule_files_an_alert(event):
-    """A mis-wired caller must never open an issue for a pull request."""
+    """A mis-wired caller must never open an issue for a pull request; a person
+    watching a manual run needs none."""
+    assert R.plan(event, ["build"], []) == []
     assert R.plan(event, ["build"], [issue(1)]) == []
 
 
-def test_a_clean_schedule_does_nothing():
-    assert R.plan("schedule", [], [issue(1)]) == []
+@pytest.mark.parametrize("event", ["schedule", "workflow_dispatch"])
+def test_a_passing_run_of_the_default_branch_closes_every_alert(event):
+    assert R.plan(event, [], [issue(3), issue(9)]) == [("close", 3), ("close", 9)]
+    assert R.plan(event, [], []) == []
+
+
+@pytest.mark.parametrize("event", ["pull_request", "push", "other"])
+def test_a_passing_run_of_anything_else_closes_nothing(event):
+    """A green PR or a dispatch of another branch says nothing about the weekly build."""
+    assert R.plan(event, [], [issue(3)]) == []
 
 
 def test_first_failure_creates_the_alert():
@@ -113,6 +123,15 @@ def test_a_second_failure_comments_on_the_open_alert(calls, monkeypatch):
     assert comment[2] == "4"
 
 
+def test_a_passing_schedule_closes_the_open_alert(calls, monkeypatch):
+    calls.listing["json"] = json.dumps([issue(4)])
+    assert drive(monkeypatch, needs={"build": {"result": "success"}}) == 0
+    close = next(c for c in calls if c[:2] == ("issue", "close"))
+    assert close[2] == "4"
+    assert close[close.index("--reason") + 1] == "completed"
+    assert f"({URL})" in close[close.index("--comment") + 1]
+
+
 def test_a_pull_request_failure_makes_no_gh_calls(calls, monkeypatch):
     assert drive(monkeypatch, event="pull_request") == 0
     assert calls == []
@@ -127,6 +146,17 @@ def test_a_denied_token_warns_instead_of_failing(monkeypatch, capsys):
     out = capsys.readouterr().out
     assert "::warning::" in out
     assert "issues: write" in out
+
+
+def test_a_denied_token_on_a_passing_run_is_quiet(monkeypatch, capsys):
+    """Every passing week of a caller without issues: write would otherwise warn."""
+
+    def deny(*args):
+        raise RuntimeError("gh issue list: HTTP 403")
+
+    monkeypatch.setattr(R, "gh", deny)
+    assert drive(monkeypatch, needs={"build": {"result": "success"}}) == 0
+    assert "::warning::" not in capsys.readouterr().out
 
 
 def test_any_other_gh_failure_propagates(monkeypatch):

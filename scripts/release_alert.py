@@ -10,7 +10,8 @@ edited the cron line (a375).
 
 One open issue per repo: the first failure opens it, every later one comments
 on it, so a build that stays broken for a month is one issue with four
-comments. Standard library and the gh CLI only, like audit_alert.py.
+comments. The next scheduled run that passes, or a manual run of the default
+branch, closes it. Standard library and the gh CLI only, like audit_alert.py.
 """
 
 from __future__ import annotations
@@ -25,6 +26,9 @@ LABEL = "container-release"
 AUTHORS = ("github-actions[bot]", "app/github-actions")
 """The workflow's own token writes as this account; an issue a person filed is never touched."""
 DENIED = ("Resource not accessible by integration", "HTTP 403")
+VERDICTS = {"schedule", "workflow_dispatch"}
+"""Runs whose result says whether the default branch builds; the workflow sends any
+other event, and a dispatch of another branch, as `other`."""
 
 
 def failed(needs: dict) -> list[str]:
@@ -48,10 +52,15 @@ Action = tuple[str, int | None]
 def plan(event: str, jobs: list[str], open_alerts: list[dict]) -> list[Action]:
     """What to do, as (action, issue number or None) pairs. Pure: no I/O.
 
-    The job's `if:` already gates on a failed schedule; this repeats it so a
-    mis-wired caller can never file an issue for a pull request.
+    Only a failed `schedule` files or comments: a person watching a manual run
+    needs no issue, and a pull request never gets one. A passing schedule or
+    default-branch dispatch closes every open alert.
     """
-    if event != "schedule" or not jobs:
+    if event not in VERDICTS:
+        return []
+    if not jobs:
+        return [("close", issue["number"]) for issue in open_alerts]
+    if event != "schedule":
         return []
     if not open_alerts:
         return [("create", None)]
@@ -60,16 +69,18 @@ def plan(event: str, jobs: list[str], open_alerts: list[dict]) -> list[Action]:
 
 
 def body(image: str, jobs: list[str], run_url: str, sha: str) -> str:
+    """The new alert's text: which image, which commit, which jobs, and the run."""
     return (
         f"The [scheduled release run]({run_url}) of `{image}` failed at `{sha[:12]}`: "
         f"{', '.join(f'`{job}`' for job in jobs)} failed. Nothing it built was promoted, "
         "so the image is missing whatever errata that rebuild would have carried.\n\n"
-        "Every later scheduled failure comments here instead of opening another issue. "
-        "Close this once a scheduled run (or a `workflow_dispatch`) passes again.\n"
+        "Every later scheduled failure comments here instead of opening another issue; "
+        "the next scheduled run that passes, or a manual run of the default branch, closes it.\n"
     )
 
 
 def comment(jobs: list[str], run_url: str, sha: str) -> str:
+    """The comment a repeat failure leaves on the open alert."""
     return (
         f"Failed again: [run]({run_url}) at `{sha[:12]}`, "
         f"{', '.join(f'`{job}`' for job in jobs)} failed."
@@ -93,8 +104,9 @@ def ensure_label(repo: str) -> None:
             raise
 
 
-def apply(repo: str, action: str, number: int | None, text: str, note: str) -> None:
-    """Carry out one planned action on the alert issue."""
+def apply(repo: str, action: str, number: int | None, texts: dict[str, str]) -> None:
+    """Carry out one planned action on the alert issue, with `texts[action]` as its words."""
+    text = texts.get(action, "")
     match action, number:
         case "create", None:
             ensure_label(repo)
@@ -111,7 +123,19 @@ def apply(repo: str, action: str, number: int | None, text: str, note: str) -> N
                 text,
             )
         case "comment", int():
-            gh("issue", "comment", str(number), "--repo", repo, "--body", note)
+            gh("issue", "comment", str(number), "--repo", repo, "--body", text)
+        case "close", int():
+            gh(
+                "issue",
+                "close",
+                str(number),
+                "--repo",
+                repo,
+                "--reason",
+                "completed",
+                "--comment",
+                text,
+            )
         case "close-duplicate", int():
             gh(
                 "issue",
@@ -126,10 +150,11 @@ def apply(repo: str, action: str, number: int | None, text: str, note: str) -> N
             )
 
 
-def run(args: argparse.Namespace) -> int:
-    jobs = failed(json.loads(args.needs))
+def run(args: argparse.Namespace, jobs: list[str]) -> int:
+    """List the open alerts and carry out the plan for this run. Always 0: a gh
+    failure raises, and main() decides what a refused token means."""
     print(f"alert: event={args.event} failed={','.join(jobs) or '-'}")
-    if not plan(args.event, jobs, []):
+    if args.event not in VERDICTS:
         return 0
     listing = gh(
         "issue",
@@ -145,28 +170,37 @@ def run(args: argparse.Namespace) -> int:
         "--json",
         "number,title,author",
     )
-    text = body(args.image, jobs, args.run_url, args.sha)
-    note = comment(jobs, args.run_url, args.sha)
+    texts = {
+        "create": body(args.image, jobs, args.run_url, args.sha),
+        "comment": comment(jobs, args.run_url, args.sha),
+        "close": f"The [latest run]({args.run_url}) passed.",
+    }
     for action, number in plan(args.event, jobs, alerts(json.loads(listing))):
         print(f"alert: {action} {number or ''}".rstrip())
-        apply(args.repo, action, number, text, note)
+        apply(args.repo, action, number, texts)
     return 0
 
 
 def main() -> int:
+    """Parse the alert job's arguments and act. Exits 0 unless gh fails for a
+    reason other than a token without `issues: write`."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--needs", required=True, help="toJSON(needs) of the alert job")
-    parser.add_argument("--event", required=True)
-    parser.add_argument("--repo", required=True)
-    parser.add_argument("--image", required=True)
-    parser.add_argument("--sha", required=True)
-    parser.add_argument("--run-url", required=True)
+    # --needs is the alert job's toJSON(needs); --event is `other` for a run that
+    # does not judge the default branch.
+    for flag in ("--needs", "--event", "--repo", "--image", "--sha", "--run-url"):
+        parser.add_argument(flag, required=True)
+    args = parser.parse_args()
+    jobs = failed(json.loads(args.needs))
     try:
-        return run(parser.parse_args())
+        return run(args, jobs)
     except RuntimeError as error:
         if any(mark in str(error) for mark in DENIED):
-            # The caller did not grant issues: write. The run is red either way;
-            # say what would have made it an issue, and do not add a second failure.
+            # The caller did not grant issues: write. A passing run has nothing
+            # to report; a failed one is red either way, so say what would have
+            # made it an issue and do not add a second failure.
+            if not jobs:
+                print(f"alert: no issue access ({error})")
+                return 0
             print(
                 "::warning::No alert issue: grant `issues: write` to the job that calls "
                 f"container-release.yml ({error})"

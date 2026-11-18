@@ -26,7 +26,8 @@
 # caller's own boot and contract commands and holds no credentials at all.
 #
 # A scheduled run that fails opens one issue in the caller's repo, or comments
-# on the one already open (scripts/release_alert.py, a375). The caller's job
+# on the one already open; the next passing run closes it
+# (scripts/release_alert.py, a375). The caller's job
 # grants `issues: write` for that; without it the run warns instead.
 #
 # `sign: true` signs the digest inside promote, before any tag moves, with the
@@ -656,11 +657,14 @@ jobs:
 
   # A weekly rebuild that fails (errata that no longer build, the mt76 overlay
   # refusing a patch that stopped fitting) has to reach a person (a375). One
-  # open issue per repo: the first failure opens it, every later one comments.
+  # open issue per repo: the first failure opens it, every later one comments,
+  # and a passing schedule or default-branch dispatch closes it. The job runs
+  # on both; release_alert.py files only for a failed schedule.
   alert:
     name: alert on a failed schedule
     needs: [resolve, build, gates, mark, promote]
-    if: failure() && github.event_name == 'schedule'
+    if: >-
+      !cancelled() && contains(fromJSON('["schedule","workflow_dispatch"]'), github.event_name)
     # Same pools as build (a308). Holds no secret, only the caller's token.
     runs-on: ${{ github.repository_visibility == 'private' && vars.UNCACHED_RUNNER_LABEL || 'ubuntu-latest' }}
     # No `permissions:` key on purpose: see the comment above `jobs:`. A caller
@@ -676,7 +680,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           NEEDS: ${{ toJSON(needs) }}
-          EVENT: ${{ github.event_name }}
+          # A dispatch of another branch is not the default branch's verdict.
+          EVENT: >-
+            ${{ (github.event_name == 'workflow_dispatch' &&
+                 github.ref != format('refs/heads/{0}', inputs.default-branch))
+                && 'other' || github.event_name }}
           IMAGE: ${{ inputs.image }}
           SHA: ${{ github.sha }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
