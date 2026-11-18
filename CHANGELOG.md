@@ -9,6 +9,8 @@ Entries through 1.14.0 are derived from the Ratification History table in
 
 ## [Unreleased]
 
+## [1.47.0] - 2026-11-18
+
 ### Changed
 
 - The reusable workflows run their build and gate jobs on the organization's own runners when it names them: `validate.yml`'s `validate`, `dependency-audit.yml`'s `audit`, and `container-release.yml`'s `gates` (unless `free-disk` is set, which needs GitHub's image). A caller's same-repository pull request runs on `CACHED_RUNNER_LABEL`; its push, schedule, manual run, release or merge queue on `UNCACHED_RUNNER_LABEL`. Fork and Dependabot pull requests, Dependabot branches, and every other event, `pull_request_target` included, stay on `ubuntu-latest`, and clearing either variable sends its jobs back with no commit. Jobs that hold a registry credential, signing key or App key (`build`, `mark`, `promote`), or only write through the token (`resolve`, `automerge`), stay on `ubuntu-latest`.
