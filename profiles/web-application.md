@@ -147,7 +147,7 @@ Web applications that build on crunchtools image tree parents MUST participate i
   ```
 - **Parent declaration**: The per-repo constitution MUST declare which parent image triggers a cascade rebuild.
 
-When a parent image (e.g., `ubi10-core`, `ubi10-httpd`) is updated, the parent's build workflow dispatches `parent-image-updated` events to its child repos. This ensures security patches propagate through the image tree automatically.
+When a parent image (e.g., `ubi10-core`, `ubi10-httpd`) is updated, the parent's build workflow dispatches `parent-image-updated` events to its child repos. This ensures security patches propagate through the image tree automatically. That dispatch satisfies the weekly-rebuild rule (Container Image profile V), so a web application wired into the cascade needs no cron of its own.
 
 ---
 

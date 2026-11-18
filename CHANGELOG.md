@@ -33,6 +33,10 @@ Entries through 1.14.0 are derived from the Ratification History table in
   it binds the workflow that builds and publishes the image (Container Image
   profile V, v2 VII.8), so the `ci.yml` stub in a container repo needs none.
   Gatehouse had flagged that stub across the 2026-11-17 sdlc fleet wave.
+- A cascade child (`ubi10-httpd*` and the like) meets the weekly-rebuild rule
+  through the `parent-image-updated` dispatch and needs no cron of its own; the
+  root of the chain carries it (Container Image profile V, Web Application
+  profile VIII, v2 VII.8).
 
 ## [1.45.0] - 2026-11-17
 
