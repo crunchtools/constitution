@@ -98,7 +98,7 @@ env:
   QUAY_IMAGE: quay.io/crunchtools/mcp-<name>
 ```
 
-Single job: `build-and-push` with Quay.io login, metadata extraction, and build+push. Published images are scanned by the scheduled fleet CVE check (RT #1551), not in this job.
+Single job: `build-and-push` with Quay.io login, metadata extraction, and build+push. The build-time image scan is sdlc's, not this job's; published images are also scanned by the scheduled fleet CVE check (RT #1551).
 
 ### Upstream Workflows
 

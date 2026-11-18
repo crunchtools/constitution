@@ -40,6 +40,11 @@ Entries through 1.14.0 are derived from the Ratification History table in
 - A per-repo constitution's "an amendment lands on its own" clause never covers
   the `Inherits` pointer bump, which adopts fleet rules and amends none of the
   repo's (VII; v2 XIII.6, moot once per-repo constitutions retire).
+- The build-time image scan is sdlc's: the sdlc launcher scans every repository
+  with a Containerfile, so the Container Image and Web Application profiles (VI)
+  no longer say "none at build time", and `container-release.yml` adds no scan
+  of its own (Container Image VII, Forked MCP Server, Autonomous Agent, v2
+  VI.4). The scheduled fleet CVE check stays.
 
 ## [1.45.0] - 2026-11-17
 

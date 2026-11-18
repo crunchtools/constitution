@@ -82,7 +82,7 @@ MCP server orchestration (mcporter or equivalent) MUST be configured with:
 | Base image | UBI 10 Minimal (`registry.access.redhat.com/ubi10/ubi-minimal`) or Hummingbird (`quay.io/hummingbird/*`) |
 | Build file | `Containerfile` (not Dockerfile) |
 | Rebuild schedule | Weekly (minimum) via scheduled CI |
-| Vulnerability scanning | Scheduled fleet image scan (RT #1551); dependency audit in CI |
+| Vulnerability scanning | Build-time scan by sdlc; scheduled fleet image scan (RT #1551); dependency audit in CI |
 | SBOM | Generated and stored with each release |
 | Image signing | cosign signatures required for production images |
 

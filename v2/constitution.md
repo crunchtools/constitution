@@ -62,7 +62,7 @@ MUST, MUST NOT, SHOULD and MAY are used as in RFC 2119.
 1. Lockfiles are committed, for every ecosystem the repository uses, and never ignored.
 2. Every ecosystem present, including GitHub Actions, has an automated weekly update path. Updates land as pull requests through the same gates as any change. Minor and patch updates to Actions merge themselves when green; everything else waits for a human.
 3. An artifact installs exactly what the lock holds. A Containerfile never resolves dependencies afresh from version floors.
-4. A vulnerable dependency fails the pull request that has it. Published images are scanned on a schedule, which pages on a new fixable Critical; the build does not run an advisory scan nobody reads.
+4. A vulnerable dependency fails the pull request that has it. The build-time image scan is sdlc's: it scans every repository with a Containerfile, and a repository adds no scan of its own. Published images are also scanned on a schedule, which pages on a new fixable Critical.
 
 ## VII. Containers
 
