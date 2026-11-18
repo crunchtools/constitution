@@ -188,7 +188,7 @@ jobs:
     name: resolve
     if: github.event_name == 'push'
     # Same pool as build in a private repo (a308): GitHub-hosted jobs there have no minutes.
-    runs-on: ${{ github.event.repository.private && vars.UNCACHED_RUNNER_LABEL || 'ubuntu-latest' }}
+    runs-on: ${{ github.repository_visibility == 'private' && vars.UNCACHED_RUNNER_LABEL || 'ubuntu-latest' }}
     permissions:
       contents: read
       pull-requests: read
@@ -216,10 +216,11 @@ jobs:
       always() && (needs.resolve.result == 'skipped' ||
       (needs.resolve.result == 'success' && needs.resolve.outputs.rebuild == 'true'))
     # A private repo's runs go to our uncached pool, because GitHub-hosted jobs
-    # there have no minutes (a308). Never the cached pool: this job holds
+    # there have no minutes (a308). Visibility comes from the github context, not
+    # the event: a schedule's payload has no repository. Never the cached pool: this job holds
     # credentials. A private repo has no fork path to our runners. Public repos
     # stay on GitHub's machines, which is what keeps a credential off ours.
-    runs-on: ${{ github.event.repository.private && vars.UNCACHED_RUNNER_LABEL || 'ubuntu-latest' }}
+    runs-on: ${{ github.repository_visibility == 'private' && vars.UNCACHED_RUNNER_LABEL || 'ubuntu-latest' }}
     permissions:
       contents: read
     outputs:
@@ -227,6 +228,13 @@ jobs:
       pushed: ${{ steps.push.outputs.pushed }}
       sha: ${{ steps.src.outputs.sha }}
     steps:
+      # Registry logins go to a file under the job's temp directory (a308), never
+      # to a default path. On our runners the nested container storage outlives
+      # the job, and the runner's container does not. cosign's login goes there too.
+      - name: Keep registry auth inside this job
+        run: |
+          echo "REGISTRY_AUTH_FILE=$RUNNER_TEMP/auth.json" >> "$GITHUB_ENV"
+          echo "DOCKER_CONFIG=$RUNNER_TEMP/docker" >> "$GITHUB_ENV"
       - id: src
         env:
           SHA: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -323,6 +331,9 @@ jobs:
           name: candidate-image
           path: ${{ runner.temp }}/image.tar
           retention-days: 3
+      - name: Drop registry auth
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/auth.json" "$RUNNER_TEMP/docker"
 
   gates:
     name: gates
@@ -341,7 +352,7 @@ jobs:
     # to delete.
     runs-on: >-
       ${{ inputs.free-disk
-          && (github.event.repository.private && vars.UNCACHED_RUNNER_LABEL || 'ubuntu-latest')
+          && (github.repository_visibility == 'private' && vars.UNCACHED_RUNNER_LABEL || 'ubuntu-latest')
           || (github.event_name == 'pull_request'
           && github.event.pull_request.head.repo.full_name == github.repository
           && github.event.pull_request.user.login != 'dependabot[bot]'
@@ -436,13 +447,21 @@ jobs:
     needs: [build, gates]
     if: always() && needs.gates.result == 'success' && needs.build.outputs.pushed == 'true'
     # A private repo's runs go to our uncached pool, because GitHub-hosted jobs
-    # there have no minutes (a308). Never the cached pool: this job holds
+    # there have no minutes (a308). Visibility comes from the github context, not
+    # the event: a schedule's payload has no repository. Never the cached pool: this job holds
     # credentials. A private repo has no fork path to our runners. Public repos
     # stay on GitHub's machines, which is what keeps a credential off ours.
-    runs-on: ${{ github.event.repository.private && vars.UNCACHED_RUNNER_LABEL || 'ubuntu-latest' }}
+    runs-on: ${{ github.repository_visibility == 'private' && vars.UNCACHED_RUNNER_LABEL || 'ubuntu-latest' }}
     permissions:
       contents: read
     steps:
+      # Registry logins go to a file under the job's temp directory (a308), never
+      # to a default path. On our runners the nested container storage outlives
+      # the job, and the runner's container does not. cosign's login goes there too.
+      - name: Keep registry auth inside this job
+        run: |
+          echo "REGISTRY_AUTH_FILE=$RUNNER_TEMP/auth.json" >> "$GITHUB_ENV"
+          echo "DOCKER_CONFIG=$RUNNER_TEMP/docker" >> "$GITHUB_ENV"
       - uses: actions/checkout@v7
         with:
           repository: crunchtools/constitution
@@ -460,6 +479,9 @@ jobs:
           printf '%s' "$QUAY_PASSWORD" | skopeo login -u "$QUAY_USERNAME" --password-stdin quay.io
           python3 -I .constitution/scripts/container_release.py mark \
             --image "$IMAGE" --digest "$DIGEST" --sha "$SHA"
+      - name: Drop registry auth
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/auth.json" "$RUNNER_TEMP/docker"
 
   promote:
     name: promote
@@ -469,10 +491,11 @@ jobs:
       (startsWith(github.ref, 'refs/tags/v') || github.ref == format('refs/heads/{0}', inputs.default-branch)) &&
       ((needs.resolve.result == 'success' && needs.resolve.outputs.digest != '') || needs.mark.result == 'success')
     # A private repo's runs go to our uncached pool, because GitHub-hosted jobs
-    # there have no minutes (a308). Never the cached pool: this job holds
+    # there have no minutes (a308). Visibility comes from the github context, not
+    # the event: a schedule's payload has no repository. Never the cached pool: this job holds
     # credentials. A private repo has no fork path to our runners. Public repos
     # stay on GitHub's machines, which is what keeps a credential off ours.
-    runs-on: ${{ github.event.repository.private && vars.UNCACHED_RUNNER_LABEL || 'ubuntu-latest' }}
+    runs-on: ${{ github.repository_visibility == 'private' && vars.UNCACHED_RUNNER_LABEL || 'ubuntu-latest' }}
     # An empty name is no environment: a caller without sign never touches
     # (or auto-creates) cosign-signing.
     environment: ${{ inputs.sign && 'cosign-signing' || '' }}
@@ -486,6 +509,13 @@ jobs:
       digest: ${{ steps.p.outputs.digest }}
       tags: ${{ steps.p.outputs.tags }}
     steps:
+      # Registry logins go to a file under the job's temp directory (a308), never
+      # to a default path. On our runners the nested container storage outlives
+      # the job, and the runner's container does not. cosign's login goes there too.
+      - name: Keep registry auth inside this job
+        run: |
+          echo "REGISTRY_AUTH_FILE=$RUNNER_TEMP/auth.json" >> "$GITHUB_ENV"
+          echo "DOCKER_CONFIG=$RUNNER_TEMP/docker" >> "$GITHUB_ENV"
       - uses: actions/checkout@v7
         with:
           repository: crunchtools/constitution
@@ -604,3 +634,6 @@ jobs:
               -f "client_payload[source]=$SOURCE"
             echo "dispatched $r"
           done
+      - name: Drop registry auth
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/auth.json" "$RUNNER_TEMP/docker"
