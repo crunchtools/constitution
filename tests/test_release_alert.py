@@ -1,0 +1,138 @@
+"""The failed-scheduled-release alert in scripts/release_alert.py."""
+
+import json
+import sys
+
+import pytest
+
+import release_alert as R
+
+URL = "https://github.com/x/y/actions/runs/1"
+NEEDS = {
+    "build": {"result": "failure"},
+    "scan": {"result": "success"},
+    "sign": {"result": "skipped"},
+    "push": {"result": "cancelled"},
+    "publish": {"result": "failure"},
+}
+
+
+def issue(number: int, title: str = R.TITLE, login: str = "app/github-actions") -> dict:
+    return {"number": number, "title": title, "author": {"login": login}}
+
+
+def test_only_failure_results_count_as_failed():
+    """Skipped and cancelled jobs are downstream noise, not the cause."""
+    assert R.failed(NEEDS) == ["build", "publish"]
+    assert R.failed({"a": {"result": "success"}}) == []
+
+
+@pytest.mark.parametrize("event", ["pull_request", "push", "workflow_dispatch", "merge_group"])
+def test_only_a_schedule_files_an_alert(event):
+    """A mis-wired caller must never open an issue for a pull request."""
+    assert R.plan(event, ["build"], [issue(1)]) == []
+
+
+def test_a_clean_schedule_does_nothing():
+    assert R.plan("schedule", [], [issue(1)]) == []
+
+
+def test_first_failure_creates_the_alert():
+    assert R.plan("schedule", ["build"], []) == [("create", None)]
+
+
+def test_a_repeat_comments_and_never_files_again():
+    """A build broken for a month is one issue with comments, not four issues."""
+    assert R.plan("schedule", ["build"], [issue(3), issue(9)]) == [
+        ("comment", 3),
+        ("close-duplicate", 9),
+    ]
+
+
+def test_only_this_workflows_alerts_are_managed_oldest_first():
+    """A person's issue, or a bot's other issue, is never commented on or closed."""
+    found = R.alerts([issue(9), issue(5, login="smccarty"), issue(7, "Bump jinja2"), issue(3)])
+    assert [i["number"] for i in found] == [3, 9]
+
+
+def test_texts_link_the_run_and_name_the_failed_jobs():
+    for text in (
+        R.body("img", ["build", "publish"], URL, "a" * 40),
+        R.comment(["build", "publish"], URL, "a" * 40),
+    ):
+        assert f"({URL})" in text
+        assert "`build`" in text
+        assert "`publish`" in text
+
+
+ARGV = ["--event", "schedule", "--repo", "o/r", "--image", "img", "--sha", "a" * 40]
+
+
+@pytest.fixture
+def calls(monkeypatch):
+    """Record gh calls; `listing` is what `gh issue list` returns."""
+
+    class Made(list):
+        def __init__(self):
+            super().__init__()
+            self.listing = {"json": "[]"}
+
+    made = Made()
+    listing = made.listing
+
+    def fake(*args):
+        made.append(args)
+        return listing["json"] if args[:2] == ("issue", "list") else ""
+
+    monkeypatch.setattr(R, "gh", fake)
+    return made
+
+
+def drive(monkeypatch, event="schedule", needs=NEEDS):
+    argv = ["release_alert", "--needs", json.dumps(needs), "--run-url", URL, *ARGV]
+    argv[argv.index("schedule")] = event
+    monkeypatch.setattr(sys, "argv", argv)
+    return R.main()
+
+
+def test_a_scheduled_failure_with_no_open_alert_creates_the_issue(calls, monkeypatch):
+    assert drive(monkeypatch) == 0
+    verbs = [c[:2] for c in calls]
+    assert verbs == [("issue", "list"), ("label", "create"), ("issue", "create")]
+    assert calls[1][2] == R.LABEL
+    create = calls[2]
+    assert create[create.index("--title") + 1] == R.TITLE
+    assert create[create.index("--label") + 1] == R.LABEL
+
+
+def test_a_second_failure_comments_on_the_open_alert(calls, monkeypatch):
+    calls.listing["json"] = json.dumps([issue(4)])
+    assert drive(monkeypatch) == 0
+    assert ("issue", "create") not in [c[:2] for c in calls]
+    comment = next(c for c in calls if c[:2] == ("issue", "comment"))
+    assert comment[2] == "4"
+
+
+def test_a_pull_request_failure_makes_no_gh_calls(calls, monkeypatch):
+    assert drive(monkeypatch, event="pull_request") == 0
+    assert calls == []
+
+
+def test_a_denied_token_warns_instead_of_failing(monkeypatch, capsys):
+    def deny(*args):
+        raise RuntimeError("gh issue list: Resource not accessible by integration")
+
+    monkeypatch.setattr(R, "gh", deny)
+    assert drive(monkeypatch) == 0
+    out = capsys.readouterr().out
+    assert "::warning::" in out
+    assert "issues: write" in out
+
+
+def test_any_other_gh_failure_propagates(monkeypatch):
+    def boom(*args):
+        raise RuntimeError("gh issue list: HTTP 500")
+
+    monkeypatch.setattr(R, "gh", boom)
+    with pytest.raises(RuntimeError):
+        drive(monkeypatch)

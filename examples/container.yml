@@ -23,6 +23,7 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
+      issues: write   # a failed weekly rebuild opens (or comments on) one issue
     with:
       image: quay.io/crunchtools/EXAMPLE
       boot: mcp

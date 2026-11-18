@@ -202,10 +202,41 @@ def test_reusable_workflow_checks_out_this_release(name):
 def test_container_release_checks_out_this_release():
     """Same as above; the canary may override the ref with its own candidate sha."""
     workflow = (ROOT / ".github/workflows/container-release.yml").read_text()
-    jobs_that_check_out_scripts = 4  # resolve, gates, mark, promote
+    jobs_that_check_out_scripts = 5  # resolve, gates, mark, promote, alert
     pinned = f"inputs.constitution-ref || 'v{VERSION}' }}}}"
     assert workflow.count(pinned) == jobs_that_check_out_scripts
     assert "ref: v" not in workflow.replace(f"@v{VERSION}", "")
+
+
+def _alert_fires(condition: str, event: str, any_failed: bool) -> bool:
+    """Evaluate the alert job's `if:` as Actions does; a term it does not know raises."""
+    terms = {"failure()": any_failed, "github.event_name == 'schedule'": event == "schedule"}
+    return all(terms[term.strip()] for term in condition.split("&&"))
+
+
+@pytest.mark.parametrize("event", ["schedule", "pull_request", "push", "workflow_dispatch"])
+@pytest.mark.parametrize("any_failed", [True, False])
+def test_the_alert_job_fires_only_on_a_failed_schedule(event, any_failed):
+    """a375: a red weekly rebuild files an issue; a red PR or a green schedule never does."""
+    import yaml
+
+    jobs = yaml.safe_load((ROOT / ".github/workflows/container-release.yml").read_text())["jobs"]
+    alert = jobs["alert"]
+    assert _alert_fires(alert["if"], event, any_failed) == (event == "schedule" and any_failed)
+    # failure() only sees the jobs it needs: every other job, so none can fail unseen.
+    assert set(alert["needs"]) == set(jobs) - {"alert"}
+
+
+def test_only_the_alert_job_inherits_the_callers_token():
+    """A nested job asking for issues: write fails every caller that grants less, on
+    every event; so alert names no permissions and every other job names its own."""
+    import yaml
+
+    workflow = yaml.safe_load((ROOT / ".github/workflows/container-release.yml").read_text())
+    assert "permissions" not in workflow
+    for name, job in workflow["jobs"].items():
+        assert ("permissions" in job) == (name != "alert"), name
+    assert "secrets." not in yaml.safe_dump(workflow["jobs"]["alert"])
 
 
 def test_the_gates_job_holds_no_secrets():

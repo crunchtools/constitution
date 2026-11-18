@@ -77,3 +77,15 @@ path = "scripts/container_release.py"
 item = "2025"
 justification = "\"2025-06-18\" is the MCP protocol revision the boot gate sends in initialize, a protocol identifier and not a date that goes stale; servers negotiate down from it."
 classification = "by_design"
+
+[[exceptions]]
+check = "CH012-copy_paste_detection"
+path = "scripts/audit_alert.py"
+justification = "release_alert.py shares its four-line gh() wrapper and the keep-the-oldest-alert, close-the-rest tail of plan(). Both run from a pinned checkout as `python3 -I .constitution/scripts/<name>.py`, and -I keeps the script's own directory off sys.path, so neither can import the other; a shared module would need a sys.path edit in each to save eight lines."
+classification = "by_design"
+
+[[exceptions]]
+check = "CH012-copy_paste_detection"
+path = "scripts/major_tag.py"
+justification = "main() and release_alert.py's main() share only the argparse-then-try/except-a-known-error shape; they parse different arguments and handle different errors. Standalone `python3 -I` scripts cannot import a shared entry point (see scripts/audit_alert.py above)."
+classification = "by_design"
