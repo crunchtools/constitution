@@ -1,6 +1,6 @@
 # Container Image Profile
 
-> **Profile Version:** 1.10.0
+> **Profile Version:** 1.11.0
 > **Applies to:** All `ubi10-*` and standalone container image projects
 
 This profile extends the [universal constitution](../constitution.md) with requirements specific to **UBI-based** container image projects in the crunchtools organization.
@@ -256,6 +256,7 @@ Every container image build must pass:
 - **Gates address the digest, never a tag, and hold no credentials.** A boot gate is required and named: `mcp` (initialize and `tools/list` over stdio, at least one tool), `mcp-http`, `systemd` (`is-system-running` reaches `running`, listed units active), `healthcheck` (fails if the image carries none — buildah drops `HEALTHCHECK` in OCI format), `command` (the repo's own script with `$IMAGE`), or `none` with a written reason. A contract test runs when the repo supplies one. No vulnerability scan runs here: the advisory per-build scan, which never failed a build and was read by no one, is replaced by the scheduled fleet CVE check (RT #1551).
 - **Promotion copies, never rebuilds:** `skopeo copy --all --preserve-digests`, then a read-back that fails the job if the tag resolves to anything else. Not `docker buildx imagetools create`: given a single image manifest it writes a new one-entry manifest list, so the tag resolves to a digest no gate ever tested.
 - **Floating tags never move backwards.** `main` moves only to the commit that is the branch tip when promote runs; an older run stands down. `X.Y` and `latest` move only to the newest release. A same-commit rebuild (weekly errata) does move them. Promote runs in a non-cancelling per-repo concurrency group and fails closed when it cannot read the tag it would move.
+- **A release is labelled its own version.** Before anything is signed or any tag moves, a `v*` promote reads the `version` label off the digest (the image, not the Containerfile) and refuses it when the label names a different release of the same repo: the tag went on a merge with no release PR to move the version strings (#171). A label that names no release of the repo is inherited from the base (ubi10's `10.3`, Hummingbird's runtime version) and is not compared; an image with no `version` label promotes unchecked.
 - **Rollback is a copy.** Before `main` or `latest` moves, the digest it held is kept as `rollback-main` / `rollback-latest`.
 - **Downstream.** An image that others build `FROM` dispatches their rebuild from the promote job, after it is promoted, with a `crunchtools-ci` app token.
 

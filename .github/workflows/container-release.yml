@@ -15,7 +15,8 @@
 # never gated (a PR that could not push, a branch not up to date, or a
 # path-filtered caller that built nothing for a release commit) is rebuilt
 # and gated here before it can move a tag; a tag off the default branch is
-# refused. Untested bytes never reach a floating tag on any path.
+# refused, and so is a release whose image is labelled another of the repo's
+# releases (#171). Untested bytes never reach a floating tag on any path.
 #
 # The logic is scripts/container_release.py at the release written below as a
 # literal `ref:` (a reusable workflow cannot name its own ref, #42);
@@ -523,15 +524,21 @@ jobs:
           path: .constitution
           persist-credentials: false
       # resolve runs only on push; a dispatch or schedule run on a v* ref
-      # comes here without it. Refused before anything is signed (#146).
+      # comes here without it. Refused before anything is signed (#146),
+      # including a release whose image is labelled another version (#171).
       - name: Refuse a digest or tag promote must not take
         env:
           GH_TOKEN: ${{ github.token }}
+          QUAY_USERNAME: ${{ secrets.QUAY_USERNAME }}
+          QUAY_PASSWORD: ${{ secrets.QUAY_PASSWORD }}
+          IMAGE: ${{ inputs.image }}
           DIGEST: ${{ needs.resolve.outputs.digest || needs.build.outputs.digest }}
           BRANCH: ${{ inputs.default-branch }}
         run: |
+          set -eu
+          printf '%s' "$QUAY_PASSWORD" | skopeo login -u "$QUAY_USERNAME" --password-stdin quay.io
           python3 -I .constitution/scripts/container_release.py check \
-            --digest "$DIGEST" --branch "$BRANCH"
+            --image "$IMAGE" --digest "$DIGEST" --branch "$BRANCH"
       # Signed before promote copies, so no tag ever points at an unsigned
       # digest. cosign v2: v3 stores signatures as OCI referrers, which
       # c/image (and so bootc and podman auto-update) cannot read; c/image
