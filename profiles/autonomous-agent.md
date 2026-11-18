@@ -1,6 +1,6 @@
 # Autonomous Agent Profile
 
-> **Profile Version:** 1.5.0
+> **Profile Version:** 1.6.0
 > **Applies to:** All autonomous AI agent deployments on crunchtools infrastructure
 
 This profile extends the [universal constitution](../constitution.md) with requirements specific to deploying autonomous AI agents (e.g., OpenClaw) on crunchtools infrastructure. The agent code is third-party — this profile governs the **deployment architecture**, not the agent internals.

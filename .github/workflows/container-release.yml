@@ -199,7 +199,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           repository: crunchtools/constitution
-          ref: ${{ inputs.constitution-ref || 'v1.48.0' }}
+          ref: ${{ inputs.constitution-ref || 'v1.49.0' }}
           path: .constitution
           persist-credentials: false
       - id: r
@@ -377,7 +377,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           repository: crunchtools/constitution
-          ref: ${{ inputs.constitution-ref || 'v1.48.0' }}
+          ref: ${{ inputs.constitution-ref || 'v1.49.0' }}
           path: .constitution
           persist-credentials: false
       - if: needs.build.outputs.pushed == 'false'
@@ -465,7 +465,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           repository: crunchtools/constitution
-          ref: ${{ inputs.constitution-ref || 'v1.48.0' }}
+          ref: ${{ inputs.constitution-ref || 'v1.49.0' }}
           path: .constitution
           persist-credentials: false
       - env:
@@ -519,7 +519,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           repository: crunchtools/constitution
-          ref: ${{ inputs.constitution-ref || 'v1.48.0' }}
+          ref: ${{ inputs.constitution-ref || 'v1.49.0' }}
           path: .constitution
           persist-credentials: false
       # resolve runs only on push; a dispatch or schedule run on a v* ref
