@@ -9,6 +9,8 @@ Entries through 1.14.0 are derived from the Ratification History table in
 
 ## [Unreleased]
 
+## [1.51.0] - 2026-11-18
+
 ### Added
 - A failed scheduled run of `container-release.yml` now reaches a person
   (a375). The weekly rebuild is what carries errata, and it fails on purpose
