@@ -854,6 +854,223 @@ def test_a_quoted_or_bare_sdlc_ci_counts(repo, run):
     assert not [v for v in violations(repo) if "sdlc ci" in v]
 
 
+# XII since v1.46.0: the floating launcher, preferred for every repo (python-sdlc#62).
+
+FLOATING = """default_install_hook_types: [pre-commit, pre-push]
+
+repos:
+  - repo: local
+    hooks:
+      - id: sdlc-commit
+        entry: .sdlc/bin/sdlc commit
+        language: system
+        stages: [pre-commit, pre-merge-commit]
+      - id: sdlc-push
+        entry: .sdlc/bin/sdlc push
+        language: system
+        stages: [pre-push]
+"""
+
+
+# python-sdlc's bin/sdlc-bootstrap from python-sdlc#62, byte for byte: the
+# validator accepts only a launcher whose sha256 is in requirements.toml.
+BOOTSTRAP = (Path(__file__).parent / "sdlc-bootstrap").read_text()
+
+
+def float_repo(root: Path) -> None:
+    write(root, ".pre-commit-config.yaml", FLOATING)
+    write(root, ".sdlc/bin/sdlc", BOOTSTRAP)
+    (root / ".sdlc/bin/sdlc").chmod(0o755)
+    write(root, ".github/workflows/ci.yml", SDLC_CI.replace("bin/sdlc ci", ".sdlc/bin/sdlc ci"))
+
+
+def test_a_python_repo_on_the_floating_launcher_passes(repo):
+    float_repo(repo)
+    assert violations(repo) == []
+
+
+def test_a_non_python_repo_on_the_floating_launcher_passes(repo):
+    """syslog, a container-only repo, converts too: no standalone hooks needed."""
+    (repo / "pyproject.toml").unlink()
+    float_repo(repo)
+    assert not [v for v in violations(repo) if v.startswith("XII")]
+
+
+@pytest.mark.parametrize("old", ["1.17.0", "1.41.0"])
+def test_the_floating_launcher_needs_no_inherits_bump(repo, old):
+    """Accepting a form is not a new requirement, so it is not version-gated."""
+    inherit(repo, old)
+    float_repo(repo)
+    assert not [v for v in violations(repo) if v.startswith("XII")]
+
+
+def test_the_launcher_must_be_committed(repo):
+    float_repo(repo)
+    (repo / ".sdlc/bin/sdlc").unlink()
+    assert any("not a file in this repo" in v for v in violations(repo))
+
+
+def test_the_launcher_must_not_be_a_symlink(repo):
+    float_repo(repo)
+    target = repo / "elsewhere"
+    (repo / ".sdlc/bin/sdlc").rename(target)
+    (repo / ".sdlc/bin/sdlc").symlink_to(target)
+    assert any("not a file in this repo" in v for v in violations(repo))
+
+
+def test_the_launcher_must_be_executable(repo):
+    float_repo(repo)
+    (repo / ".sdlc/bin/sdlc").chmod(0o644)
+    [found] = violations(repo)
+    assert "is not executable" in found
+
+
+@pytest.mark.parametrize(
+    "launcher", ["#!/bin/sh\nexit 0\n", BOOTSTRAP.replace("exit 2", "exit 0"), BOOTSTRAP + "\n"]
+)
+def test_a_launcher_that_is_not_a_bootstrap_release_fails(repo, launcher):
+    """A committed script that exits 0 would let a repo pass its own gate."""
+    float_repo(repo)
+    write(repo, ".sdlc/bin/sdlc", launcher)
+    [found] = violations(repo)
+    assert "is not a python-sdlc bootstrap release" in found
+
+
+@pytest.mark.parametrize(
+    "run",
+    [
+        "bin/sdlc ci",
+        "./tools/sdlc ci",
+        "sdlc ci",
+        ".sdlc/bin/sdlc ci || true",
+        "|\n          .sdlc/bin/sdlc ci\n          exit 0",
+    ],
+)
+def test_a_floating_repo_ci_must_run_the_committed_launcher(repo, run):
+    """The hooks run the pinned bootstrap; CI judging with another sdlc defeats it."""
+    float_repo(repo)
+    write(repo, ".github/workflows/ci.yml", SDLC_CI.replace("bin/sdlc ci", run))
+    [found] = violations(repo)
+    assert "run is exactly `.sdlc/bin/sdlc ci`" in found
+
+
+FLOAT_CI = """name: CI
+on: pull_request
+{wf_env}jobs:
+  sdlc:
+    name: sdlc ci
+    runs-on: ubuntu-latest
+{job_extra}    steps:
+      - name: sdlc ci
+{step_extra}        run: .sdlc/bin/sdlc ci
+"""
+
+
+def float_ci(repo: Path, wf_env: str = "", job_extra: str = "", step_extra: str = "") -> None:
+    write(
+        repo,
+        ".github/workflows/ci.yml",
+        FLOAT_CI.format(wf_env=wf_env, job_extra=job_extra, step_extra=step_extra),
+    )
+
+
+@pytest.mark.parametrize(
+    "where", ["step_extra", "job_extra", "wf_env"], ids=["step", "job", "workflow"]
+)
+@pytest.mark.parametrize("image", ["ghcr.io/attacker/sdlc:evil", "main", "${{ env.X }}"])
+def test_a_floating_ci_image_comes_only_from_the_variable(repo, where, image):
+    """A pull request must not choose the image that judges it (#157 B2)."""
+    float_repo(repo)
+    indent = {"step_extra": 8, "job_extra": 4, "wf_env": 0}[where]
+    pad = " " * indent
+    float_ci(repo, **{where: f"{pad}env:\n{pad}  SDLC_IMAGE: '{image}'\n"})
+    [found] = violations(repo)
+    assert "sets SDLC_IMAGE" in found
+
+
+def test_the_repository_variable_may_choose_the_image(repo):
+    float_repo(repo)
+    float_ci(repo, step_extra="        env:\n          SDLC_IMAGE: ${{ vars.SDLC_IMAGE }}\n")
+    assert violations(repo) == []
+
+
+@pytest.mark.parametrize(
+    ("where", "line"),
+    [
+        ("job_extra", "    if: false\n"),
+        ("job_extra", "    if: github.actor != 'x'\n"),
+        ("job_extra", "    continue-on-error: true\n"),
+        ("step_extra", "        if: false\n"),
+        ("step_extra", "        continue-on-error: ${{ true }}\n"),
+    ],
+)
+def test_the_floating_sdlc_ci_job_always_runs_and_counts(repo, where, line):
+    """A skipped required check reads as passed; a tolerated failure as green."""
+    float_repo(repo)
+    float_ci(repo, **{where: line})
+    [found] = violations(repo)
+    assert "`if:` or `continue-on-error`" in found
+
+
+def test_an_if_that_is_always_true_is_allowed(repo):
+    float_repo(repo)
+    float_ci(repo, job_extra="    if: true\n", step_extra="        continue-on-error: false\n")
+    assert violations(repo) == []
+
+
+def test_a_duplicate_floating_hook_is_named(repo):
+    float_repo(repo)
+    write(
+        repo,
+        ".pre-commit-config.yaml",
+        FLOATING
+        + "      - id: sdlc-push\n        entry: .sdlc/bin/sdlc push\n"
+        + "        language: system\n        stages: [pre-push]\n",
+    )
+    [found] = violations(repo)
+    assert "more than one hook is `sdlc-push`" in found
+
+
+@pytest.mark.parametrize("hook", ["sdlc-commit", "sdlc-push"])
+def test_a_floating_repo_needs_both_hooks(repo, hook):
+    float_repo(repo)
+    write(repo, ".pre-commit-config.yaml", FLOATING.replace(f"id: {hook}", "id: other"))
+    [found] = violations(repo)
+    assert f"no `{hook}` hook" in found
+
+
+@pytest.mark.parametrize(
+    ("old", "new", "message"),
+    [
+        (".sdlc/bin/sdlc push", ".sdlc/bin/sdlc commit", "`entry: .sdlc/bin/sdlc push`"),
+        (
+            "sdlc push\n        language: system",
+            "sdlc push\n        language: script",
+            "language: system",
+        ),
+        ("stages: [pre-push]", "stages: [pre-commit]", "does not run at `pre-push`"),
+        ("[pre-commit, pre-push]", "[pre-commit]", "does not name `pre-push`"),
+    ],
+)
+def test_a_floating_hook_must_run_what_its_name_says(repo, old, new, message):
+    float_repo(repo)
+    write(repo, ".pre-commit-config.yaml", FLOATING.replace(old, new, 1))
+    assert any(message in v for v in violations(repo))
+
+
+def test_a_floating_repo_must_run_sdlc_ci(repo):
+    float_repo(repo)
+    (repo / ".github/workflows/ci.yml").unlink()
+    [found] = violations(repo)
+    assert "no CI job named `sdlc ci`" in found
+
+
+def test_a_dotted_launcher_path_counts(repo):
+    float_repo(repo)
+    write(repo, ".pre-commit-config.yaml", FLOATING.replace("entry: .sdlc", "entry: ./.sdlc"))
+    assert violations(repo) == []
+
+
 # The outbound HTTP contract (MCP Server profile 1.8.0, RT #1601). The fixture
 # repo carries no `src/`, so the check skips it and every test above stays green;
 # each test here adds a client and breaks one thing about it.
@@ -1263,6 +1480,38 @@ def test_a_floating_image_check_waits_for_the_release_that_adds_it(repo):
     assert V.check_floating_images(repo, "1.44.0", V.load_requirements()) == []
     [found] = V.check_floating_images(repo, "1.45.0", V.load_requirements())
     assert "review.yml runs quay.io/crunchtools/gatehouse:${version}" in found
+
+
+@pytest.mark.parametrize(
+    "run",
+    [
+        'IMAGE="${IMAGE:-quay.io/crunchtools/gatehouse:latest}"',
+        "echo (quay.io/crunchtools/gatehouse:latest).",
+        "set -eu\n          IMAGE=quay.io/crunchtools/gatehouse:latest\n          echo $IMAGE",
+    ],
+)
+def test_what_closes_a_floating_reference_is_not_its_tag(repo, run):
+    """gatehouse's review.yml: `${IMAGE:-...:latest}` was read as the tag `latest}`."""
+    flow = f"jobs:\n  t:\n    steps:\n      - run: |\n          {run}\n"
+    write(repo, ".github/workflows/review.yml", flow)
+    assert V.check_floating_images(repo, "1.45.0", V.load_requirements()) == []
+
+
+@pytest.mark.parametrize(
+    ("ref", "tag"),
+    [
+        ("gatehouse:${version}", "${version}"),
+        ("gatehouse:${{ inputs.tag }}", "${{ inputs.tag }}"),
+        ("gatehouse:$TAG", "$TAG"),
+        ("gatehouse:0.${minor}.0}", "0.${minor}.0"),
+    ],
+)
+def test_an_expression_tag_is_still_a_pin(repo, ref, tag):
+    """A tag a variable fills in is still not `:latest`, and ends where the expression does."""
+    flow = f'jobs:\n  t:\n    steps:\n      - run: podman run "quay.io/crunchtools/{ref}"\n'
+    write(repo, ".github/workflows/review.yml", flow)
+    [found] = V.check_floating_images(repo, "1.45.0", V.load_requirements())
+    assert f"runs quay.io/crunchtools/gatehouse:{tag};" in found
 
 
 @pytest.mark.parametrize("pull", ["", "--pull=never ", "--pull=missing "])

@@ -22,11 +22,6 @@ Entries through 1.14.0 are derived from the Ratification History table in
   exception, CI-only publishing, the fork and host-config license exceptions,
   required tests, maintainer approval for amendments, and the v1 validator
   checks XV had lost.
-- XV rule 2: a third-party `uses:` names a full commit SHA, and a `docker://`
-  step an image digest; `crunchtools/*` and `./` are exempt. Report mode only:
-  the validator prints each unpinned reference as a warning (a GitHub
-  annotation in CI) and still passes. `third_party_pins = "enforce"` in
-  requirements.toml makes it a `PINS:` violation.
 
 ### Changed
 - The weekly-rebuild cron is a rule about the image build, not every workflow:
@@ -45,6 +40,39 @@ Entries through 1.14.0 are derived from the Ratification History table in
   no longer say "none at build time", and `container-release.yml` adds no scan
   of its own (Container Image VII, Forked MCP Server, Autonomous Agent, v2
   VI.4). The scheduled fleet CVE check stays.
+
+## [1.46.1] - 2026-11-17
+
+### Fixed
+- XV rule 5's image check no longer reads what closes a reference as part of
+  its tag: `${IMAGE:-quay.io/crunchtools/gatehouse:latest}` failed as
+  `:latest}`, and `(...:latest).` as `:latest).` (gatehouse#151 had to move
+  its image into a plain `env:` value). A tag is a registry tag or a shell or
+  Actions expression that becomes one, so `:${version}` and
+  `:${{ inputs.tag }}` are still pins.
+
+## [1.46.0] - 2026-11-17
+
+### Added
+- XII: the floating sdlc launcher is the preferred wiring for every repo kind
+  (python-sdlc#62). `.sdlc/bin/sdlc` is committed and executable, the
+  `sdlc-commit` and `sdlc-push` hooks are `repo: local`, `language: system`,
+  `entry: .sdlc/bin/sdlc commit|push`, with no `rev:`, and the `sdlc ci` job
+  runs `.sdlc/bin/sdlc ci`. A repo in this form is judged by it alone, at any
+  `Inherits`. The rev-pinned python-sdlc hook and the standalone hooks are
+  still accepted until the fleet has converted. The launcher must hash to an
+  entry in `sdlc_bootstrap_sha256`, and the CI job must run that file, so a
+  repo cannot commit a script that passes itself. The `sdlc ci` step's `run`
+  must be exactly the launcher (no `|| true`), the job and step carry no
+  `if:` that could be false and no `continue-on-error`, and `SDLC_IMAGE` is
+  unset or `${{ vars.SDLC_IMAGE }}` at every `env:` level. A duplicate hook id
+  is reported. This repo's `Protect workflows` guard also covers `.sdlc/`. New `sdlc_launcher` and
+  `sdlc_bootstrap_sha256` keys; `sdlc` joins `floating_images`.
+- XV rule 2: a third-party `uses:` names a full commit SHA, and a `docker://`
+  step an image digest; `crunchtools/*` and `./` are exempt. Report mode only:
+  the validator prints each unpinned reference as a warning (a GitHub
+  annotation in CI) and still passes. `third_party_pins = "enforce"` in
+  requirements.toml makes it a `PINS:` violation.
 
 ## [1.45.0] - 2026-11-17
 
