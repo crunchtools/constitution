@@ -10,6 +10,11 @@ Entries through 1.14.0 are derived from the Ratification History table in
 ## [Unreleased]
 
 ### Fixed
+- `validate.yml` runs on our own runners. `actions/setup-python` has no build for
+  their Fedora and failed every private repo's Constitution check there
+  (`3.12 ... was not found for fedora 45`), so it runs only on GitHub-hosted
+  runners, and the validator runs from a venv on whatever `python3` the runner
+  has (a308).
 - The `hardcoded_years` exception on `scripts/container_release.py` now names
   its finding by item (`2025`) instead of the pattern `MCP_PROTOCOL`, which the
   finding does not contain. Gourmand is about to honour `pattern` (crunchtools/gourmand#43),

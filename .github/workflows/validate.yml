@@ -55,12 +55,18 @@ jobs:
           ref: v1.47.0
           path: .constitution
           persist-credentials: false
-      - uses: actions/setup-python@v7
+      # setup-python has no build for our runners' Fedora, so it runs only on
+      # GitHub's machines; ours bring their own python3. A venv either way, so
+      # pip never touches a system Python.
+      - if: runner.environment == 'github-hosted'
+        uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-      - run: pip install --quiet pyyaml==6.0.3
+      - run: |
+          python3 -m venv "$RUNNER_TEMP/venv"
+          "$RUNNER_TEMP/venv/bin/pip" install --quiet pyyaml==6.0.3
       - name: Validate
         env:
           GH_TOKEN: ${{ github.token }}
           MANIFEST: ${{ inputs.constitution }}
-        run: python .constitution/validate-constitution.py "$MANIFEST" --pinned --freshness --verbose
+        run: '"$RUNNER_TEMP/venv/bin/python" .constitution/validate-constitution.py "$MANIFEST" --pinned --freshness --verbose'
