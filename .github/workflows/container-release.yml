@@ -15,7 +15,8 @@
 # never gated (a PR that could not push, a branch not up to date, or a
 # path-filtered caller that built nothing for a release commit) is rebuilt
 # and gated here before it can move a tag; a tag off the default branch is
-# refused. Untested bytes never reach a floating tag on any path.
+# refused, and so is a release whose image is labelled another of the repo's
+# releases (#171). Untested bytes never reach a floating tag on any path.
 #
 # The logic is scripts/container_release.py at the release written below as a
 # literal `ref:` (a reusable workflow cannot name its own ref, #42);
@@ -522,16 +523,27 @@ jobs:
           ref: ${{ inputs.constitution-ref || 'v1.49.0' }}
           path: .constitution
           persist-credentials: false
+      # The check and the copies read REGISTRY_AUTH_FILE from here. Only this
+      # step and the sign step (cosign's own login, into DOCKER_CONFIG) see the
+      # password: on stdin, masked, and both files sit in $RUNNER_TEMP, which
+      # "Drop registry auth" clears whatever the outcome.
+      - name: Log in to Quay
+        env:
+          QUAY_USERNAME: ${{ secrets.QUAY_USERNAME }}
+          QUAY_PASSWORD: ${{ secrets.QUAY_PASSWORD }}
+        run: printf '%s' "$QUAY_PASSWORD" | skopeo login -u "$QUAY_USERNAME" --password-stdin quay.io
       # resolve runs only on push; a dispatch or schedule run on a v* ref
-      # comes here without it. Refused before anything is signed (#146).
+      # comes here without it. Refused before anything is signed (#146),
+      # including a release whose image is labelled another of its releases (#171).
       - name: Refuse a digest or tag promote must not take
         env:
           GH_TOKEN: ${{ github.token }}
+          IMAGE: ${{ inputs.image }}
           DIGEST: ${{ needs.resolve.outputs.digest || needs.build.outputs.digest }}
           BRANCH: ${{ inputs.default-branch }}
         run: |
           python3 -I .constitution/scripts/container_release.py check \
-            --digest "$DIGEST" --branch "$BRANCH"
+            --image "$IMAGE" --digest "$DIGEST" --branch "$BRANCH"
       # Signed before promote copies, so no tag ever points at an unsigned
       # digest. cosign v2: v3 stores signatures as OCI referrers, which
       # c/image (and so bootc and podman auto-update) cannot read; c/image
@@ -572,8 +584,6 @@ jobs:
           echo "::notice::signed $IMAGE@$DIGEST"
       - id: p
         env:
-          QUAY_USERNAME: ${{ secrets.QUAY_USERNAME }}
-          QUAY_PASSWORD: ${{ secrets.QUAY_PASSWORD }}
           GH_TOKEN: ${{ github.token }}
           IMAGE: ${{ inputs.image }}
           DIGEST: ${{ needs.resolve.outputs.digest || needs.build.outputs.digest }}
@@ -581,7 +591,6 @@ jobs:
           CASCADE: ${{ inputs.cascade && '--cascade' || '' }}
         run: |
           set -eu
-          printf '%s' "$QUAY_PASSWORD" | skopeo login -u "$QUAY_USERNAME" --password-stdin quay.io
           echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
           python3 -I .constitution/scripts/container_release.py promote \
             --image "$IMAGE" --digest "$DIGEST" --branch "$BRANCH" $CASCADE

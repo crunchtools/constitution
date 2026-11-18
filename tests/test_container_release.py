@@ -54,17 +54,20 @@ class World:
         self.release: dict[str, str] = {}  # vX.Y.Z -> commit
         self.read_error = False
         self.copies: list[str] = []
+        self.labels: dict[str, dict] = {}  # digest -> image config labels
 
-    def image(self, name: str, tag: str | None = None) -> str:
+    def image(self, name: str, tag: str | None = None, labels: dict | None = None) -> str:
         raw = manifest(name)
         d = digest_of(raw)
         self.blobs[d] = raw
         if tag:
             self.tags[tag] = d
+        if labels is not None:
+            self.labels[d] = labels
         return d
 
     def skopeo(self, argv):
-        """The registry runner: `skopeo copy` and `skopeo inspect --raw`."""
+        """The registry runner: `skopeo copy`, `skopeo inspect` and `inspect --raw`."""
         argv = list(argv)
         result = CR.Result(0, "", "")
         if argv[1] == "copy":
@@ -77,7 +80,9 @@ class World:
         else:
             ref = argv[-1].removeprefix(f"docker://{IMAGE}")
             d = ref[1:] if ref.startswith("@") else self.tags.get(ref[1:])
-            if d is not None and d in self.blobs:
+            if d is not None and d in self.blobs and "--raw" not in argv:
+                result = CR.Result(0, json.dumps({"Labels": self.labels.get(d)}), "")
+            elif d is not None and d in self.blobs:
                 result = CR.Result(0, self.blobs[d], "")
             else:
                 result = CR.Result(1, "", "manifest unknown")
@@ -279,6 +284,93 @@ def test_check_refuses_an_off_branch_tag_before_anything_is_signed(w, monkeypatc
     w.compare["c9"] = "behind"
     assert CR.main([*args, "--ref", "refs/tags/v1.4.0"]) == 0
     assert CR.main([*args, "--ref", "refs/heads/main"]) == 0
+    assert not w.copies
+
+
+def test_a_release_labelled_another_version_is_refused_before_any_tag_moves(w):
+    """memory v1.2.0 shipped labelled 1.1.2: the tag went on a feature merge (#171)."""
+    w.release = {"v1.1.2": "c1", "v1.2.0": "c2"}
+    w.compare["c2"] = "identical"
+    latest = w.image("1.1.2", "latest", {"version": "1.1.2"})
+    d = w.image("1.2.0", labels={"version": "1.1.2"})
+    with pytest.raises(CR.Refused, match=r"v1\.2\.0 .* labelled version=1\.1\.2"):
+        CR.promote(*parts(w), d, CR.Event("c2", "refs/tags/v1.2.0"))
+    assert w.copies == [] and w.tags["latest"] == latest
+
+
+@pytest.mark.parametrize("stale", ["v1.1.2", "V1.1.2", " 1.1.2", "1.1.2+build.7"])
+def test_a_stale_label_is_refused_however_it_is_spelled(w, stale):
+    w.release = {"v1.1.2": "c1", "v1.2.0": "c2"}
+    w.compare["c2"] = "identical"
+    d = w.image("1.2.0", labels={"version": stale})
+    with pytest.raises(CR.Refused, match="another release"):
+        CR.promote(*parts(w), d, CR.Event("c2", "refs/tags/v1.2.0"))
+    assert not w.copies
+
+
+def test_the_oci_version_label_stands_in_for_a_missing_version(w):
+    w.release = {"v1.1.2": "c1", "v1.2.0": "c2"}
+    w.compare["c2"] = "identical"
+    stale = w.image("stale", labels={"org.opencontainers.image.version": "1.1.2"})
+    with pytest.raises(CR.Refused, match="another release"):
+        CR.promote(*parts(w), stale, CR.Event("c2", "refs/tags/v1.2.0"))
+    own = w.image("own", labels={"org.opencontainers.image.version": "v1.2.0"})
+    assert CR.promote(*parts(w), own, CR.Event("c2", "refs/tags/v1.2.0"))[0] == "1.2.0"
+
+
+def test_a_release_labelled_its_own_version_promotes(w):
+    w.release = {"v1.2.0": "c2"}
+    w.compare["c2"] = "identical"
+    d = w.image("1.2.0", labels={"version": "1.2.0", "name": "canary"})
+    moved = CR.promote(*parts(w), d, CR.Event("c2", "refs/tags/v1.2.0"))
+    assert moved == ["1.2.0", "1.2", "latest"]
+
+
+def test_a_release_with_no_version_label_promotes(w):
+    """A repo that sets no version label is not in scope (#171)."""
+    w.release = {"v1.2.0": "c2"}
+    w.compare["c2"] = "identical"
+    d = w.image("1.2.0", labels={"name": "canary"})
+    assert CR.promote(*parts(w), d, CR.Event("c2", "refs/tags/v1.2.0"))[0] == "1.2.0"
+
+
+def test_a_release_with_an_inherited_version_label_promotes(w):
+    """ubi10 stamps 10.3 and Hummingbird its runtime's 3.14.10 on every image built FROM it."""
+    w.release = {"v0.9.0": "c1", "v1.2.0": "c2"}
+    w.compare["c2"] = "identical"
+    for inherited in ("10.3", "3.14.10"):
+        d = w.image(inherited, labels={"version": inherited})
+        assert CR.promote(*parts(w), d, CR.Event("c2", "refs/tags/v1.2.0"))[0] == "1.2.0"
+
+
+def test_main_promotes_whatever_version_its_label_says(w):
+    """main and gated- carry no release number to compare against."""
+    w.tip = "c2"
+    d = w.image("next", labels={"version": "1.1.2"})
+    assert "main" in CR.promote(*parts(w), d, CR.Event("c2", "refs/heads/main"))
+
+
+def test_a_release_whose_labels_cannot_be_read_fails_closed(w):
+    w.release = {"v1.2.0": "c2"}
+    w.compare["c2"] = "identical"
+    d = w.image("1.2.0", labels={"version": "1.2.0"})
+    w.read_error = True
+    with pytest.raises(CR.Refused, match="cannot read"):
+        CR.promote(*parts(w), d, CR.Event("c2", "refs/tags/v1.2.0"))
+    assert not w.copies
+
+
+def test_check_refuses_a_mislabelled_release_before_anything_is_signed(w, monkeypatch):
+    """The workflow's check step passes --image, so cosign never sees it."""
+    monkeypatch.setattr(CR.Registry.__init__, "__defaults__", (w.skopeo, None))
+    monkeypatch.setattr(CR.GitHub.__init__, "__defaults__", (w.gh,))
+    w.release = {"v1.1.2": "c1", "v1.2.0": "c2"}
+    w.compare["c2"] = "identical"
+    args = ["check", "--image", IMAGE, "--repo", REPO, "--sha", "c2", "--ref", "refs/tags/v1.2.0"]
+    wrong = w.image("wrong", labels={"version": "1.1.2"})
+    right = w.image("right", labels={"version": "1.2.0"})
+    assert CR.main([*args, "--digest", wrong]) == 1
+    assert CR.main([*args, "--digest", right]) == 0
     assert not w.copies
 
 

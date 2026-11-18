@@ -10,7 +10,8 @@ Subcommands, each run by one job of that workflow:
             pull request (or main) already gated, so nothing is rebuilt.
   mark      after the gates pass: tag the tested digest gated-<sha>.
   check     refuse, before anything is signed, what promote would refuse:
-            not a digest, a tag that is not vX.Y.Z or not on the branch.
+            not a digest, a tag that is not vX.Y.Z or not on the branch, or
+            an image whose version label names another of its releases.
   promote   move main / latest / semver to a gated digest by copy, refusing
             to move a floating tag backwards, and verify every copy.
   boot      the boot gate: does the image actually start and answer.
@@ -100,18 +101,27 @@ class Registry:
         self.run = runner
         self.auth = ["--authfile", authfile] if authfile else []
 
-    def digest(self, ref: str) -> str | None:
-        """The manifest digest a tag (or digest) resolves to; None if absent.
+    def inspect(self, ref: str, *flags: str) -> str | None:
+        """`skopeo inspect` of a tag or digest; None if absent.
 
         Fails closed: any error other than 'not there' is raised, because a
-        guard that cannot read the current tag must not guess.
+        guard that cannot read the image must not guess.
         """
-        res = self.run(["skopeo", "inspect", "--raw", *self.auth, f"docker://{self.image}{ref}"])
-        if res.rc != 0:
-            if MISSING.search(res.err):
-                return None
-            raise Refused(f"cannot read {self.image}{ref}: {res.err.strip()}")
-        return "sha256:" + hashlib.sha256(res.out.encode()).hexdigest()
+        res = self.run(["skopeo", "inspect", *flags, *self.auth, f"docker://{self.image}{ref}"])
+        if res.rc == 0:
+            return res.out
+        if MISSING.search(res.err):
+            return None
+        raise Refused(f"cannot read {self.image}{ref}: {res.err.strip()}")
+
+    def digest(self, ref: str) -> str | None:
+        """The manifest digest a tag (or digest) resolves to; None if absent."""
+        raw = self.inspect(ref, "--raw")
+        return None if raw is None else "sha256:" + hashlib.sha256(raw.encode()).hexdigest()
+
+    def labels(self, digest: str) -> dict[str, str]:
+        """The image config's labels at `digest` (none for a missing one, which no copy takes)."""
+        return json.loads(self.inspect(f"@{digest}") or "{}").get("Labels") or {}
 
     def copy(self, digest: str, tag: str) -> None:
         res = self.run(
@@ -267,11 +277,14 @@ class Event:
     cascade: bool = False
 
 
-def check(gh: GitHub, digest: str, event: Event) -> tuple[int, int, int] | None:
+def check(
+    gh: GitHub, digest: str, event: Event, reg: Registry | None = None
+) -> tuple[int, int, int] | None:
     """Refuse what must never be signed or promoted; the release version, if a tag.
 
     resolve runs only on push, so a workflow_dispatch or schedule run on a v*
     ref reaches promote without it; this is the check every path makes (#146).
+    Given the registry, a release also refuses an image labelled another version.
     """
     if not DIGEST.match(digest):
         raise Refused(f"'{digest}' is not a sha256 digest")
@@ -282,7 +295,39 @@ def check(gh: GitHub, digest: str, event: Event) -> tuple[int, int, int] | None:
     if not m:
         raise Refused(f"tag '{name}' is not vX.Y.Z")
     refuse_off_branch(gh, event.sha, event.ref, event.branch)
+    if reg is not None:
+        refuse_mislabelled(reg, gh, digest, name)
     return (int(m[1]), int(m[2]), int(m[3]))
+
+
+def release_number(label: str) -> str:
+    """The release a version label claims: `v1.1.2` and ` 1.1.2+build` both claim 1.1.2."""
+    return label.strip().removeprefix("v").removeprefix("V").split("+", 1)[0]
+
+
+def refuse_mislabelled(reg: Registry, gh: GitHub, digest: str, tag: str) -> None:
+    """A release labelled one of this repo's other releases is refused (#171).
+
+    Read off the image, not the Containerfile, so it holds however the label
+    is set. A tag cut on a feature merge, with no release PR to move the
+    version strings, ships the previous release's number. Only a label that
+    names a release of this repo is compared: an image that sets none inherits
+    its base's (ubi10's 10.3, Hummingbird's runtime 3.14.10), which is no
+    claim about this repo and must not block its release.
+    `org.opencontainers.image.version` stands in when `version` is absent.
+    """
+    version = tag.removeprefix("v")
+    labels = reg.labels(digest)
+    raw = labels.get("version", labels.get("org.opencontainers.image.version"))
+    if raw is None or release_number(raw) == version:
+        return
+    if release_number(raw) not in {"{}.{}.{}".format(*v) for v in gh.release_tags()}:
+        log(f"  version={raw} names no release of {gh.repo}; inherited, not compared")
+        return
+    raise Refused(
+        f"{tag} would promote {reg.image}@{digest}, which is labelled version={raw}, "
+        f"another release of {gh.repo}; cut the release PR that moves the version to {version}"
+    )
 
 
 def promote(reg: Registry, gh: GitHub, digest: str, event: Event) -> list[str]:
@@ -292,7 +337,7 @@ def promote(reg: Registry, gh: GitHub, digest: str, event: Event) -> list[str]:
     release, so its `latest` tracks the default branch with `main`
     (container-image profile, "The cascade is the one exception").
     """
-    version = check(gh, digest, event)
+    version = check(gh, digest, event, reg)
     moved: list[str] = []
     releases = gh.release_tags()
 
@@ -603,7 +648,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     for name in ("resolve", "mark", "check", "promote"):
         p = sub.add_parser(name)
-        # check reads GitHub only; the others name the registry repository.
+        # check reads the registry only to compare a release's version label.
         p.add_argument("--image", required=name != "check")
         p.add_argument("--repo", default=os.environ.get("GITHUB_REPOSITORY", ""))
         p.add_argument("--sha", default=os.environ.get("GITHUB_SHA", ""))
@@ -639,7 +684,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
             BOOTS[a.profile](spec)
         elif a.action == "check":
-            check(GitHub(a.repo), a.digest, Event(a.sha, a.ref, a.branch))
+            reg = Registry(a.image, authfile=a.authfile) if a.image else None
+            check(GitHub(a.repo), a.digest, Event(a.sha, a.ref, a.branch), reg)
         else:
             _registry_action(a)
     except Superseded as exc:
