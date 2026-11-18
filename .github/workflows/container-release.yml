@@ -187,7 +187,8 @@ jobs:
   resolve:
     name: resolve
     if: github.event_name == 'push'
-    runs-on: ubuntu-latest
+    # Same pool as build in a private repo (a308): GitHub-hosted jobs there have no minutes.
+    runs-on: ${{ github.event.repository.private && vars.UNCACHED_RUNNER_LABEL || 'ubuntu-latest' }}
     permissions:
       contents: read
       pull-requests: read
@@ -214,7 +215,11 @@ jobs:
     if: >-
       always() && (needs.resolve.result == 'skipped' ||
       (needs.resolve.result == 'success' && needs.resolve.outputs.rebuild == 'true'))
-    runs-on: ubuntu-latest
+    # A private repo's runs go to our uncached pool, because GitHub-hosted jobs
+    # there have no minutes (a308). Never the cached pool: this job holds
+    # credentials. A private repo has no fork path to our runners. Public repos
+    # stay on GitHub's machines, which is what keeps a credential off ours.
+    runs-on: ${{ github.event.repository.private && vars.UNCACHED_RUNNER_LABEL || 'ubuntu-latest' }}
     permissions:
       contents: read
     outputs:
@@ -227,7 +232,7 @@ jobs:
           SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: echo "sha=$SHA" >> "$GITHUB_OUTPUT"
       - name: Free runner disk for a large image
-        if: inputs.free-disk
+        if: inputs.free-disk && runner.environment == 'github-hosted'
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache
           sudo docker image prune --all --force >/dev/null
@@ -331,9 +336,12 @@ jobs:
     # workflow_run, whose code may be a stranger's -- stay on GitHub's machines.
     # Clearing a variable sends its jobs back to GitHub-hosted: the kill switch.
     # free-disk deletes GitHub's preinstalled toolchains with sudo, so it keeps
-    # the job on GitHub's machines.
+    # the job on GitHub's machines, except in a private repo, which has no
+    # minutes there (a308): the uncached pool, whose runner has no toolchains
+    # to delete.
     runs-on: >-
-      ${{ inputs.free-disk && 'ubuntu-latest'
+      ${{ inputs.free-disk
+          && (github.event.repository.private && vars.UNCACHED_RUNNER_LABEL || 'ubuntu-latest')
           || (github.event_name == 'pull_request'
           && github.event.pull_request.head.repo.full_name == github.repository
           && github.event.pull_request.user.login != 'dependabot[bot]'
@@ -346,7 +354,7 @@ jobs:
       contents: read
     steps:
       - name: Free runner disk for a large image
-        if: inputs.free-disk
+        if: inputs.free-disk && runner.environment == 'github-hosted'
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache
           sudo docker image prune --all --force >/dev/null
@@ -427,7 +435,11 @@ jobs:
     name: mark gated
     needs: [build, gates]
     if: always() && needs.gates.result == 'success' && needs.build.outputs.pushed == 'true'
-    runs-on: ubuntu-latest
+    # A private repo's runs go to our uncached pool, because GitHub-hosted jobs
+    # there have no minutes (a308). Never the cached pool: this job holds
+    # credentials. A private repo has no fork path to our runners. Public repos
+    # stay on GitHub's machines, which is what keeps a credential off ours.
+    runs-on: ${{ github.event.repository.private && vars.UNCACHED_RUNNER_LABEL || 'ubuntu-latest' }}
     permissions:
       contents: read
     steps:
@@ -456,7 +468,11 @@ jobs:
       always() && github.event_name != 'pull_request' &&
       (startsWith(github.ref, 'refs/tags/v') || github.ref == format('refs/heads/{0}', inputs.default-branch)) &&
       ((needs.resolve.result == 'success' && needs.resolve.outputs.digest != '') || needs.mark.result == 'success')
-    runs-on: ubuntu-latest
+    # A private repo's runs go to our uncached pool, because GitHub-hosted jobs
+    # there have no minutes (a308). Never the cached pool: this job holds
+    # credentials. A private repo has no fork path to our runners. Public repos
+    # stay on GitHub's machines, which is what keeps a credential off ours.
+    runs-on: ${{ github.event.repository.private && vars.UNCACHED_RUNNER_LABEL || 'ubuntu-latest' }}
     # An empty name is no environment: a caller without sign never touches
     # (or auto-creates) cosign-signing.
     environment: ${{ inputs.sign && 'cosign-signing' || '' }}
@@ -497,7 +513,9 @@ jobs:
           set -eu
           curl -fsSLo "$RUNNER_TEMP/cosign" https://github.com/sigstore/cosign/releases/download/v2.6.5/cosign-linux-amd64
           echo "c3b4f5410e608af03a5eb0aaac84a4313d8da131248e08ff1759ac70c79d1644  $RUNNER_TEMP/cosign" | sha256sum -c
-          sudo install -m 0755 "$RUNNER_TEMP/cosign" /usr/local/bin/cosign
+          # No sudo: our runners have none (a308).
+          install -D -m 0755 "$RUNNER_TEMP/cosign" "$RUNNER_TEMP/bin/cosign"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
       - name: Sign the digest being promoted
         if: inputs.sign
         env:
