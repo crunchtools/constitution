@@ -9,6 +9,8 @@ Entries through 1.14.0 are derived from the Ratification History table in
 
 ## [Unreleased]
 
+## [1.50.0] - 2026-11-18
+
 ### Fixed
 - A release can no longer ship labelled as an earlier one (#171). memory
   v1.2.0 shipped labelled 1.1.2 and newsletter v1.0.2 labelled 1.0.1: each tag
