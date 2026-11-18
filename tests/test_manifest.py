@@ -202,10 +202,43 @@ def test_reusable_workflow_checks_out_this_release(name):
 def test_container_release_checks_out_this_release():
     """Same as above; the canary may override the ref with its own candidate sha."""
     workflow = (ROOT / ".github/workflows/container-release.yml").read_text()
-    jobs_that_check_out_scripts = 4  # resolve, gates, mark, promote
+    jobs_that_check_out_scripts = 5  # resolve, gates, mark, promote, alert
     pinned = f"inputs.constitution-ref || 'v{VERSION}' }}}}"
     assert workflow.count(pinned) == jobs_that_check_out_scripts
     assert "ref: v" not in workflow.replace(f"@v{VERSION}", "")
+
+
+def test_the_alert_job_runs_only_on_runs_that_judge_the_default_branch():
+    """a375: schedule and dispatch reach release_alert.py, which files only for a failed
+    schedule (tests/test_release_alert.py); a pull request or push never runs the job."""
+    import yaml
+
+    jobs = yaml.safe_load((ROOT / ".github/workflows/container-release.yml").read_text())["jobs"]
+    alert = jobs["alert"]
+    assert alert["if"] == (
+        "!cancelled() && "
+        """contains(fromJSON('["schedule","workflow_dispatch"]'), github.event_name)"""
+    )
+    # A dispatch of another branch reaches the script as `other`, which does nothing.
+    step = alert["steps"][-1]
+    assert "&& 'other' || github.event_name" in step["env"]["EVENT"]
+    assert "inputs.default-branch" in step["env"]["EVENT"]
+    # failure() only sees the jobs it needs: every other job, so none can fail unseen.
+    assert set(alert["needs"]) == set(jobs) - {"alert"}
+    # A gh 502 while closing the alert after a passing release must not fail the run.
+    assert alert["continue-on-error"] is True
+
+
+def test_only_the_alert_job_inherits_the_callers_token():
+    """A nested job asking for issues: write fails every caller that grants less, on
+    every event; so alert names no permissions and every other job names its own."""
+    import yaml
+
+    workflow = yaml.safe_load((ROOT / ".github/workflows/container-release.yml").read_text())
+    assert "permissions" not in workflow
+    for name, job in workflow["jobs"].items():
+        assert ("permissions" in job) == (name != "alert"), name
+    assert "secrets." not in yaml.safe_dump(workflow["jobs"]["alert"])
 
 
 def test_the_gates_job_holds_no_secrets():

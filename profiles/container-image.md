@@ -1,6 +1,6 @@
 # Container Image Profile
 
-> **Profile Version:** 1.11.0
+> **Profile Version:** 1.12.0
 > **Applies to:** All `ubi10-*` and standalone container image projects
 
 This profile extends the [universal constitution](../constitution.md) with requirements specific to **UBI-based** container image projects in the crunchtools organization.
@@ -258,6 +258,7 @@ Every container image build must pass:
 - **Floating tags never move backwards.** `main` moves only to the commit that is the branch tip when promote runs; an older run stands down. `X.Y` and `latest` move only to the newest release. A same-commit rebuild (weekly errata) does move them. Promote runs in a non-cancelling per-repo concurrency group and fails closed when it cannot read the tag it would move.
 - **A release is labelled its own version.** Before anything is signed or any tag moves, a `v*` promote reads the `version` label off the digest (the image, not the Containerfile; `org.opencontainers.image.version` if `version` is absent; a leading `v` and `+build` metadata ignored) and refuses it when the label names a different release of the same repo: the tag went on a merge with no release PR to move the version strings (#171). A label that names no release of the repo is inherited from the base (ubi10's `10.3`, Hummingbird's runtime version) and is not compared; an image with no `version` label promotes unchecked.
 - **Rollback is a copy.** Before `main` or `latest` moves, the digest it held is kept as `rollback-main` / `rollback-latest`.
+- **A failed weekly rebuild files an issue.** When any job of a `schedule` run fails, the `alert` job opens one issue titled "Scheduled container release failed" (label `container-release`) in the calling repo with the run link and the failed jobs; a later failure comments on that open issue instead of filing another, and the next scheduled run that passes (or a passing manual run of the default branch) closes it. It uses the caller's own `GITHUB_TOKEN` and names no permissions of its own, so it gets exactly what the caller grants: the caller's job grants `issues: write` (as `examples/container.yml` does), and one that does not still releases as before, its failed schedule ending in a warning instead of an issue. (a375).
 - **Downstream.** An image that others build `FROM` dispatches their rebuild from the promote job, after it is promoted, with a `crunchtools-ci` app token.
 
 ---

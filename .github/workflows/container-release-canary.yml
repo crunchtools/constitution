@@ -40,6 +40,7 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
+      issues: write
     with:
       image: quay.io/crunchtools/container-release-canary
       containerfile: tests/canary/Containerfile

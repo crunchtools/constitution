@@ -25,6 +25,11 @@
 # Secrets are passed by name, never `secrets: inherit`: the gates job runs the
 # caller's own boot and contract commands and holds no credentials at all.
 #
+# A scheduled run that fails opens one issue in the caller's repo, or comments
+# on the one already open; the next passing run closes it
+# (scripts/release_alert.py, a375). The caller's job
+# grants `issues: write` for that; without it the run warns instead.
+#
 # `sign: true` signs the digest inside promote, before any tag moves, with the
 # fleet cosign key; it verifies against keys/crunchtools-bootc.pub here
 # (rhel10-bootc-server#47). Only promote holds the key, so a pull request's
@@ -182,7 +187,10 @@ on:
       tags:
         value: ${{ jobs.promote.outputs.tags }}
 
-permissions: {}
+# No workflow-level `permissions: {}`: every job below names its own except
+# `alert`, which takes exactly what the caller's job grants. Asking for
+# `issues: write` here would fail every run of every caller that does not
+# grant it, on every event, before a single job started.
 
 jobs:
   resolve:
@@ -646,3 +654,44 @@ jobs:
       - name: Drop registry auth
         if: always()
         run: rm -rf "$RUNNER_TEMP/auth.json" "$RUNNER_TEMP/docker"
+
+  # A weekly rebuild that fails (errata that no longer build, the mt76 overlay
+  # refusing a patch that stopped fitting) has to reach a person (a375). One
+  # open issue per repo: the first failure opens it, every later one comments,
+  # and a passing schedule or default-branch dispatch closes it. The job runs
+  # on both; release_alert.py files only for a failed schedule.
+  alert:
+    name: alert on a failed schedule
+    needs: [resolve, build, gates, mark, promote]
+    if: >-
+      !cancelled() && contains(fromJSON('["schedule","workflow_dispatch"]'), github.event_name)
+    # Bookkeeping, never a verdict: a GitHub outage while closing the alert must
+    # not turn a promoted release red, or skip a caller job that needs this one.
+    continue-on-error: true
+    # Same pools as build (a308). Holds no secret, only the caller's token.
+    runs-on: ${{ github.repository_visibility == 'private' && vars.UNCACHED_RUNNER_LABEL || 'ubuntu-latest' }}
+    # No `permissions:` key on purpose: see the comment above `jobs:`. A caller
+    # that grants `issues: write` gets the issue; one that does not gets a warning.
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          repository: crunchtools/constitution
+          ref: ${{ inputs.constitution-ref || 'v1.50.0' }}
+          path: .constitution
+          persist-credentials: false
+      - name: Open or comment on the alert issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NEEDS: ${{ toJSON(needs) }}
+          # A dispatch of another branch is not the default branch's verdict.
+          EVENT: >-
+            ${{ (github.event_name == 'workflow_dispatch' &&
+                 github.ref != format('refs/heads/{0}', inputs.default-branch))
+                && 'other' || github.event_name }}
+          IMAGE: ${{ inputs.image }}
+          SHA: ${{ github.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: >-
+          python3 -I .constitution/scripts/release_alert.py
+          --needs "$NEEDS" --event "$EVENT" --repo "$GITHUB_REPOSITORY"
+          --image "$IMAGE" --sha "$SHA" --run-url "$RUN_URL"
