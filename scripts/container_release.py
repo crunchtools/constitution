@@ -300,6 +300,11 @@ def check(
     return (int(m[1]), int(m[2]), int(m[3]))
 
 
+def release_number(label: str) -> str:
+    """The release a version label claims: `v1.1.2` and ` 1.1.2+build` both claim 1.1.2."""
+    return label.strip().removeprefix("v").removeprefix("V").split("+", 1)[0]
+
+
 def refuse_mislabelled(reg: Registry, gh: GitHub, digest: str, tag: str) -> None:
     """A release labelled one of this repo's other releases is refused (#171).
 
@@ -309,17 +314,18 @@ def refuse_mislabelled(reg: Registry, gh: GitHub, digest: str, tag: str) -> None
     names a release of this repo is compared: an image that sets none inherits
     its base's (ubi10's 10.3, Hummingbird's runtime 3.14.10), which is no
     claim about this repo and must not block its release.
+    `org.opencontainers.image.version` stands in when `version` is absent.
     """
     version = tag.removeprefix("v")
-    label = reg.labels(digest).get("version")
-    if label is None or label == version:
+    labels = reg.labels(digest)
+    raw = labels.get("version", labels.get("org.opencontainers.image.version"))
+    if raw is None or release_number(raw) == version:
         return
-    ours = {"{}.{}.{}".format(*v) for v in gh.release_tags()}
-    if label not in ours:
-        log(f"  version={label} names no release of {gh.repo}; inherited, not compared")
+    if release_number(raw) not in {"{}.{}.{}".format(*v) for v in gh.release_tags()}:
+        log(f"  version={raw} names no release of {gh.repo}; inherited, not compared")
         return
     raise Refused(
-        f"{tag} would promote {reg.image}@{digest}, which is labelled version={label}, "
+        f"{tag} would promote {reg.image}@{digest}, which is labelled version={raw}, "
         f"another release of {gh.repo}; cut the release PR that moves the version to {version}"
     )
 

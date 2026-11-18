@@ -298,6 +298,26 @@ def test_a_release_labelled_another_version_is_refused_before_any_tag_moves(w):
     assert w.copies == [] and w.tags["latest"] == latest
 
 
+@pytest.mark.parametrize("stale", ["v1.1.2", "V1.1.2", " 1.1.2", "1.1.2+build.7"])
+def test_a_stale_label_is_refused_however_it_is_spelled(w, stale):
+    w.release = {"v1.1.2": "c1", "v1.2.0": "c2"}
+    w.compare["c2"] = "identical"
+    d = w.image("1.2.0", labels={"version": stale})
+    with pytest.raises(CR.Refused, match="another release"):
+        CR.promote(*parts(w), d, CR.Event("c2", "refs/tags/v1.2.0"))
+    assert not w.copies
+
+
+def test_the_oci_version_label_stands_in_for_a_missing_version(w):
+    w.release = {"v1.1.2": "c1", "v1.2.0": "c2"}
+    w.compare["c2"] = "identical"
+    stale = w.image("stale", labels={"org.opencontainers.image.version": "1.1.2"})
+    with pytest.raises(CR.Refused, match="another release"):
+        CR.promote(*parts(w), stale, CR.Event("c2", "refs/tags/v1.2.0"))
+    own = w.image("own", labels={"org.opencontainers.image.version": "v1.2.0"})
+    assert CR.promote(*parts(w), own, CR.Event("c2", "refs/tags/v1.2.0"))[0] == "1.2.0"
+
+
 def test_a_release_labelled_its_own_version_promotes(w):
     w.release = {"v1.2.0": "c2"}
     w.compare["c2"] = "identical"

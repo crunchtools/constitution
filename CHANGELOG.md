@@ -16,12 +16,14 @@ Entries through 1.14.0 are derived from the Ratification History table in
   `container-release.yml`'s "Refuse a digest or tag promote must not take"
   step now reads the `version` label off the digest with skopeo and refuses a
   `v*` promote, before anything is signed or any tag moves, when that label
-  names a different release of the repo; `promote` checks it again. A label
-  that names no release of the repo is inherited (ubi10's `10.3`,
-  Hummingbird's runtime version, 23 of 59 callers today) and is not compared,
-  and an image with no label promotes as before. Quay's login moves to a step
-  of its own ahead of the check, so no other promote step holds the password.
-  Container Image profile 1.11.0 (VII).
+  names a different release of the repo (normalised, so `v1.1.2` and
+  `1.1.2+build` are 1.1.2; `org.opencontainers.image.version` stands in when
+  `version` is absent); `promote` checks it again. A label that names no
+  release of the repo is inherited (ubi10's `10.3`, Hummingbird's runtime
+  version, 23 of 59 callers today) and is not compared, and an image with no
+  label promotes as before. Quay's login moves to a step of its own ahead of
+  the check, and `p` no longer logs in a second time. Container Image profile
+  1.11.0 (VII).
 
 ## [1.49.0] - 2026-11-18
 

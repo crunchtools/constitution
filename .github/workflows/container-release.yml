@@ -523,8 +523,10 @@ jobs:
           ref: ${{ inputs.constitution-ref || 'v1.49.0' }}
           path: .constitution
           persist-credentials: false
-      # The one step that sees the Quay password; the steps after it read
-      # REGISTRY_AUTH_FILE, which "Drop registry auth" deletes.
+      # The check and the copies read REGISTRY_AUTH_FILE from here. Only this
+      # step and the sign step (cosign's own login, into DOCKER_CONFIG) see the
+      # password: on stdin, masked, and both files sit in $RUNNER_TEMP, which
+      # "Drop registry auth" clears whatever the outcome.
       - name: Log in to Quay
         env:
           QUAY_USERNAME: ${{ secrets.QUAY_USERNAME }}
