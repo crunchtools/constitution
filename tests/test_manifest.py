@@ -225,6 +225,8 @@ def test_the_alert_job_runs_only_on_runs_that_judge_the_default_branch():
     assert "inputs.default-branch" in step["env"]["EVENT"]
     # failure() only sees the jobs it needs: every other job, so none can fail unseen.
     assert set(alert["needs"]) == set(jobs) - {"alert"}
+    # A gh 502 while closing the alert after a passing release must not fail the run.
+    assert alert["continue-on-error"] is True
 
 
 def test_only_the_alert_job_inherits_the_callers_token():

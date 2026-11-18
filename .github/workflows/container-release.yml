@@ -665,6 +665,9 @@ jobs:
     needs: [resolve, build, gates, mark, promote]
     if: >-
       !cancelled() && contains(fromJSON('["schedule","workflow_dispatch"]'), github.event_name)
+    # Bookkeeping, never a verdict: a GitHub outage while closing the alert must
+    # not turn a promoted release red, or skip a caller job that needs this one.
+    continue-on-error: true
     # Same pools as build (a308). Holds no secret, only the caller's token.
     runs-on: ${{ github.repository_visibility == 'private' && vars.UNCACHED_RUNNER_LABEL || 'ubuntu-latest' }}
     # No `permissions:` key on purpose: see the comment above `jobs:`. A caller
