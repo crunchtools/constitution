@@ -19,8 +19,9 @@ Entries through 1.14.0 are derived from the Ratification History table in
   names a different release of the repo; `promote` checks it again. A label
   that names no release of the repo is inherited (ubi10's `10.3`,
   Hummingbird's runtime version, 23 of 59 callers today) and is not compared,
-  and an image with no label promotes as before. The check step now logs in to
-  Quay. Container Image profile 1.11.0 (VII).
+  and an image with no label promotes as before. Quay's login moves to a step
+  of its own ahead of the check, so no other promote step holds the password.
+  Container Image profile 1.11.0 (VII).
 
 ## [1.49.0] - 2026-11-18
 

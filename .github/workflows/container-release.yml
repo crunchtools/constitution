@@ -523,20 +523,23 @@ jobs:
           ref: ${{ inputs.constitution-ref || 'v1.49.0' }}
           path: .constitution
           persist-credentials: false
+      # The one step that sees the Quay password; the steps after it read
+      # REGISTRY_AUTH_FILE, which "Drop registry auth" deletes.
+      - name: Log in to Quay
+        env:
+          QUAY_USERNAME: ${{ secrets.QUAY_USERNAME }}
+          QUAY_PASSWORD: ${{ secrets.QUAY_PASSWORD }}
+        run: printf '%s' "$QUAY_PASSWORD" | skopeo login -u "$QUAY_USERNAME" --password-stdin quay.io
       # resolve runs only on push; a dispatch or schedule run on a v* ref
       # comes here without it. Refused before anything is signed (#146),
-      # including a release whose image is labelled another version (#171).
+      # including a release whose image is labelled another of its releases (#171).
       - name: Refuse a digest or tag promote must not take
         env:
           GH_TOKEN: ${{ github.token }}
-          QUAY_USERNAME: ${{ secrets.QUAY_USERNAME }}
-          QUAY_PASSWORD: ${{ secrets.QUAY_PASSWORD }}
           IMAGE: ${{ inputs.image }}
           DIGEST: ${{ needs.resolve.outputs.digest || needs.build.outputs.digest }}
           BRANCH: ${{ inputs.default-branch }}
         run: |
-          set -eu
-          printf '%s' "$QUAY_PASSWORD" | skopeo login -u "$QUAY_USERNAME" --password-stdin quay.io
           python3 -I .constitution/scripts/container_release.py check \
             --image "$IMAGE" --digest "$DIGEST" --branch "$BRANCH"
       # Signed before promote copies, so no tag ever points at an unsigned
@@ -579,8 +582,6 @@ jobs:
           echo "::notice::signed $IMAGE@$DIGEST"
       - id: p
         env:
-          QUAY_USERNAME: ${{ secrets.QUAY_USERNAME }}
-          QUAY_PASSWORD: ${{ secrets.QUAY_PASSWORD }}
           GH_TOKEN: ${{ github.token }}
           IMAGE: ${{ inputs.image }}
           DIGEST: ${{ needs.resolve.outputs.digest || needs.build.outputs.digest }}
@@ -588,7 +589,6 @@ jobs:
           CASCADE: ${{ inputs.cascade && '--cascade' || '' }}
         run: |
           set -eu
-          printf '%s' "$QUAY_PASSWORD" | skopeo login -u "$QUAY_USERNAME" --password-stdin quay.io
           echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
           python3 -I .constitution/scripts/container_release.py promote \
             --image "$IMAGE" --digest "$DIGEST" --branch "$BRANCH" $CASCADE
