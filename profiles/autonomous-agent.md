@@ -168,12 +168,14 @@ Minimum retention: **90 days**. Logs MUST NOT contain credentials, API keys, or 
 | Environment variables | Credentials injected via env vars or systemd `LoadCredential=` |
 | Per-server isolation | Each MCP server gets its own credential; no shared tokens |
 | No persistent keys in config | Config files MUST NOT contain API keys, tokens, or passwords |
+| Seat Desk key | A seat MAY hold one credential besides its gateway token: its Ashigaru Desk key, seat-role only (it cannot mint keys and writes only its own items). It is a `0600` file on tmpfs read through `ASHIGARU_API_KEY_FILE`, never in argv, an env file or config |
 
 ### Credential Rotation
 
 - Tokens SHOULD be session-scoped (created at agent start, revoked at stop)
 - Long-lived credentials (where session tokens aren't supported) MUST be rotated on a defined schedule
 - Credential rotation MUST NOT require agent redeployment
+- A seat's Desk key rotates with its gateway token and is revoked at the Desk, without redeploying the seat
 
 ---
 
@@ -317,7 +319,7 @@ For a honeypot agent these clauses read differently:
 | II, tool risk classification | A decoy named like a System or Network tool is not one: nothing executes. A real read through the gateway is called by the agent directly. |
 | IV, human-in-the-loop gates and dead man's switch | It runs unattended. There is no write to approve. Circuit breakers and rate limits still apply, and the model key's spending limit is its token budget. |
 | IV, audit logging | The 90-day minimum applies to the record of its calls. Captured documents are evidence, not logs: they may contain third parties' names and handles, and they are kept only in the gateway's database. |
-| V, credential principles | Replaced by "No real credential" above. |
+| V, credential principles | Replaced by "No real credential" above. A honeypot agent holds no Desk key. |
 | VI, anomaly detection and incident response | A decoy call or a fake credential in use is the result it exists to produce: it is recorded, and the agent keeps running. An incident is a real backend in its profile, a real credential other than its gateway token in its environment or workspace, traffic from it that did not pass through the gateway, or its memory reaching another agent. Any of those halts it under the usual procedure. |
 | VI, memory and context integrity | Memory stays inspectable. Poisoning is expected and is contained by "Disposable memory" above, not by Q-Agent separation. |
 
