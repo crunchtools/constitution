@@ -28,6 +28,12 @@ Entries through 1.14.0 are derived from the Ratification History table in
   annotation in CI) and still passes. `third_party_pins = "enforce"` in
   requirements.toml makes it a `PINS:` violation.
 
+### Changed
+- The weekly-rebuild cron is a rule about the image build, not every workflow:
+  it binds the workflow that builds and publishes the image (Container Image
+  profile V, v2 VII.8), so the `ci.yml` stub in a container repo needs none.
+  Gatehouse had flagged that stub across the 2026-11-17 sdlc fleet wave.
+
 ## [1.45.0] - 2026-11-17
 
 ### Changed

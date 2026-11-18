@@ -209,7 +209,7 @@ A cascade image sets `cascade: true` on `container-release.yml`, which moves
 
 ## V. Rebuild Schedule
 
-Container image workflows MUST include a weekly cron trigger to pick up base image security updates:
+The workflow that builds and publishes the image (the caller of `container-release.yml`) MUST include a weekly cron trigger to pick up base image security updates. The rule is about the image build, not every workflow in an image repository: the `ci.yml` stub that runs `sdlc ci`, and any other workflow that publishes no image, needs no cron.
 
 ```yaml
 on:
