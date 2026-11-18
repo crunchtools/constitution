@@ -9,7 +9,10 @@ Entries through 1.14.0 are derived from the Ratification History table in
 
 ## [Unreleased]
 
+## [1.48.0] - 2026-11-18
+
 ### Changed
+- Container Image profile 1.10.0 (IX, "Where a release runs"): the uncached pool wipes its nested container storage before and after every job, and only the cached pool keeps it, which is why credential-holding jobs never run on the cached pool.
 - `container-release.yml` runs in private repos (a308). GitHub-hosted jobs there have no minutes, so `resolve`, `build`, `mark` and `promote`, and `gates` when `free-disk` is set, run on `vars.UNCACHED_RUNNER_LABEL` in a private repo, judged by `github.repository_visibility`, which a weekly `schedule` rebuild also carries. Public repos are unchanged: credential-holding jobs stay on `ubuntu-latest`. The Container Image profile states the rule (IX): credential-holding jobs never use the cached pool, and only a private repo puts them on ours. `build`, `mark` and `promote` keep registry logins in `$RUNNER_TEMP` (`REGISTRY_AUTH_FILE`, `DOCKER_CONFIG`) and delete them when the job ends. The free-disk step runs only on GitHub's machines, and `promote` installs cosign into `$RUNNER_TEMP/bin` without sudo. Our runner needs skopeo (crunchtools/gha-runner#39).
 
 ### Fixed
