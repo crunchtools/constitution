@@ -277,6 +277,8 @@ Naming pattern for UBI-based images: `ubi10-<runtime>-<purpose>` (e.g., `ubi10-h
 
 Copy `examples/container.yml` from this repo: it calls `container-release.yml` at a release tag on `pull_request`, `push` (the default branch and `v*` tags), a weekly `schedule` and `workflow_dispatch`, and passes `QUAY_USERNAME`/`QUAY_PASSWORD` by name (never `secrets: inherit`). The repo chooses only its image, its boot gate and, for a cascade image, `cascade` and `downstream`.
 
+**Where a release runs (a308).** In a public repo, every `container-release.yml` job that holds a credential (`build`, `mark`, `promote`: the registry, RHSM, signing and App keys) runs on GitHub's machines, never on ours, and only `gates`, which holds none, runs on the organization's runners. A private repo has no GitHub-hosted minutes, so all of its release jobs run on `vars.UNCACHED_RUNNER_LABEL`: a fresh runner container for every job, although the nested container storage persists between jobs. A credential-holding job MUST NOT run on `vars.CACHED_RUNNER_LABEL`, whose layer cache is shared by design, and keeps its registry logins in a file under the job's temp directory (`REGISTRY_AUTH_FILE`, `DOCKER_CONFIG`), deleted when the job ends, never at a default path the nested storage could keep. This is safe only because a private repo has no fork path to those runners. No step that runs a pull request's own code may run before the build with a secret in its environment, and the build step is the one place a Containerfile meets the RHSM and registry credentials, as build secrets.
+
 ---
 
 ## X. Per-Repo Constitution Format

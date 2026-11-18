@@ -9,6 +9,9 @@ Entries through 1.14.0 are derived from the Ratification History table in
 
 ## [Unreleased]
 
+### Changed
+- `container-release.yml` runs in private repos (a308). GitHub-hosted jobs there have no minutes, so `resolve`, `build`, `mark` and `promote`, and `gates` when `free-disk` is set, run on `vars.UNCACHED_RUNNER_LABEL` in a private repo, judged by `github.repository_visibility`, which a weekly `schedule` rebuild also carries. Public repos are unchanged: credential-holding jobs stay on `ubuntu-latest`. The Container Image profile states the rule (IX): credential-holding jobs never use the cached pool, and only a private repo puts them on ours. `build`, `mark` and `promote` keep registry logins in `$RUNNER_TEMP` (`REGISTRY_AUTH_FILE`, `DOCKER_CONFIG`) and delete them when the job ends. The free-disk step runs only on GitHub's machines, and `promote` installs cosign into `$RUNNER_TEMP/bin` without sudo. Our runner needs skopeo (crunchtools/gha-runner#39).
+
 ### Fixed
 - `validate.yml` runs on our own runners. `actions/setup-python` has no build for
   their Fedora and failed every private repo's Constitution check there
