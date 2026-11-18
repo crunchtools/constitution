@@ -147,7 +147,7 @@ Web applications that build on crunchtools image tree parents MUST participate i
   ```
 - **Parent declaration**: The per-repo constitution MUST declare which parent image triggers a cascade rebuild.
 
-When a parent image (e.g., `ubi10-core`, `ubi10-httpd`) is updated, the parent's build workflow dispatches `parent-image-updated` events to its child repos. This ensures security patches propagate through the image tree automatically.
+When a parent image (e.g., `ubi10-core`, `ubi10-httpd`) is updated, the parent's build workflow dispatches `parent-image-updated` events to its child repos. This ensures security patches propagate through the image tree automatically. That dispatch satisfies the weekly-rebuild rule (Container Image profile V), so a web application wired into the cascade needs no cron of its own.
 
 ---
 
@@ -178,7 +178,7 @@ Web application projects MUST include the following tests:
 | **Application health check** | HTTP response or process is running | Yes |
 | **Database connectivity** | App can connect to its database | When applicable |
 | **Smoke test** | Core application functionality works | Recommended |
-| **Vulnerability scan** | None at build time. Dependencies are audited in CI (XV); published images are scanned on a schedule by the fleet CVE check, which pages on a new fixable Critical (RT #1551) | No |
+| **Vulnerability scan** | sdlc's: the sdlc launcher scans every repository with a Containerfile at build time, so the repository adds no scan of its own. Dependencies are audited in CI (XV); published images are also scanned on a schedule by the fleet CVE check, which pages on a new fixable Critical (RT #1551) | Yes, run by sdlc |
 
 At minimum, CI MUST build the image and verify the application starts and responds to health checks. These checks follow the [Container Image profile](container-image.md) Sections VI and VII: they run against the pushed digest, on every build trigger including dispatched rebuilds, and gate the promotion to `latest`. The application health check covers every unit and endpoint the production monitor checks, so CI fails on whatever would page.
 

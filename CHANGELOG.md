@@ -9,6 +9,42 @@ Entries through 1.14.0 are derived from the Ratification History table in
 
 ## [Unreleased]
 
+### Added
+- Draft constitution v2 in `v2/constitution.md`: rules only, with every job
+  name, image tag, workflow file and pin moved to the sdlc image's docs; the
+  profiles folded into per-kind rules (XIV); per-repo constitutions replaced by
+  the sdlc config and a README `What's different here` section of at most 30
+  lines (XIII); what the validator checks under v2 (XV); amendments ship as sdlc
+  image releases (XVI). Not in force: v1 governs until the conversion lands.
+  Restores the v1 policy the first cut dropped with its mechanism: the MCP
+  security layers spelled out, agent runtime constraints, the CI trust
+  boundary, the workflow guard as a required check, a secrets scan with no
+  exception, CI-only publishing, the fork and host-config license exceptions,
+  required tests, maintainer approval for amendments, and the v1 validator
+  checks XV had lost.
+
+### Changed
+- The weekly-rebuild cron is a rule about the image build, not every workflow:
+  it binds the workflow that builds and publishes the image (Container Image
+  profile V, v2 VII.8), so the `ci.yml` stub in a container repo needs none.
+  Gatehouse had flagged that stub across the 2026-11-17 sdlc fleet wave.
+- A cascade child (`ubi10-httpd*` and the like) meets the weekly-rebuild rule
+  through the `parent-image-updated` dispatch and needs no cron of its own; the
+  root of the chain carries it (Container Image profile V, Web Application
+  profile VIII, v2 VII.8).
+- A per-repo constitution's "an amendment lands on its own" clause never covers
+  the `Inherits` pointer bump, which adopts fleet rules and amends none of the
+  repo's (VII; v2 XIII.6, moot once per-repo constitutions retire).
+- The build-time image scan is sdlc's: the sdlc launcher scans every repository
+  with a Containerfile, so the Container Image and Web Application profiles (VI)
+  no longer say "none at build time", and `container-release.yml` adds no scan
+  of its own (Container Image VII, Forked MCP Server, Autonomous Agent, v2
+  VI.4). The scheduled fleet CVE check stays.
+- A seat MAY hold its Ashigaru Desk key besides its gateway token: seat-role
+  only, a `0600` tmpfs file read through `ASHIGARU_API_KEY_FILE`, rotated with
+  the gateway token and revocable at the Desk; a honeypot holds none
+  (Autonomous Agent profile V, X; crunchtools/developer#75).
+
 ## [1.46.1] - 2026-11-17
 
 ### Fixed
