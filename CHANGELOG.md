@@ -37,6 +37,9 @@ Entries through 1.14.0 are derived from the Ratification History table in
   through the `parent-image-updated` dispatch and needs no cron of its own; the
   root of the chain carries it (Container Image profile V, Web Application
   profile VIII, v2 VII.8).
+- A per-repo constitution's "an amendment lands on its own" clause never covers
+  the `Inherits` pointer bump, which adopts fleet rules and amends none of the
+  repo's (VII; v2 XIII.6, moot once per-repo constitutions retire).
 
 ## [1.45.0] - 2026-11-17
 

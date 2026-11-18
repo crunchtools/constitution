@@ -133,6 +133,7 @@ MUST, MUST NOT, SHOULD and MAY are used as in RFC 2119.
 3. What a person or agent needs to know about the repository, and cannot learn from the code or the sdlc config, goes in a README section titled `What's different here`, at most 30 lines: its invariants, external contracts and decisions no other repository shares. The section is optional.
 4. That section never restates a rule from this constitution, and never holds a command, job name, image tag or pin. It says why the repository is different, not how the fleet works.
 5. When a repository's difference is really a rule, it is proposed as an amendment here, or as a setting the image validates.
+6. Until a repository converts, its v1 per-repo constitution still applies, except that a clause requiring an amendment to land on its own never covers the `Inherits` pointer bump. Conversion removes that file (XV.2) and makes the exemption moot.
 
 ## XIV. Kinds: if your repository is X, also
 
