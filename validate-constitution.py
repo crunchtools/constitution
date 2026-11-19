@@ -1856,18 +1856,19 @@ def _expand(text: str, env: dict) -> str | None:
     return None if "${{" in expanded else expanded
 
 
-def _push_targets(job: dict, env: dict) -> list[str] | str:
-    """Every image reference the job pushes; or, as a string, the first thing
-    in it that could push and is not a command or action this check reads in
-    full.
+def _push_targets(job: dict, env: dict) -> tuple[list[str], str | None]:
+    """Every image reference the job pushes, and None; or no targets and the
+    first thing in the job that could push and is not a command or action
+    this check reads in full.
 
     Fail closed: one readable push must not carry an unreadable one along
     (`sudo podman push`, `bash -c "..."`, `$(...)`, `podman manifest push`,
     `buildx --push`). An `env:` value counts only while nothing in the job can
     rewrite it through GITHUB_ENV.
     """
-    text = json.dumps(job)
-    if "GITHUB_ENV" in text:
+    # Any mention, in a run line or an action's inputs, may write GITHUB_ENV,
+    # which overrides `env:` for later steps; fail closed on all of them.
+    if "GITHUB_ENV" in json.dumps(job):
         env = {}
     targets: list[str] = []
     for step in job.get("steps") or []:
@@ -1878,14 +1879,14 @@ def _push_targets(job: dict, env: dict) -> list[str] | str:
         with_ = step.get("with") or {}
         if uses.startswith("docker/build-push-action@"):
             if "outputs" in with_ or not isinstance(with_.get("tags", ""), str):
-                return f"`{uses}` with outputs or non-string tags"
+                return [], f"`{uses}` with outputs or non-string tags"
             if str(with_.get("push", False)).strip().lower() not in ("false", ""):
                 tags = _expand(with_.get("tags", ""), scope)
                 if tags is None:
-                    return f"`{uses}` tags `{with_['tags']}`"
+                    return [], f"`{uses}` tags `{with_['tags']}`"
                 targets += [t.strip() for t in re.split(r"[,\n]", tags) if t.strip()] or [""]
         elif _PUSH_ACTION.search(uses):
-            return f"`{uses}`"
+            return [], f"`{uses}`"
         for command in re.split(
             r"&&|\|\||;|\n|\||&", str(step.get("run", "")).replace("\\\n", " ")
         ):
@@ -1895,7 +1896,7 @@ def _push_targets(job: dict, env: dict) -> list[str] | str:
             try:
                 words = shlex.split(expanded or "", comments=True)
             except ValueError as err:
-                return f"`{command.strip()[:80]}` ({err})"
+                return [], f"`{command.strip()[:80]}` ({err})"
             if expanded is not None and not words:
                 continue  # a comment
             verb = tuple(words[:2])
@@ -1903,9 +1904,9 @@ def _push_targets(job: dict, env: dict) -> list[str] | str:
             copy = verb == ("skopeo", "copy") and {"--all", "--preserve-digests"} <= set(words)
             refs = [w for w in words[2:] if not w.startswith("-")]
             if expanded is None or not (push or copy) or not refs:
-                return f"`{command.strip()[:80]}`"
+                return [], f"`{command.strip()[:80]}`"
             targets.append(refs[-1].removeprefix("docker://"))
-    return targets
+    return targets, None
 
 
 def _target_refusal(ref: str, pinned: set[str]) -> str | None:
@@ -1946,9 +1947,9 @@ def _artifact_refusal(
     if not _guards_default_branch(job.get("if")):
         return "has no job `if:` requiring the default branch", pinned
     env = {**(workflow.get("env") or {}), **(job.get("env") or {})}
-    targets = _push_targets(job, env)
-    if isinstance(targets, str):
-        return f"runs {targets}, which it cannot read in full as a push", pinned
+    targets, unreadable = _push_targets(job, env)
+    if unreadable:
+        return f"runs {unreadable}, which it cannot read in full as a push", pinned
     if not targets:
         return "pushes nothing it can read", pinned
     if pinned is None:

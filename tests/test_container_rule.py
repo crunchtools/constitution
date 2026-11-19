@@ -236,6 +236,7 @@ ARTIFACT_JOB = """  publish:
     runs-on: ubuntu-latest
     env:
       IMAGE: quay.io/crunchtools/x-model
+      TAG: quay.io/crunchtools/x-model:${{ inputs.t }}
     steps:
       - uses: docker/build-push-action@v7
         with:
@@ -297,6 +298,9 @@ def test_dispatch_and_schedule_are_the_artifact_triggers(tmp_path, on):
         "${{ env.IMAGE }}:$GITHUB_SHA",
         # An input can carry a comma, and so a second tag (#184 3).
         "${{ env.IMAGE }}:${{ inputs.t }}-${{ github.sha }}",
+        # An env value is read only when it is a literal that exists.
+        "${{ env.TAG }}",
+        "${{ env.MISSING }}:${{ github.sha }}",
     ],
 )
 def test_an_artifact_image_on_a_floating_or_unkeyed_tag_fails(tmp_path, tags):
