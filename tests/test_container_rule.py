@@ -1,5 +1,6 @@
 """check_container_release: container-image VII, machine-checked since 1.39.0 (RT#1550)."""
 
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -212,3 +213,14 @@ def test_a_checkout_without_an_origin_falls_back_to_its_directory(tmp_path):
         '[remote "upstream"]\n\turl = https://github.com/other/thing.git\n'
     )
     assert V.repo_name(root) == "reference-repo"
+
+
+def test_the_fleet_exempts_claude_agent_under_both_names():
+    """crunchtools/claude-agent is renamed claude-supervisor (claude-agent#35).
+
+    The exemption is matched against the origin remote's repo name, so the new
+    name has to be listed before the rename, and the old one until 3.0.0.
+    """
+    requirements = Path(__file__).resolve().parent.parent / "profiles/requirements.toml"
+    fleet = tomllib.loads(requirements.read_text())["fleet"]
+    assert {"claude-agent", "claude-supervisor"} <= set(fleet["container_release_unpublished"])
