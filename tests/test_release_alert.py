@@ -158,6 +158,16 @@ def test_a_passing_schedule_leaves_another_images_alert_open(calls, monkeypatch)
     assert ("issue", "close") not in [c[:2] for c in calls]
 
 
+def test_a_passing_schedule_closes_its_pre_a693_alert(calls, monkeypatch):
+    legacy = issue(5, R.TITLE) | {"body": R.body("img", ["build"], URL, "a" * 40)}
+    calls.listing["json"] = json.dumps([legacy])
+    assert drive(monkeypatch, needs={"build": {"result": "success"}}) == 0
+    listing = calls[0]
+    assert "body" in listing[listing.index("--json") + 1].split(",")
+    close = next(c for c in calls if c[:2] == ("issue", "close"))
+    assert close[2] == "5"
+
+
 def test_a_pull_request_failure_makes_no_gh_calls(calls, monkeypatch):
     assert drive(monkeypatch, event="pull_request") == 0
     assert calls == []
