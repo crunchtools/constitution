@@ -1116,6 +1116,64 @@ def reusable_ref_violations(
     return []
 
 
+REVIEW_RESULT_SINCE = (1, 52, 0)
+"""First constitution version whose XII requires triage to be told the review's result.
+
+Gated like GATES_SINCE: callers that leave `review_result` unset keep triage's
+old fail-open behaviour, so a repo becomes subject to it by moving `Inherits`."""
+
+REVIEW_RESULT_GATEHOUSE = (0, 32, 0)
+"""The first gatehouse release whose triage.yml takes `review_result`."""
+
+
+def triage_review_result_violations(flows: "Workflows", inherits: str | None) -> list[str]:
+    """XII since 1.52.0: triage holds a PR whose review job died before posting.
+
+    Without `review_result: ${{ needs.review.result }}`, `needs: review` and
+    `if: always()`, triage cannot tell a review that never ran from one that
+    found nothing, and passes both.
+    """
+    if (version_tuple(inherits) or ()) < REVIEW_RESULT_SINCE:
+        return []
+    violations = []
+    for name, workflow in flows.files.items():
+        jobs = {job_id: job or {} for job_id, job in (workflow.get("jobs") or {}).items()}
+        reviews = [
+            job_id
+            for job_id, job in jobs.items()
+            if (m := GATEHOUSE_REUSABLE.match(str(job.get("uses", "")))) and m.group(1) == "review"
+        ]
+        for job_id, job in jobs.items():
+            match = GATEHOUSE_REUSABLE.match(str(job.get("uses", "")))
+            if not match or match.group(1) != "triage":
+                continue
+            where = f"WORKFLOWS: {name} job `{job_id}` (Gatehouse triage)"
+            if len(reviews) != 1:
+                violations.append(f"{where} has no single review job in its workflow to follow")
+                continue
+            review = reviews[0]
+            needs = job.get("needs") or []
+            needs = [needs] if isinstance(needs, str) else needs
+            passed = re.sub(r"\s+", "", str((job.get("with") or {}).get("review_result", "")))
+            if review not in needs:
+                violations.append(f"{where} does not have `needs: {review}`")
+            condition = re.sub(r"^\$\{\{(.*)\}\}$", r"\1", str(job.get("if", "")).strip())
+            if condition.strip() != "always()":
+                violations.append(f"{where} does not run `if: always()`, so it can skip")
+            if passed != f"${{{{needs.{review}.result}}}}":
+                violations.append(
+                    f"{where} does not pass `review_result: ${{{{ needs.{review}.result }}}}`, "
+                    f"so a review that died before posting passes triage"
+                )
+            pinned = version_tuple(match.group(2)) if match.group(2) else None
+            if pinned and pinned < REVIEW_RESULT_GATEHOUSE:
+                violations.append(
+                    f"{where} pins triage.yml@{match.group(2)}, which has no `review_result` "
+                    f"input; use @v0 or v{'.'.join(map(str, REVIEW_RESULT_GATEHOUSE))}+"
+                )
+    return violations
+
+
 def check_gate_workflows(repo_root: Path, inherits: str, requirements: dict) -> list[str]:
     """XII and #22: the gates exist, on the right triggers, at a supported tag."""
     flows = Workflows(repo_root)
@@ -1148,6 +1206,7 @@ def check_gate_workflows(repo_root: Path, inherits: str, requirements: dict) -> 
             )
 
     violations += inline_gourmand_jobs(flows)
+    violations += triage_review_result_violations(flows, inherits)
 
     gatehouse_workflow = [wf for wf in flows.files.values() if wf.get("name") == "Gatehouse"]
     if not any(
