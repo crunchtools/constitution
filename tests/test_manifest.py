@@ -232,6 +232,18 @@ def test_the_alert_job_runs_only_on_runs_that_judge_the_default_branch():
     assert alert["continue-on-error"] is True
 
 
+def test_promotes_queue_per_image_and_never_cancel():
+    """a693: trentina releases two images from one repo; a group keyed on the repo
+    let one image's queued promote cancel the other's pending one."""
+    import yaml
+
+    jobs = yaml.safe_load((ROOT / ".github/workflows/container-release.yml").read_text())["jobs"]
+    assert jobs["promote"]["concurrency"] == {
+        "group": "container-promote-${{ inputs.image }}",
+        "cancel-in-progress": False,
+    }
+
+
 def test_only_the_alert_job_inherits_the_callers_token():
     """A nested job asking for issues: write fails every caller that grants less, on
     every event; so alert names no permissions and every other job names its own."""

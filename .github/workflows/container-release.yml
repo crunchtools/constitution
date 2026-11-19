@@ -25,8 +25,8 @@
 # Secrets are passed by name, never `secrets: inherit`: the gates job runs the
 # caller's own boot and contract commands and holds no credentials at all.
 #
-# A scheduled run that fails opens one issue in the caller's repo, or comments
-# on the one already open; the next passing run closes it
+# A scheduled run that fails opens one issue per image in the caller's repo, or
+# comments on the one already open; the next passing run of that image closes it
 # (scripts/release_alert.py, a375). The caller's job
 # grants `issues: write` for that; without it the run warns instead.
 #
@@ -513,8 +513,10 @@ jobs:
     # (or auto-creates) cosign-signing.
     environment: ${{ inputs.sign && 'cosign-signing' || '' }}
     # Check-then-copy must not interleave; never cancel a promotion halfway.
+    # Keyed on the image, not the repo: a repo that releases two images must not
+    # have one image's queued promote cancel the other's pending one (a693).
     concurrency:
-      group: container-promote-${{ github.repository }}
+      group: container-promote-${{ inputs.image }}
       cancel-in-progress: false
     permissions:
       contents: read
@@ -666,8 +668,9 @@ jobs:
 
   # A weekly rebuild that fails (errata that no longer build, the mt76 overlay
   # refusing a patch that stopped fitting) has to reach a person (a375). One
-  # open issue per repo: the first failure opens it, every later one comments,
-  # and a passing schedule or default-branch dispatch closes it. The job runs
+  # open issue per image, named in its title (a693): the first failure opens it,
+  # every later one comments, and a passing schedule or default-branch dispatch
+  # of that image closes it. The job runs
   # on both; release_alert.py files only for a failed schedule.
   alert:
     name: alert on a failed schedule

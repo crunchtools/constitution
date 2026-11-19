@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Turn a failed scheduled container release into the repo's one alert issue.
+"""Turn a failed scheduled container release into the image's one alert issue.
 
 Run by the `alert` job of .github/workflows/container-release.yml, which runs
 only when a job of a scheduled run failed. The weekly rebuild is what picks up
@@ -8,10 +8,13 @@ mt76 kmod overlay of rhel10-bootc-server refuses a patch that no longer
 applies); before this, the only notice was GitHub's email to whoever last
 edited the cron line (a375).
 
-One open issue per repo: the first failure opens it, every later one comments
+One open issue per image: the first failure opens it, every later one comments
 on it, so a build that stays broken for a month is one issue with four
-comments. The next scheduled run that passes, or a manual run of the default
-branch, closes it. Standard library and the gh CLI only, like audit_alert.py.
+comments. The next scheduled run of that image that passes, or a manual run of
+the default branch, closes it. The title names the image, so a repo that calls
+container-release twice (trentina and trentina-demo) keeps two alerts and one
+image's passing run never closes the other's (a693). Standard library and the
+gh CLI only, like audit_alert.py.
 """
 
 from __future__ import annotations
@@ -22,6 +25,7 @@ import subprocess
 import sys
 
 TITLE = "Scheduled container release failed"
+"""The title before a693, with no image in it; see alerts()."""
 LABEL = "container-release"
 AUTHORS = ("github-actions[bot]", "app/github-actions")
 """The workflow's own token writes as this account; an issue a person filed is never touched."""
@@ -36,12 +40,26 @@ def failed(needs: dict) -> list[str]:
     return [job for job, state in needs.items() if state.get("result") == "failure"]
 
 
-def alerts(issues: list[dict]) -> list[dict]:
-    """Open alerts this workflow wrote, oldest first."""
+def title(image: str) -> str:
+    """The alert's title for one image."""
+    return f"{TITLE}: {image}"
+
+
+def alerts(issues: list[dict], image: str) -> list[dict]:
+    """Open alerts this workflow wrote for `image`, oldest first.
+
+    An alert with the bare pre-a693 title counts when its body names `image`, as
+    body() always has, so an alert opened before the upgrade is still commented on
+    and closed, and only by its own image's runs.
+    """
     found = [
         issue
         for issue in issues
-        if (issue.get("author") or {}).get("login") in AUTHORS and issue["title"] == TITLE
+        if (issue.get("author") or {}).get("login") in AUTHORS
+        and (
+            issue["title"] == title(image)
+            or (issue["title"] == TITLE and f"of `{image}` failed" in (issue.get("body") or ""))
+        )
     ]
     return sorted(found, key=lambda issue: issue["number"])
 
@@ -104,8 +122,8 @@ def ensure_label(repo: str) -> None:
             raise
 
 
-def apply(repo: str, action: str, number: int | None, texts: dict[str, str]) -> None:
-    """Carry out one planned action on the alert issue, with `texts[action]` as its words."""
+def apply(repo: str, image: str, action: str, number: int | None, texts: dict[str, str]) -> None:
+    """Carry out one planned action on `image`'s alert issue, with `texts[action]` as its words."""
     text = texts.get(action, "")
     match action, number:
         case "create", None:
@@ -116,7 +134,7 @@ def apply(repo: str, action: str, number: int | None, texts: dict[str, str]) -> 
                 "--repo",
                 repo,
                 "--title",
-                TITLE,
+                title(image),
                 "--label",
                 LABEL,
                 "--body",
@@ -168,16 +186,16 @@ def run(args: argparse.Namespace, jobs: list[str]) -> int:
         "--limit",
         "100",
         "--json",
-        "number,title,author",
+        "number,title,author,body",
     )
     texts = {
         "create": body(args.image, jobs, args.run_url, args.sha),
         "comment": comment(jobs, args.run_url, args.sha),
         "close": f"The [latest run]({args.run_url}) passed.",
     }
-    for action, number in plan(args.event, jobs, alerts(json.loads(listing))):
+    for action, number in plan(args.event, jobs, alerts(json.loads(listing), args.image)):
         print(f"alert: {action} {number or ''}".rstrip())
-        apply(args.repo, action, number, texts)
+        apply(args.repo, args.image, action, number, texts)
     return 0
 
 

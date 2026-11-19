@@ -9,6 +9,17 @@ Entries through 1.14.0 are derived from the Ratification History table in
 
 ## [Unreleased]
 
+### Fixed
+- `container-release.yml` keys the promote concurrency group and the
+  failed-schedule alert issue on the image, not the repo (a693). A repo that
+  calls it twice (trentina and trentina-demo) no longer has a third queued
+  promote cancel a pending one of the other image, and one image's passing
+  schedule no longer closes the other's alert. The group is now
+  `container-promote-<image>`; the alert's title is
+  "Scheduled container release failed: <image>". An open alert with the old
+  bare title is still commented on and closed by runs of the image its body
+  names.
+
 ## [1.53.0] - 2026-11-19
 
 ### Added
