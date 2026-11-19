@@ -12,15 +12,16 @@ Entries through 1.14.0 are derived from the Ratification History table in
 ### Added
 - Container Image VII, since 1.53.0: a build artifact image may be pushed
   outside `container-release.yml` when the workflow triggers only on
-  `workflow_dispatch` and/or `schedule` and the publishing job is guarded by a
-  job-level `if:` requiring the default branch, every tag is keyed to the run or
-  commit (never floating or a release-workflow tag), it pushes to
-  `quay.io/crunchtools/<name>` with `podman`/`docker`/`buildah push`,
-  `docker/build-push-action` or `skopeo copy --all --preserve-digests`, and the
-  image is pinned by `@sha256:` digest in a Containerfile or Dockerfile in the same repo.
-  `container-release.yml` builds only from repo source, so it cannot carry an
-  artifact another job made. The validator admits such a job with no per-repo
-  `container_release_custom` entry.
+  `workflow_dispatch` and/or `schedule`; the job's `if:` is a bare expression
+  with `github.ref == 'refs/heads/main'` as a top-level `&&` term; every tag
+  is a literal around `${{ github.sha }}` or `${{ github.run_id }}`; it pushes
+  to `quay.io/crunchtools/<name>` with `podman`/`docker`/`buildah push`,
+  `docker/build-push-action` or `skopeo copy --all --preserve-digests`; and a
+  Containerfile or Dockerfile in the same repo pins the image by `@sha256:`
+  digest. The check fails closed: any push-like command or action in the job
+  that it cannot read in full refuses the job. `container-release.yml` builds
+  only from repo source, so it cannot carry an artifact another job made. No
+  repo is listed for it.
 
 ## [1.52.1] - 2026-11-19
 

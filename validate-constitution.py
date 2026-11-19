@@ -1751,20 +1751,28 @@ def _job_publishes(job: dict, commands: str) -> bool:
 
 _ARTIFACT_EVENTS = {"workflow_dispatch", "schedule"}
 _MAIN_GUARD = re.compile(
-    r"^github\.(?:ref\s*==\s*(?:'refs/heads/main'|format\('refs/heads/\{0\}',\s*"
-    r"github\.event\.repository\.default_branch\))"
-    r"|ref_name\s*==\s*(?:'main'|github\.event\.repository\.default_branch))$"
+    r"^github\.ref\s*==\s*(?:'refs/heads/main'"
+    r"|format\('refs/heads/\{0\}',\s*github\.event\.repository\.default_branch\))$"
 )
-# A tag keyed to the commit or the run, never one container-release.yml moves
-# or reserves for a candidate.
-_RUN_KEY = re.compile(
-    r"\$\{\{\s*github\.(?:sha|run_id)\s*\}\}|\$\{?GITHUB_(?:SHA|RUN_ID)\b|\b[0-9a-f]{40}\b"
+# The two run keys an artifact tag may carry, as written in the workflow; each
+# is swapped for a placeholder before a command is split into words.
+_RUN_KEYS = {"github.sha": "@@SHA@@", "github.run_id": "@@RUN@@"}
+_EXPRESSION = re.compile(r"\$\{\{\s*([^}]*?)\s*\}\}")
+# A literal prefix and suffix around exactly one run key: no shell expansion,
+# no input, no other expression, and never a tag container-release.yml uses.
+_ARTIFACT_TAG = re.compile(
+    r"^(?!(?:gated|pr|sha|rollback)-)[A-Za-z0-9_.-]*@@(?:SHA|RUN)@@[A-Za-z0-9_.-]*$"
 )
-_RESERVED_TAG = re.compile(
-    r"^(?:main|latest|v?\d+(?:\.\d+){0,2}|(?:gated|pr|sha|rollback)-.*)$", re.IGNORECASE
+_LITERAL = re.compile(r"^[A-Za-z0-9_./:-]+$")
+# Anything that might put bytes in a registry. In an artifact job each such
+# command must be one the check can read, or the job is refused.
+_PUSH_LIKE = re.compile(
+    r"\bpush\b|\bskopeo\b|\bcrane\b|\boras\b|\bregctl\b|\bmanifest\b|\bimagetools\b"
+    r"|\bbuildx\b|type=registry",
+    re.IGNORECASE,
 )
+_PUSH_ACTION = re.compile(r"push|bake|kaniko|crane|skopeo|oras|regctl|registry", re.IGNORECASE)
 _PINNED = re.compile(r"quay\.io/crunchtools/([a-z0-9._-]+)@sha256:[0-9a-f]{64}\b")
-_ENV_REF = re.compile(r"\$\{\{\s*env\.(\w+)\s*\}\}|\$\{(\w+)\}|\$(\w+)")
 
 
 def _top_level(expr: str, op: str) -> list[str]:
@@ -1800,12 +1808,15 @@ def _wrapped(term: str) -> bool:
 def _guards_default_branch(condition: object) -> bool:
     """A job `if:` that cannot be true off the default branch.
 
-    The guard must be a top-level `&&` term: under `||` it guards nothing. An
+    A bare expression only: `${{ }}` anywhere in an `if:` makes it a string
+    template, and `${{ true }} && github.ref == ...` is a non-empty string, so
+    always true. The guard must be a top-level `&&` term on `github.ref`; under
+    `||` it guards nothing, and `github.ref_name` is also the name of a tag. An
     environment's deployment-branch policy is not a guard; it is repo settings
     no reviewer of the workflow sees.
     """
-    expr = re.sub(r"^\$\{\{(.*)\}\}$", r"\1", str(condition or "").strip()).strip()
-    if not expr or len(_top_level(expr, "||")) > 1:
+    expr = condition.strip() if isinstance(condition, str) else ""
+    if not expr or "${{" in expr or "}}" in expr or len(_top_level(expr, "||")) > 1:
         return False
     for term in _top_level(expr, "&&"):
         term = term.strip()
@@ -1828,59 +1839,86 @@ def _pinned_images(repo_root: Path) -> set[str]:
     return names
 
 
-def _resolve(ref: str, env: dict) -> str:
-    """`ref` with `${{ env.X }}`, `${X}` and `$X` replaced from `env`; an
-    unknown name (`${{ github.sha }}`, GITHUB_SHA) is left as written."""
-    for _ in range(3):  # IMAGE may itself name REGISTRY
-        ref = _ENV_REF.sub(
-            lambda m: str(env.get(m.group(1) or m.group(2) or m.group(3), m.group(0))), ref
-        )
-    return ref
+def _expand(text: str, env: dict) -> str | None:
+    """`text` with each `${{ env.X }}` replaced by a literal `env:` value and each
+    run key by its placeholder; None when any other expression is left, since
+    its value is not known until the run (an input, a step output)."""
+
+    def one(m: re.Match) -> str:
+        expr = m.group(1)
+        if expr in _RUN_KEYS:
+            return _RUN_KEYS[expr]
+        name = expr.removeprefix("env.")
+        value = str(env.get(name, "")) if name != expr else ""
+        return value if _LITERAL.match(value) else m.group(0)
+
+    expanded = _EXPRESSION.sub(one, text)
+    return None if "${{" in expanded else expanded
 
 
-def _push_targets(job: dict, env: dict) -> list[str] | None:
-    """Every image reference the job pushes, its variables resolved; None when
-    a push it makes cannot be read (an unparsable command, a `skopeo copy`
-    that rewrites digests)."""
+def _push_targets(job: dict, env: dict) -> list[str] | str:
+    """Every image reference the job pushes; or, as a string, the first thing
+    in it that could push and is not a command or action this check reads in
+    full.
+
+    Fail closed: one readable push must not carry an unreadable one along
+    (`sudo podman push`, `bash -c "..."`, `$(...)`, `podman manifest push`,
+    `buildx --push`). An `env:` value counts only while nothing in the job can
+    rewrite it through GITHUB_ENV.
+    """
+    text = json.dumps(job)
+    if "GITHUB_ENV" in text:
+        env = {}
     targets: list[str] = []
     for step in job.get("steps") or []:
         if not isinstance(step, dict):
             continue
-        scope = {**env, **(step.get("env") or {})}
-        if "docker/build-push-action" in str(step.get("uses", "")):
-            with_ = step.get("with") or {}
+        scope = {**env, **(step.get("env") or {})} if env else {}
+        uses = str(step.get("uses", ""))
+        with_ = step.get("with") or {}
+        if uses.startswith("docker/build-push-action@"):
+            if "outputs" in with_ or not isinstance(with_.get("tags", ""), str):
+                return f"`{uses}` with outputs or non-string tags"
             if str(with_.get("push", False)).strip().lower() not in ("false", ""):
-                tags = re.split(r"[,\n]", str(with_.get("tags", "")))
-                targets += [_resolve(t.strip(), scope) for t in tags if t.strip()] or [""]
-        run = str(step.get("run", "")).replace("\\\n", " ")
-        for command in re.split(r"&&|\|\||;|\n|\|", run):
+                tags = _expand(with_.get("tags", ""), scope)
+                if tags is None:
+                    return f"`{uses}` tags `{with_['tags']}`"
+                targets += [t.strip() for t in re.split(r"[,\n]", tags) if t.strip()] or [""]
+        elif _PUSH_ACTION.search(uses):
+            return f"`{uses}`"
+        for command in re.split(
+            r"&&|\|\||;|\n|\||&", str(step.get("run", "")).replace("\\\n", " ")
+        ):
+            if not _PUSH_LIKE.search(command):
+                continue
+            expanded = _expand(command, scope)
             try:
-                words = shlex.split(command, comments=True)
-            except ValueError:
-                return None
+                words = shlex.split(expanded or "", comments=True)
+            except ValueError as err:
+                return f"`{command.strip()[:80]}` ({err})"
+            if expanded is not None and not words:
+                continue  # a comment
             verb = tuple(words[:2])
             push = verb in {("podman", "push"), ("buildah", "push"), ("docker", "push")}
-            copy = verb == ("skopeo", "copy")
-            if not (push or copy):
-                continue
-            if copy and not {"--all", "--preserve-digests"} <= set(words):
-                return None
+            copy = verb == ("skopeo", "copy") and {"--all", "--preserve-digests"} <= set(words)
             refs = [w for w in words[2:] if not w.startswith("-")]
-            if not refs:
-                return None
-            targets.append(_resolve(refs[-1].removeprefix("docker://"), scope))
-
+            if expanded is None or not (push or copy) or not refs:
+                return f"`{command.strip()[:80]}`"
+            targets.append(refs[-1].removeprefix("docker://"))
     return targets
 
 
 def _target_refusal(ref: str, pinned: set[str]) -> str | None:
     """Why one pushed reference is not a pinned image on a commit- or run-keyed tag."""
-    found = re.fullmatch(r"quay\.io/crunchtools/([a-z0-9._-]+):(.+)", ref.strip())
+    found = re.fullmatch(r"quay\.io/crunchtools/([a-z0-9._-]+):([^:/\s]+)", ref.strip())
     if not found:
-        return f"pushes `{ref}`, not a quay.io/crunchtools image with a tag"
+        return f"pushes `{ref}`, not a quay.io/crunchtools image with a literal tag"
     name, tag = found.groups()
-    if _RESERVED_TAG.match(tag) or not _RUN_KEY.search(tag):
-        return f"pushes tag `{tag}`, not one keyed to the commit or run"
+    if not _ARTIFACT_TAG.match(tag):
+        shown = tag.replace("@@SHA@@", "${{ github.sha }}").replace(
+            "@@RUN@@", "${{ github.run_id }}"
+        )
+        return f"pushes tag `{shown}`, not a literal around ${{{{ github.sha }}}} or run_id"
     if name not in pinned:
         return f"pushes `{name}`, which no Containerfile here pins by @sha256 digest"
     return None
@@ -1909,11 +1947,10 @@ def _artifact_refusal(
         return "has no job `if:` requiring the default branch", pinned
     env = {**(workflow.get("env") or {}), **(job.get("env") or {})}
     targets = _push_targets(job, env)
+    if isinstance(targets, str):
+        return f"runs {targets}, which it cannot read in full as a push", pinned
     if not targets:
-        return (
-            "pushes something it cannot read (or `skopeo copy` without --all --preserve-digests)",
-            pinned,
-        )
+        return "pushes nothing it can read", pinned
     if pinned is None:
         pinned = _pinned_images(repo_root)
     for ref in targets:
