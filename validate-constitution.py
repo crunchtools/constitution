@@ -1763,7 +1763,6 @@ _EXPRESSION = re.compile(r"\$\{\{\s*([^}]*?)\s*\}\}")
 _ARTIFACT_TAG = re.compile(
     r"^(?!(?:gated|pr|sha|rollback)-)[A-Za-z0-9_.-]*@@(?:SHA|RUN)@@[A-Za-z0-9_.-]*$"
 )
-_LITERAL = re.compile(r"^[A-Za-z0-9_./:-]+$")
 # Anything that might put bytes in a registry. In an artifact job each such
 # command must be one the check can read, or the job is refused.
 _PUSH_LIKE = re.compile(
@@ -1772,7 +1771,11 @@ _PUSH_LIKE = re.compile(
     re.IGNORECASE,
 )
 _PUSH_ACTION = re.compile(r"push|bake|kaniko|crane|skopeo|oras|regctl|registry", re.IGNORECASE)
-_PINNED = re.compile(r"quay\.io/crunchtools/([a-z0-9._-]+)@sha256:[0-9a-f]{64}\b")
+_PINNED_FROM = re.compile(
+    r"^FROM\s+(?:--\S+\s+)*quay\.io/crunchtools/([a-z0-9._-]+)(?::[\w.-]+)?"
+    r"@sha256:[0-9a-f]{64}(?:\s|$)",
+    re.IGNORECASE,
+)
 
 
 def _top_level(expr: str, op: str) -> list[str]:
@@ -1828,60 +1831,51 @@ def _guards_default_branch(condition: object) -> bool:
 
 
 def _pinned_images(repo_root: Path) -> set[str]:
-    """Image names a Containerfile or Dockerfile in the repo pins by digest."""
+    """Image names a Containerfile or Dockerfile in the repo pins by digest on
+    a FROM line; a digest in a comment or a RUN line ships nothing."""
     names: set[str] = set()
     for directory, subdirs, files in os.walk(repo_root):
         subdirs[:] = [d for d in subdirs if d not in _CONTAINERFILE_SKIP]
         for f in files:
             if f.startswith(("Containerfile", "Dockerfile")):
                 text = (Path(directory) / f).read_text(errors="ignore")
-                names.update(_PINNED.findall(text))
+                for command in _containerfile_commands(text):
+                    found = _PINNED_FROM.match(command)
+                    if found:
+                        names.add(found.group(1))
     return names
 
 
-def _expand(text: str, env: dict) -> str | None:
-    """`text` with each `${{ env.X }}` replaced by a literal `env:` value and each
-    run key by its placeholder; None when any other expression is left, since
-    its value is not known until the run (an input, a step output)."""
-
-    def one(m: re.Match) -> str:
-        expr = m.group(1)
-        if expr in _RUN_KEYS:
-            return _RUN_KEYS[expr]
-        name = expr.removeprefix("env.")
-        value = str(env.get(name, "")) if name != expr else ""
-        return value if _LITERAL.match(value) else m.group(0)
-
-    expanded = _EXPRESSION.sub(one, text)
+def _expand(text: str) -> str | None:
+    """`text` with each run key swapped for its placeholder; None when any other
+    expression is left. `${{ env.X }}` counts as unknown too: an earlier step
+    can rewrite it through GITHUB_ENV (`core.exportVariable`, a file name built
+    in the shell), so the image and tag must be literal where they are pushed."""
+    expanded = _EXPRESSION.sub(lambda m: _RUN_KEYS.get(m.group(1), m.group(0)), text)
     return None if "${{" in expanded else expanded
 
 
-def _push_targets(job: dict, env: dict) -> tuple[list[str], str | None]:
+def _push_targets(job: dict) -> tuple[list[str], str | None]:
     """Every image reference the job pushes, and None; or no targets and the
     first thing in the job that could push and is not a command or action
     this check reads in full.
 
     Fail closed: one readable push must not carry an unreadable one along
     (`sudo podman push`, `bash -c "..."`, `$(...)`, `podman manifest push`,
-    `buildx --push`). An `env:` value counts only while nothing in the job can
-    rewrite it through GITHUB_ENV.
+    `buildx --push`). A push hidden in a repo script or a composite action is
+    not seen here, as it is not by `_job_publishes`.
     """
-    # Any mention, in a run line or an action's inputs, may write GITHUB_ENV,
-    # which overrides `env:` for later steps; fail closed on all of them.
-    if "GITHUB_ENV" in json.dumps(job):
-        env = {}
     targets: list[str] = []
     for step in job.get("steps") or []:
         if not isinstance(step, dict):
             continue
-        scope = {**env, **(step.get("env") or {})} if env else {}
         uses = str(step.get("uses", ""))
         with_ = step.get("with") or {}
         if uses.startswith("docker/build-push-action@"):
             if "outputs" in with_ or not isinstance(with_.get("tags", ""), str):
                 return [], f"`{uses}` with outputs or non-string tags"
             if str(with_.get("push", False)).strip().lower() not in ("false", ""):
-                tags = _expand(with_.get("tags", ""), scope)
+                tags = _expand(with_.get("tags", ""))
                 if tags is None:
                     return [], f"`{uses}` tags `{with_['tags']}`"
                 targets += [t.strip() for t in re.split(r"[,\n]", tags) if t.strip()] or [""]
@@ -1892,7 +1886,7 @@ def _push_targets(job: dict, env: dict) -> tuple[list[str], str | None]:
         ):
             if not _PUSH_LIKE.search(command):
                 continue
-            expanded = _expand(command, scope)
+            expanded = _expand(command)
             try:
                 words = shlex.split(expanded or "", comments=True)
             except ValueError as err:
@@ -1946,8 +1940,7 @@ def _artifact_refusal(
         )
     if not _guards_default_branch(job.get("if")):
         return "has no job `if:` requiring the default branch", pinned
-    env = {**(workflow.get("env") or {}), **(job.get("env") or {})}
-    targets, unreadable = _push_targets(job, env)
+    targets, unreadable = _push_targets(job)
     if unreadable:
         return f"runs {unreadable}, which it cannot read in full as a push", pinned
     if not targets:
