@@ -210,7 +210,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           repository: crunchtools/constitution
-          ref: ${{ inputs.constitution-ref || 'v1.53.1' }}
+          ref: ${{ inputs.constitution-ref || 'v1.54.0' }}
           path: .constitution
           persist-credentials: false
       - id: r
@@ -390,7 +390,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           repository: crunchtools/constitution
-          ref: ${{ inputs.constitution-ref || 'v1.53.1' }}
+          ref: ${{ inputs.constitution-ref || 'v1.54.0' }}
           path: .constitution
           persist-credentials: false
       - if: needs.build.outputs.pushed == 'false'
@@ -478,7 +478,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           repository: crunchtools/constitution
-          ref: ${{ inputs.constitution-ref || 'v1.53.1' }}
+          ref: ${{ inputs.constitution-ref || 'v1.54.0' }}
           path: .constitution
           persist-credentials: false
       - env:
@@ -534,7 +534,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           repository: crunchtools/constitution
-          ref: ${{ inputs.constitution-ref || 'v1.53.1' }}
+          ref: ${{ inputs.constitution-ref || 'v1.54.0' }}
           path: .constitution
           persist-credentials: false
       # The check and the copies read REGISTRY_AUTH_FILE from here. Only this
@@ -688,7 +688,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           repository: crunchtools/constitution
-          ref: ${{ inputs.constitution-ref || 'v1.53.1' }}
+          ref: ${{ inputs.constitution-ref || 'v1.54.0' }}
           path: .constitution
           persist-credentials: false
       - name: Open or comment on the alert issue
