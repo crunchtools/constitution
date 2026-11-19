@@ -9,6 +9,11 @@ Entries through 1.14.0 are derived from the Ratification History table in
 
 ## [Unreleased]
 
+### Changed
+- XII: a commit Gatehouse lists as carried when it skips re-reviewing an
+  unchanged rebase counts as on the PR, so a rebase cannot shed an unanswered
+  finding (gatehouse triage has read the carried marker since 0.29.0) (#143).
+
 ## [1.52.1] - 2026-11-19
 
 ### Changed
