@@ -612,12 +612,15 @@ and the build broke with zero code changes to point at.
    scan cadence). Grouping minor/patch updates to reduce PR noise is
    fine; silently disabling or ignoring an ecosystem is not.
 
-4. **GitHub Actions minor and patch updates merge themselves.** Every repo
-   runs [`examples/dependabot-automerge.yml`](examples/dependabot-automerge.yml)
-   and has `allow_auto_merge` on: a green minor/patch github-actions bump is
-   queued and lands when the required checks pass. Majors and other
-   ecosystems wait for a human. Dependabot PRs left open more than 14 days
-   show up in the drift report.
+4. **Minor and patch updates merge themselves, in every ecosystem.** Every
+   repo runs [`examples/dependabot-automerge.yml`](examples/dependabot-automerge.yml)
+   and has `allow_auto_merge` on: a green minor/patch bump — github-actions,
+   uv, npm or any other ecosystem — is queued and lands when the required
+   checks pass. Majors, and bumps Dependabot cannot classify as minor or
+   patch, wait for a human. Only Acquacotta, Trentina and ROTV
+   have users besides us, so the required checks are the gate, not a person
+   reading a green diff. Dependabot PRs left open more than 14 days show up
+   in the drift report.
 
 5. **Crunchtools refers to crunchtools at a moving tag.** Exact pins between
    our own repos cost more than the breakage they prevented. On 2026-11-17
