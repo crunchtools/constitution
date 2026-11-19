@@ -299,6 +299,7 @@ def test_container_release_inputs_parse_and_dispatch_the_configured_event():
 
 
 SIGN_IF = "inputs.sign"
+SKIP_IF = "steps.check.outputs.skip != 'true'"
 
 
 def _promote_steps(sign: bool) -> list[dict]:
@@ -307,7 +308,7 @@ def _promote_steps(sign: bool) -> list[dict]:
 
     workflow = yaml.safe_load((ROOT / ".github/workflows/container-release.yml").read_text())
     steps = workflow["jobs"]["promote"]["steps"]
-    return [s for s in steps if s.get("if") != SIGN_IF or sign]
+    return [s for s in steps if not str(s.get("if", "")).startswith(SIGN_IF) or sign]
 
 
 def test_sign_is_opt_in_and_off_changes_nothing():
@@ -333,7 +334,7 @@ def test_sign_is_opt_in_and_off_changes_nothing():
 
 def test_sign_on_signs_with_cosign_v2_before_any_tag_moves():
     steps = _promote_steps(sign=True)
-    ids = [s.get("id") or s.get("name") for s in steps]
+    ids = [s.get("name") or s.get("id") for s in steps]
     sign = next(s for s in steps if s.get("name") == "Sign the digest being promoted")
     install = next(s for s in steps if str(s.get("name", "")).startswith("Install cosign"))
     assert ids.index(install["name"]) < ids.index(sign["name"]) < ids.index("p")
@@ -346,7 +347,10 @@ def test_sign_on_signs_with_cosign_v2_before_any_tag_moves():
     # A failed signature must stop the job before p copies any tag.
     for step in (install, sign, p):
         assert "continue-on-error" not in step
-    assert install["if"] == sign["if"] == SIGN_IF and "if" not in p
+    # A floating major tag (v4) sets skip=true in the guard: nothing signs or moves (#176).
+    unskipped = f"{SIGN_IF} && {SKIP_IF}"
+    assert install["if"] == sign["if"] == unskipped and p["if"] == SKIP_IF
+    assert guard["id"] == "check"
     assert "/cosign/releases/download/v2." in install["run"] and "sha256sum -c" in install["run"]
     run = sign["run"]
     assert "cosign sign --yes --tlog-upload=false --key env://COSIGN_PRIVATE_KEY" in run

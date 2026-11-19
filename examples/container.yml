@@ -10,7 +10,7 @@ on:
   pull_request:
   push:
     branches: [main]
-    tags: ["v*"]
+    tags: ["v*.*.*"]
   schedule:
     - cron: "17 4 * * 1"   # weekly: base-image errata, gated like any build
   workflow_dispatch:

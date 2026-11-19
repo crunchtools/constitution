@@ -12,6 +12,8 @@ Subcommands, each run by one job of that workflow:
   check     refuse, before anything is signed, what promote would refuse:
             not a digest, a tag that is not vX.Y.Z or not on the branch, or
             an image whose version label names another of its releases.
+            A floating major tag (v4) is skipped, not refused, here and in
+            resolve: skip=true, exit 0.
   promote   move main / latest / semver to a gated digest by copy, refusing
             to move a floating tag backwards, and verify every copy.
   boot      the boot gate: does the image actually start and answer.
@@ -43,6 +45,8 @@ from typing import Any
 
 DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 SEMVER = re.compile(r"^v(\d+)\.(\d+)\.(\d+)$")
+# major-tag.yml's moving tag (v1, v4): it names a release, it is not one (#176).
+FLOATING = re.compile(r"^v\d+$")
 # The MCP revision the gate speaks; servers negotiate down from it.
 MCP_PROTOCOL = "2025-06-18"
 BOOT_TIMEOUT = 120  # seconds; the workflow passes its own boot-timeout
@@ -62,6 +66,26 @@ class NotReady(Refused):
 
 class Superseded(Exception):
     """A newer commit owns main; this run stands down. Exit 0, tags untouched."""
+
+
+class Skipped(Exception):
+    """A floating major tag moved; there is nothing to release. Exit 0, skip=true."""
+
+
+def tag_name(ref: str) -> str | None:
+    """The tag a ref names, None for a branch; Skipped for a floating major tag (#176).
+
+    major-tag.yml moves v4 to each release and a caller's `tags: ["v*"]`
+    matches it, but the release it points at was promoted by its own tag.
+    Anything else not vX.Y.Z (v1.2, v1.2.3-rc1) still looks like a release
+    and is refused by check.
+    """
+    if not ref.startswith("refs/tags/"):
+        return None
+    name = ref.removeprefix("refs/tags/")
+    if FLOATING.match(name):
+        raise Skipped(f"tag '{name}' is a floating major tag, not a release: nothing to promote")
+    return name
 
 
 @dataclass
@@ -237,7 +261,7 @@ def resolve(
     else, gated or not: a PR head carries gated-<sha> before it merges, and
     only what the branch carries is released.
     """
-    if ref.startswith("refs/tags/"):
+    if tag_name(ref):
         refuse_off_branch(gh, sha, ref, branch)
     marker = reg.digest(f":gated-{sha}")
     if marker:
@@ -288,9 +312,9 @@ def check(
     """
     if not DIGEST.match(digest):
         raise Refused(f"'{digest}' is not a sha256 digest")
-    if not event.ref.startswith("refs/tags/"):
+    name = tag_name(event.ref)
+    if name is None:
         return None
-    name = event.ref.removeprefix("refs/tags/")
     m = SEMVER.match(name)
     if not m:
         raise Refused(f"tag '{name}' is not vX.Y.Z")
@@ -691,6 +715,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     except Superseded as exc:
         log(f"::notice::{exc}")
         output("tags", "")
+    except Skipped as exc:
+        log(f"::notice::{exc}")
+        output("skip", "true")
     except Refused as exc:
         log(f"REFUSED: {exc}")
         return 1

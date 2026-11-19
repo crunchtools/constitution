@@ -374,11 +374,6 @@ def test_check_refuses_a_mislabelled_release_before_anything_is_signed(w, monkey
     assert not w.copies
 
 
-def test_a_tag_that_is_not_semver_is_refused(w):
-    with pytest.raises(CR.Refused, match=r"not vX\.Y\.Z"):
-        CR.promote(*parts(w), w.image("x"), CR.Event("c1", "refs/tags/v1.4"))
-
-
 def test_a_failed_read_of_the_tag_being_moved_fails_closed(w):
     w.tip = "c2"
     d = w.image("new")
@@ -597,3 +592,35 @@ def test_stdio_server_that_exits_is_refused_with_its_stderr():
 def test_stdio_server_that_never_answers_is_refused_at_the_deadline():
     with pytest.raises(CR.Refused, match="within 1s"):
         stdio("silent", timeout=1)
+
+
+@pytest.mark.parametrize("tag", ["v1.4", "v1.2.3-rc1", "v1.2.3.4", "latest", "v"])
+def test_a_tag_that_looks_like_a_release_but_is_not_semver_is_refused(w, tag):
+    with pytest.raises(CR.Refused, match=r"not vX\.Y\.Z"):
+        CR.promote(*parts(w), w.image("x"), CR.Event("c1", f"refs/tags/{tag}"))
+
+
+@pytest.mark.parametrize("tag", ["v1", "v4", "v10"])
+def test_a_floating_major_tag_is_skipped_not_refused(w, tag):
+    """major-tag.yml moves v4 to each release; the caller's v* trigger matched it (#176)."""
+    with pytest.raises(CR.Skipped, match="floating major tag"):
+        CR.resolve(*parts(w), "c9", f"refs/tags/{tag}")
+    with pytest.raises(CR.Skipped, match="floating major tag"):
+        CR.promote(*parts(w), w.image("x"), CR.Event("c9", f"refs/tags/{tag}"))
+    assert not w.copies
+
+
+def test_a_floating_major_tag_ends_resolve_and_check_green_with_skip(w, monkeypatch, tmp_path):
+    """No digest from resolve, so build, gates and promote all skip; check sets skip=true."""
+    monkeypatch.setattr(CR.GitHub.__init__, "__defaults__", (w.gh,))
+    monkeypatch.setattr(CR.Registry.__init__, "__defaults__", (w.skopeo, None))
+    out = tmp_path / "out"
+    monkeypatch.setenv("GITHUB_OUTPUT", str(out))
+    d = w.image("x", "gated-c9")
+    common = ["--repo", REPO, "--sha", "c9", "--ref", "refs/tags/v4"]
+    assert CR.main(["check", "--digest", d, *common]) == 0
+    assert out.read_text() == "skip=true\n"
+    out.write_text("")
+    assert CR.main(["resolve", "--image", IMAGE, *common]) == 0
+    assert out.read_text() == "skip=true\n"
+    assert not w.copies
