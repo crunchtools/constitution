@@ -9,6 +9,13 @@ Entries through 1.14.0 are derived from the Ratification History table in
 
 ## [Unreleased]
 
+### Changed
+- Dependabot auto-merge (XV rule 4) covers every ecosystem, not just GitHub
+  Actions (a709). `dependabot-automerge.yml` queues any green minor or patch
+  bump; required checks still decide the merge and majors still wait for a
+  human. Repos call it at `@v1`, so the release that moves `v1` reaches the
+  fleet with no per-repo change.
+
 ## [1.53.1] - 2026-11-19
 
 ### Fixed
