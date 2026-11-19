@@ -1,6 +1,6 @@
 # Forked MCP Server Profile
 
-> **Profile Version:** 1.3.0
+> **Profile Version:** 1.3.1
 > **Applies to:** Third-party MCP servers forked and containerized for crunchtools infrastructure
 
 This profile extends the [universal constitution](../constitution.md) with requirements specific to forked MCP servers — upstream projects we containerize and run but do not author. The upstream code is governed by its own project; this profile governs the **containerization, deployment, and operational lifecycle**.
@@ -89,7 +89,7 @@ name: Container Build & Push
 on:
   push:
     branches: [main]
-    tags: ["v*"]
+    tags: ["v*.*.*"]
   pull_request:
     branches: [main]
   workflow_dispatch:

@@ -9,6 +9,20 @@ Entries through 1.14.0 are derived from the Ratification History table in
 
 ## [Unreleased]
 
+### Fixed
+- Pushing a floating major tag (`v4`, `v1`) no longer turns a container
+  release red (#176). `examples/container.yml` triggered on `tags: ["v*"]`, so
+  every repo that moves a major tag with `major-tag.yml` started a promote that
+  `container_release.py` then refused ("tag 'v4' is not vX.Y.Z"): one red run
+  per release (ashigaru run 44427128848). The example, and the forked MCP
+  server profile's workflow, now trigger on `v*.*.*`. Callers that copied the
+  old example go green without editing: `resolve` and `check` skip a
+  floating major tag with a `::notice::` (exit 0, `skip=true`), so a push of
+  one builds, gates, signs and moves nothing, and a dispatch on one stops
+  before signing. Any other tag that is not `vX.Y.Z` (`v1.2`, `v1.2.3-rc1`)
+  is still refused. Container Image profile 1.13.0 (VII), Forked MCP Server
+  profile 1.3.1.
+
 ## [1.51.0] - 2026-11-18
 
 ### Added

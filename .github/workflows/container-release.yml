@@ -216,6 +216,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           IMAGE: ${{ inputs.image }}
           BRANCH: ${{ inputs.default-branch }}
+        # A floating major tag (v4) ends here with a notice and no digest, so
+        # build, gates and promote all skip and the run is green (#176).
         run: python3 -I .constitution/scripts/container_release.py resolve --image "$IMAGE" --branch "$BRANCH"
 
   build:
@@ -543,7 +545,10 @@ jobs:
       # resolve runs only on push; a dispatch or schedule run on a v* ref
       # comes here without it. Refused before anything is signed (#146),
       # including a release whose image is labelled another of its releases (#171).
+      # A floating major tag (v4) is skipped with a notice, not refused (#176):
+      # skip=true and nothing below signs or moves.
       - name: Refuse a digest or tag promote must not take
+        id: check
         env:
           GH_TOKEN: ${{ github.token }}
           IMAGE: ${{ inputs.image }}
@@ -558,7 +563,7 @@ jobs:
       # does not check Rekor, so nothing is uploaded there. A run that promote
       # then supersedes leaves a signed digest of a commit on main, untagged.
       - name: Install cosign v2.6.5
-        if: inputs.sign
+        if: inputs.sign && steps.check.outputs.skip != 'true'
         run: |
           set -eu
           curl -fsSLo "$RUNNER_TEMP/cosign" https://github.com/sigstore/cosign/releases/download/v2.6.5/cosign-linux-amd64
@@ -567,7 +572,7 @@ jobs:
           install -D -m 0755 "$RUNNER_TEMP/cosign" "$RUNNER_TEMP/bin/cosign"
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
       - name: Sign the digest being promoted
-        if: inputs.sign
+        if: inputs.sign && steps.check.outputs.skip != 'true'
         env:
           COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
           COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
@@ -591,6 +596,7 @@ jobs:
           cosign verify --insecure-ignore-tlog --key "$PUB" "$IMAGE@$DIGEST" >/dev/null
           echo "::notice::signed $IMAGE@$DIGEST"
       - id: p
+        if: steps.check.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           IMAGE: ${{ inputs.image }}
@@ -603,6 +609,7 @@ jobs:
           python3 -I .constitution/scripts/container_release.py promote \
             --image "$IMAGE" --digest "$DIGEST" --branch "$BRANCH" $CASCADE
       - name: What was promoted
+        if: steps.check.outputs.skip != 'true'
         env:
           IMAGE: ${{ inputs.image }}
           DIGEST: ${{ steps.p.outputs.digest }}
