@@ -9,6 +9,8 @@ Entries through 1.14.0 are derived from the Ratification History table in
 
 ## [Unreleased]
 
+## [1.53.1] - 2026-11-19
+
 ### Fixed
 - `container-release.yml` keys the promote concurrency group and the
   failed-schedule alert issue on the image, not the repo (a693). A repo that
