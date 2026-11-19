@@ -328,7 +328,7 @@ def test_an_artifact_image_a_pull_request_can_reach_fails(tmp_path, on):
 )
 def test_an_artifact_image_without_a_default_branch_guard_fails(tmp_path, guard):
     found = artifact(tmp_path, guard=guard)
-    assert any("refs/heads/main" in v for v in found), found
+    assert any("requiring the default branch" in v for v in found), found
 
 
 def test_an_artifact_image_by_push_command_passes_and_a_rewrapping_copy_fails(tmp_path):

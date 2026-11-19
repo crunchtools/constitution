@@ -1906,7 +1906,7 @@ def _artifact_refusal(
             pinned,
         )
     if not _guards_default_branch(job.get("if")):
-        return "has no job `if:` requiring github.ref == 'refs/heads/main'", pinned
+        return "has no job `if:` requiring the default branch", pinned
     env = {**(workflow.get("env") or {}), **(job.get("env") or {})}
     targets = _push_targets(job, env)
     if not targets:
