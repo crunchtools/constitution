@@ -9,6 +9,13 @@ Entries through 1.14.0 are derived from the Ratification History table in
 
 ## [Unreleased]
 
+## [1.52.1] - 2026-11-19
+
+### Changed
+- `trentina` leaves `container_release_custom`: it moves onto
+  `container-release.yml` like every other image repo, so the validator now
+  requires the standard caller there. `python-sdlc` is the only entry left.
+
 ## [1.52.0] - 2026-11-19
 
 ### Added

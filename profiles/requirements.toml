@@ -47,7 +47,7 @@ sdlc_bootstrap_sha256 = [
 # Container release (container-image VII, since 1.39.0, RT#1550): repos that
 # keep their own promote workflow instead of calling container-release.yml.
 # Still checked: skopeo --preserve-digests, no `imagetools create`, no GHCR.
-container_release_custom = ["trentina", "python-sdlc"]
+container_release_custom = ["python-sdlc"]
 # Repos whose Containerfile is a reference or local build that crunchtools
 # never publishes (claude-agent: "build your own"). No release workflow is
 # required; publishing anyway is still checked (GHCR, imagetools, pushes).
