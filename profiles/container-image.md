@@ -1,6 +1,6 @@
 # Container Image Profile
 
-> **Profile Version:** 1.14.0
+> **Profile Version:** 1.15.0
 > **Applies to:** All `ubi10-*` and standalone container image projects
 
 This profile extends the [universal constitution](../constitution.md) with requirements specific to **UBI-based** container image projects in the crunchtools organization.

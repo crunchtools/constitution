@@ -9,6 +9,8 @@ Entries through 1.14.0 are derived from the Ratification History table in
 
 ## [Unreleased]
 
+## [1.53.0] - 2026-11-19
+
 ### Added
 - Container Image VII, since 1.53.0: a build artifact image may be pushed
   outside `container-release.yml` when the workflow triggers only on
