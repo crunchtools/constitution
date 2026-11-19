@@ -10,6 +10,12 @@ Entries through 1.14.0 are derived from the Ratification History table in
 ## [Unreleased]
 
 ### Fixed
+- `claude-supervisor` is exempt from the container release workflow beside
+  `claude-agent` (`container_release_unpublished`), so the
+  `crunchtools/claude-agent` → `crunchtools/claude-supervisor` rename
+  (claude-agent#35) does not turn its Constitution check red. The list is
+  matched against the origin remote's repo name, which the rename changes.
+  The old name stays until claude-supervisor 3.0.0.
 - Pushing a floating major tag (`v4`, `v1`) no longer turns a container
   release red (#176). `examples/container.yml` triggered on `tags: ["v*"]`, so
   every repo that moves a major tag with `major-tag.yml` started a promote that
