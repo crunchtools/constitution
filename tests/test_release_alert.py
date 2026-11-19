@@ -17,7 +17,7 @@ NEEDS = {
 }
 
 
-def issue(number: int, title: str = R.TITLE, login: str = "app/github-actions") -> dict:
+def issue(number: int, title: str = R.title("img"), login: str = "app/github-actions") -> dict:
     return {"number": number, "title": title, "author": {"login": login}}
 
 
@@ -61,8 +61,22 @@ def test_a_repeat_comments_and_never_files_again():
 
 def test_only_this_workflows_alerts_are_managed_oldest_first():
     """A person's issue, or a bot's other issue, is never commented on or closed."""
-    found = R.alerts([issue(9), issue(5, login="smccarty"), issue(7, "Bump jinja2"), issue(3)])
+    found = R.alerts(
+        [issue(9), issue(5, login="smccarty"), issue(7, "Bump jinja2"), issue(3)], "img"
+    )
     assert [i["number"] for i in found] == [3, 9]
+
+
+def test_another_images_alert_is_never_touched():
+    """trentina and trentina-demo share a repo: the demo's pass must not close
+    trentina's failure, nor its failure comment on trentina's alert (a693)."""
+    found = R.alerts([issue(4, R.title("other")), issue(6)], "img")
+    assert [i["number"] for i in found] == [6]
+
+
+def test_a_pre_a693_alert_still_counts():
+    """An alert opened before titles named the image is still closed or commented on."""
+    assert [i["number"] for i in R.alerts([issue(2, R.TITLE)], "img")] == [2]
 
 
 def test_texts_link_the_run_and_name_the_failed_jobs():
@@ -111,7 +125,8 @@ def test_a_scheduled_failure_with_no_open_alert_creates_the_issue(calls, monkeyp
     assert verbs == [("issue", "list"), ("label", "create"), ("issue", "create")]
     assert calls[1][2] == R.LABEL
     create = calls[2]
-    assert create[create.index("--title") + 1] == R.TITLE
+    assert create[create.index("--title") + 1] == R.title("img")
+    assert "img" in R.title("img")
     assert create[create.index("--label") + 1] == R.LABEL
 
 
@@ -130,6 +145,12 @@ def test_a_passing_schedule_closes_the_open_alert(calls, monkeypatch):
     assert close[2] == "4"
     assert close[close.index("--reason") + 1] == "completed"
     assert f"({URL})" in close[close.index("--comment") + 1]
+
+
+def test_a_passing_schedule_leaves_another_images_alert_open(calls, monkeypatch):
+    calls.listing["json"] = json.dumps([issue(4, R.title("quay.io/x/demo"))])
+    assert drive(monkeypatch, needs={"build": {"result": "success"}}) == 0
+    assert ("issue", "close") not in [c[:2] for c in calls]
 
 
 def test_a_pull_request_failure_makes_no_gh_calls(calls, monkeypatch):
