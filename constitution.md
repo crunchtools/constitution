@@ -616,7 +616,8 @@ and the build broke with zero code changes to point at.
    repo runs [`examples/dependabot-automerge.yml`](examples/dependabot-automerge.yml)
    and has `allow_auto_merge` on: a green minor/patch bump — github-actions,
    uv, npm or any other ecosystem — is queued and lands when the required
-   checks pass. Majors wait for a human. Only Acquacotta, Trentina and ROTV
+   checks pass. Majors, and bumps Dependabot cannot classify as minor or
+   patch, wait for a human. Only Acquacotta, Trentina and ROTV
    have users besides us, so the required checks are the gate, not a person
    reading a green diff. Dependabot PRs left open more than 14 days show up
    in the drift report.

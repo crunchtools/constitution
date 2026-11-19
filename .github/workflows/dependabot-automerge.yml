@@ -2,7 +2,7 @@
 #
 # Queues minor and patch updates in every ecosystem for auto-merge. The merge
 # happens only once every required check is green, so this never bypasses a
-# gate. Majors wait for a human.
+# gate. Majors, and updates Dependabot cannot classify, wait for a human.
 # Requires `allow_auto_merge` on the repo. Copy examples/dependabot-automerge.yml.
 
 name: Dependabot auto-merge
@@ -24,7 +24,11 @@ jobs:
       - id: meta
         uses: dependabot/fetch-metadata@v3
       - name: Queue minor/patch updates
-        if: steps.meta.outputs.update-type != 'version-update:semver-major'
+        # An allowlist, not "not major": an update fetch-metadata cannot
+        # classify (empty update-type) waits for a human like a major does.
+        if: >-
+          steps.meta.outputs.update-type == 'version-update:semver-minor' ||
+          steps.meta.outputs.update-type == 'version-update:semver-patch'
         env:
           GH_TOKEN: ${{ github.token }}
           PR: ${{ github.event.pull_request.html_url }}
