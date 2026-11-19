@@ -1157,8 +1157,9 @@ def triage_review_result_violations(flows: "Workflows", inherits: str | None) ->
             passed = re.sub(r"\s+", "", str((job.get("with") or {}).get("review_result", "")))
             if review not in needs:
                 violations.append(f"{where} does not have `needs: {review}`")
-            if "always()" not in str(job.get("if", "")):
-                violations.append(f"{where} has no `if: always()`, so it skips on a reply")
+            condition = re.sub(r"^\$\{\{(.*)\}\}$", r"\1", str(job.get("if", "")).strip())
+            if condition.strip() != "always()":
+                violations.append(f"{where} does not run `if: always()`, so it can skip")
             if passed != f"${{{{needs.{review}.result}}}}":
                 violations.append(
                     f"{where} does not pass `review_result: ${{{{ needs.{review}.result }}}}`, "

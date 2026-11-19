@@ -487,10 +487,30 @@ def test_triage_must_follow_the_review(review_result_era):
     assert any("does not have `needs: review`" in v for v in violations(review_result_era))
 
 
-def test_triage_must_run_on_a_reply(review_result_era):
-    edit_triage(review_result_era, "    if: always()\n", "")
+@pytest.mark.parametrize(
+    "condition", ["", "    if: always() && false\n", '    if: "!always()"\n', "    if: success()\n"]
+)
+def test_triage_must_always_run(review_result_era, condition):
+    edit_triage(review_result_era, "    if: always()\n", condition)
     [found] = violations(review_result_era)
-    assert "has no `if: always()`" in found
+    assert "does not run `if: always()`" in found
+
+
+def test_always_may_be_wrapped_in_an_expression(review_result_era):
+    edit_triage(review_result_era, "    if: always()\n", "    if: ${{ always() }}\n")
+    assert violations(review_result_era) == []
+
+
+@pytest.mark.parametrize("reviews", [0, 2])
+def test_triage_needs_exactly_one_review_job(review_result_era, reviews):
+    review = "    uses: crunchtools/gatehouse/.github/workflows/review.yml@v0.15.2\n"
+    if reviews == 0:
+        edit_triage(
+            review_result_era, review, "    runs-on: ubuntu-latest\n    steps: [{run: true}]\n"
+        )
+    else:
+        edit_triage(review_result_era, "  triage:\n", "  review2:\n" + review + "  triage:\n")
+    assert any("no single review job" in v for v in violations(review_result_era))
 
 
 def test_review_job_id_is_read_not_assumed(review_result_era):
