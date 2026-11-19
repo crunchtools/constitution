@@ -20,10 +20,16 @@ Entries through 1.14.0 are derived from the Ratification History table in
   `docker/build-push-action` or `skopeo copy --all --preserve-digests`; and a
   `FROM` line in a Containerfile or Dockerfile in the same repo pins the image
   by `@sha256:` digest. The shell form `$GITHUB_SHA` is refused as a tag: a
-  shell expansion can be anything (`${GITHUB_SHA:0:0}latest`). The check fails closed: any push-like command or action in the job
-  that it cannot read in full refuses the job. `container-release.yml` builds
+  shell expansion can be anything (`${GITHUB_SHA:0:0}latest`). The check
+  fails closed: any push-like command or action in the job that it cannot
+  read in full refuses the job. `container-release.yml` builds
   only from repo source, so it cannot carry an artifact another job made. No
   repo is listed for it.
+
+### Changed
+- XII: a commit Gatehouse lists as carried when it skips re-reviewing an
+  unchanged rebase counts as on the PR, so a rebase cannot shed an unanswered
+  finding (gatehouse triage has read the carried marker since 0.29.0) (#143).
 
 ## [1.52.1] - 2026-11-19
 
