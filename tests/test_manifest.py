@@ -49,7 +49,10 @@ jobs:
   triage:
     name: Gatehouse triage
     needs: review
-    uses: crunchtools/gatehouse/.github/workflows/triage.yml@v0.15.2
+    if: always()
+    uses: crunchtools/gatehouse/.github/workflows/triage.yml@v0.32.0
+    with:
+      review_result: ${{ needs.review.result }}
 """
 
 RETRIAGE = """name: Gatehouse retriage
@@ -438,6 +441,84 @@ def test_branch_pin_fails(repo):
     flow = repo / ".github/workflows/gourmand.yml"
     flow.write_text(flow.read_text().replace("v0.15.2", "main"))
     assert any("not a release tag" in v for v in violations(repo))
+
+
+@pytest.fixture
+def review_result_era(repo, monkeypatch):
+    """The repo inherits v1.52.0, where triage must be told the review's result."""
+    monkeypatch.setattr(V, "own_version", lambda: "1.52.0")
+    manifest = repo / ".specify/memory/constitution.md"
+    manifest.write_text(manifest.read_text().replace(f"v{VERSION}", "v1.52.0"))
+    return repo
+
+
+def edit_triage(root: Path, old: str, new: str) -> None:
+    flow = root / ".github/workflows/gatehouse.yml"
+    assert old in flow.read_text()
+    flow.write_text(flow.read_text().replace(old, new))
+
+
+def test_triage_passing_review_result_passes(review_result_era):
+    assert violations(review_result_era) == []
+
+
+@pytest.mark.parametrize("passed", ["${{needs.review.result}}", "${{  needs.review.result  }}"])
+def test_review_result_spacing_does_not_matter(review_result_era, passed):
+    edit_triage(review_result_era, "${{ needs.review.result }}", passed)
+    assert violations(review_result_era) == []
+
+
+@pytest.mark.parametrize(
+    "old, new",
+    [
+        ("    with:\n      review_result: ${{ needs.review.result }}\n", ""),
+        ("${{ needs.review.result }}", "success"),
+        ("${{ needs.review.result }}", "${{ needs.guard.result }}"),
+    ],
+)
+def test_triage_without_the_review_result_fails(review_result_era, old, new):
+    edit_triage(review_result_era, old, new)
+    [found] = violations(review_result_era)
+    assert "does not pass `review_result: ${{ needs.review.result }}`" in found
+
+
+def test_triage_must_follow_the_review(review_result_era):
+    edit_triage(review_result_era, "    needs: review\n    if: always()\n", "    if: always()\n")
+    assert any("does not have `needs: review`" in v for v in violations(review_result_era))
+
+
+def test_triage_must_run_on_a_reply(review_result_era):
+    edit_triage(review_result_era, "    if: always()\n", "")
+    [found] = violations(review_result_era)
+    assert "has no `if: always()`" in found
+
+
+def test_review_job_id_is_read_not_assumed(review_result_era):
+    flow = review_result_era / ".github/workflows/gatehouse.yml"
+    flow.write_text(
+        flow.read_text()
+        .replace("  review:\n", "  ai-review:\n")
+        .replace("needs: review", "needs: [guard, ai-review]")
+        .replace("needs.review.result", "needs.ai-review.result")
+    )
+    assert violations(review_result_era) == []
+
+
+def test_triage_pinned_before_review_result_fails(review_result_era):
+    edit_triage(review_result_era, "triage.yml@v0.32.0", "triage.yml@v0.31.0")
+    [found] = violations(review_result_era)
+    assert "has no `review_result` input" in found
+
+
+def test_triage_at_the_major_tag_passes(review_result_era):
+    edit_triage(review_result_era, "triage.yml@v0.32.0", "triage.yml@v0")
+    assert violations(review_result_era) == []
+
+
+def test_review_result_is_not_required_before_1_52(repo):
+    edit_triage(repo, "    with:\n      review_result: ${{ needs.review.result }}\n", "")
+    edit_triage(repo, "    if: always()\n", "")
+    assert violations(repo) == []
 
 
 def test_triage_on_wrong_trigger_fails(repo):

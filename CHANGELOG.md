@@ -9,6 +9,15 @@ Entries through 1.14.0 are derived from the Ratification History table in
 
 ## [Unreleased]
 
+### Added
+- XII Triage, since v1.52.0: the `Gatehouse triage` job MUST pass
+  `review_result: ${{ needs.review.result }}`, with `needs: review` and
+  `if: always()`, so a PR whose review job died before posting anything is
+  held instead of passing (gatehouse v0.32.0, gatehouse#161). The validator
+  refuses a triage job, in a repo inheriting v1.52.0 or later, that omits any
+  of the three, names another job's result, or pins `triage.yml` below
+  v0.32.0. Gated on `Inherits`, so the fleet's callers adopt it as they bump.
+
 ### Changed
 - Container Image IX: `examples/container.yml` signs (`sign: true`, the two
   cosign secrets by name), and an image a bootc host runs MUST sign, because
