@@ -9,6 +9,8 @@ Entries through 1.14.0 are derived from the Ratification History table in
 
 ## [Unreleased]
 
+## [1.51.1] - 2026-11-19
+
 ### Fixed
 - `claude-supervisor` is exempt from the container release workflow beside
   `claude-agent` (`container_release_unpublished`), so the
