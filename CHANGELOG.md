@@ -9,6 +9,8 @@ Entries through 1.14.0 are derived from the Ratification History table in
 
 ## [Unreleased]
 
+## [1.54.0] - 2026-11-19
+
 ### Changed
 - Dependabot auto-merge (XV rule 4) covers every ecosystem, not just GitHub
   Actions (a709). `dependabot-automerge.yml` queues any green minor or patch
