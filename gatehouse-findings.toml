@@ -1,0 +1,15 @@
+[[findings]]
+agent = "performance"
+category = "performance"
+file = "scripts/release_alert.py"
+evidence = "\"number,title,author,body\""
+status = "not-a-bug"
+reason = "The listing is filtered by --label container-release, so it returns only this workflow's few alert issues, whose bodies are two sentences; a second gh call per legacy issue would cost more than it saves."
+
+[[findings]]
+agent = "general"
+category = "quality"
+file = "scripts/release_alert.py"
+evidence = "TITLE = \"Scheduled container release failed\"\n\"\"\"The title before a693, with no image in it; see alerts().\"\"\""
+status = "not-a-bug"
+reason = "Attribute docstrings are this file's idiom (AUTHORS and VERDICTS carry them) and Sphinx/pdoc read them; a # comment would break the pattern."

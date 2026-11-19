@@ -81,6 +81,7 @@ def test_a_pre_a693_alert_counts_only_for_the_image_its_body_names():
     assert [i["number"] for i in R.alerts([legacy], "img")] == [2]
     assert R.alerts([legacy], "quay.io/x/demo") == []
     assert R.alerts([issue(3, R.TITLE)], "img") == []
+    assert R.alerts([issue(4, R.TITLE) | {"body": None}], "img") == []
 
 
 def test_texts_link_the_run_and_name_the_failed_jobs():

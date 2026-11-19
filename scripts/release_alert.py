@@ -58,7 +58,7 @@ def alerts(issues: list[dict], image: str) -> list[dict]:
         if (issue.get("author") or {}).get("login") in AUTHORS
         and (
             issue["title"] == title(image)
-            or (issue["title"] == TITLE and f"of `{image}` failed" in issue.get("body", ""))
+            or (issue["title"] == TITLE and f"of `{image}` failed" in (issue.get("body") or ""))
         )
     ]
     return sorted(found, key=lambda issue: issue["number"])
