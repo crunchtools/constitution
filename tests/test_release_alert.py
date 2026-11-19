@@ -74,9 +74,13 @@ def test_another_images_alert_is_never_touched():
     assert [i["number"] for i in found] == [6]
 
 
-def test_a_pre_a693_alert_still_counts():
-    """An alert opened before titles named the image is still closed or commented on."""
-    assert [i["number"] for i in R.alerts([issue(2, R.TITLE)], "img")] == [2]
+def test_a_pre_a693_alert_counts_only_for_the_image_its_body_names():
+    """An alert opened before titles named the image is still closed or commented
+    on, but only by runs of the image it was filed for."""
+    legacy = issue(2, R.TITLE) | {"body": R.body("img", ["build"], URL, "a" * 40)}
+    assert [i["number"] for i in R.alerts([legacy], "img")] == [2]
+    assert R.alerts([legacy], "quay.io/x/demo") == []
+    assert R.alerts([issue(3, R.TITLE)], "img") == []
 
 
 def test_texts_link_the_run_and_name_the_failed_jobs():

@@ -48,14 +48,18 @@ def title(image: str) -> str:
 def alerts(issues: list[dict], image: str) -> list[dict]:
     """Open alerts this workflow wrote for `image`, oldest first.
 
-    An alert still carrying the bare pre-a693 title counts for every image, so a
-    one-image repo's open alert keeps being commented on and closed as before.
+    An alert with the bare pre-a693 title counts when its body names `image`, as
+    body() always has, so an alert opened before the upgrade is still commented on
+    and closed, and only by its own image's runs.
     """
-    titles = {title(image), TITLE}
     found = [
         issue
         for issue in issues
-        if (issue.get("author") or {}).get("login") in AUTHORS and issue["title"] in titles
+        if (issue.get("author") or {}).get("login") in AUTHORS
+        and (
+            issue["title"] == title(image)
+            or (issue["title"] == TITLE and f"of `{image}` failed" in issue.get("body", ""))
+        )
     ]
     return sorted(found, key=lambda issue: issue["number"])
 
@@ -182,7 +186,7 @@ def run(args: argparse.Namespace, jobs: list[str]) -> int:
         "--limit",
         "100",
         "--json",
-        "number,title,author",
+        "number,title,author,body",
     )
     texts = {
         "create": body(args.image, jobs, args.run_url, args.sha),

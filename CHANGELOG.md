@@ -17,7 +17,8 @@ Entries through 1.14.0 are derived from the Ratification History table in
   schedule no longer closes the other's alert. The group is now
   `container-promote-<image>`; the alert's title is
   "Scheduled container release failed: <image>". An open alert with the old
-  bare title is still commented on and closed, as before.
+  bare title is still commented on and closed by runs of the image its body
+  names.
 
 ## [1.53.0] - 2026-11-19
 
