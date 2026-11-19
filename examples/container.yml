@@ -29,6 +29,14 @@ jobs:
       boot: mcp
       boot-env: |
         EXAMPLE_API_KEY=gate-dummy
+      # Hosts refuse an unsigned quay.io/crunchtools image
+      # (rhel10-bootc-server#47). Provision the repo's cosign-signing
+      # environment BEFORE setting this: deployment rules for main and v*
+      # only, then the key. GitHub auto-creates a missing environment with no
+      # rules. Without the key, promote refuses and no tag moves.
+      sign: true
     secrets:
       QUAY_USERNAME: ${{ secrets.QUAY_USERNAME }}
       QUAY_PASSWORD: ${{ secrets.QUAY_PASSWORD }}
+      COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
+      COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}

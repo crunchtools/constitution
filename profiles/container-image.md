@@ -1,6 +1,6 @@
 # Container Image Profile
 
-> **Profile Version:** 1.13.0
+> **Profile Version:** 1.14.0
 > **Applies to:** All `ubi10-*` and standalone container image projects
 
 This profile extends the [universal constitution](../constitution.md) with requirements specific to **UBI-based** container image projects in the crunchtools organization.
@@ -278,6 +278,8 @@ Naming pattern for UBI-based images: `ubi10-<runtime>-<purpose>` (e.g., `ubi10-h
 ## IX. CI Pipeline (GitHub Actions)
 
 Copy `examples/container.yml` from this repo: it calls `container-release.yml` at a release tag on `pull_request`, `push` (the default branch and `v*.*.*` tags, so a floating major tag starts no run), a weekly `schedule` and `workflow_dispatch`, and passes `QUAY_USERNAME`/`QUAY_PASSWORD` by name (never `secrets: inherit`). The repo chooses only its image, its boot gate and, for a cascade image, `cascade` and `downstream`.
+
+The example signs: `sign: true`, with `COSIGN_PRIVATE_KEY`/`COSIGN_PASSWORD` passed by name from the repo's `cosign-signing` environment. That environment MUST be provisioned before the repo sets `sign: true`: deployment rules limited to the default branch and `v*` tags, then the key and its password as environment secrets. GitHub creates a missing environment on first use with no deployment rules, so a repo that sets `sign: true` first gets an unrestricted `cosign-signing` that any branch's run can deploy to. Promote signs the gated digest with the fleet key before any tag moves, so a pull request's candidate is never signed. bootc hosts trust only signed `quay.io/crunchtools` images (rhel10-bootc-server#47), so an image a host runs MUST sign; a repo without the environment fails promote rather than ship an image hosts would refuse.
 
 **Where a release runs (a308).** In a public repo, every `container-release.yml` job that holds a credential (`build`, `mark`, `promote`: the registry, RHSM, signing and App keys) runs on GitHub's machines, never on ours, and only `gates`, which holds none, runs on the organization's runners. A private repo has no GitHub-hosted minutes, so all of its release jobs run on `vars.UNCACHED_RUNNER_LABEL`: a fresh runner container for every job, with its nested container storage wiped before and after each job. A credential-holding job MUST NOT run on `vars.CACHED_RUNNER_LABEL`, whose nested storage persists between jobs by design, and keeps its registry logins in a file under the job's temp directory (`REGISTRY_AUTH_FILE`, `DOCKER_CONFIG`), deleted when the job ends, never at a default path. This is safe only because a private repo has no fork path to those runners. No step that runs a pull request's own code may run before the build with a secret in its environment, and the build step is the one place a Containerfile meets the RHSM and registry credentials, as build secrets.
 

@@ -9,6 +9,18 @@ Entries through 1.14.0 are derived from the Ratification History table in
 
 ## [Unreleased]
 
+### Changed
+- Container Image IX: `examples/container.yml` signs (`sign: true`, the two
+  cosign secrets by name), and an image a bootc host runs MUST sign, because
+  hosts are moving to trust only signed `quay.io/crunchtools` images
+  (rhel10-bootc-server#47). `sign` stays off by default in
+  `container-release.yml`: a caller that passes no key fails promote, so a
+  default flip would stop every release that has no key. The
+  `cosign-signing` environment MUST be provisioned (main and `v*`
+  deployment rules, then the key) before a repo sets `sign: true`, because
+  GitHub auto-creates a missing environment with no rules. Container Image
+  profile 1.14.0 (IX).
+
 ## [1.51.1] - 2026-11-19
 
 ### Fixed
