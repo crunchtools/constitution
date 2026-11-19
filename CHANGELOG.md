@@ -9,6 +9,8 @@ Entries through 1.14.0 are derived from the Ratification History table in
 
 ## [Unreleased]
 
+## [1.52.0] - 2026-11-19
+
 ### Added
 - XII Triage, since v1.52.0: the `Gatehouse triage` job MUST pass
   `review_result: ${{ needs.review.result }}`, with `needs: review` and
