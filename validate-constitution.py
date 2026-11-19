@@ -1749,6 +1749,211 @@ def _job_publishes(job: dict, commands: str) -> bool:
     return False
 
 
+_ARTIFACT_EVENTS = {"workflow_dispatch", "schedule"}
+_MAIN_GUARD = re.compile(
+    r"^github\.ref\s*==\s*(?:'refs/heads/main'"
+    r"|format\('refs/heads/\{0\}',\s*github\.event\.repository\.default_branch\))$"
+)
+# The two run keys an artifact tag may carry, as written in the workflow; each
+# is swapped for a placeholder before a command is split into words.
+_RUN_KEYS = {"github.sha": "@@SHA@@", "github.run_id": "@@RUN@@"}
+_EXPRESSION = re.compile(r"\$\{\{\s*([^}]*?)\s*\}\}")
+# A literal prefix and suffix around exactly one run key: no shell expansion,
+# no input, no other expression, and never a tag container-release.yml uses.
+_ARTIFACT_TAG = re.compile(
+    r"^(?!(?:gated|pr|sha|rollback)-)[A-Za-z0-9_.-]*@@(?:SHA|RUN)@@[A-Za-z0-9_.-]*$"
+)
+# Anything that might put bytes in a registry. In an artifact job each such
+# command must be one the check can read, or the job is refused.
+_PUSH_LIKE = re.compile(
+    r"\bpush\b|\bskopeo\b|\bcrane\b|\boras\b|\bregctl\b|\bmanifest\b|\bimagetools\b"
+    r"|\bbuildx\b|type=registry",
+    re.IGNORECASE,
+)
+_PUSH_ACTION = re.compile(r"push|bake|kaniko|crane|skopeo|oras|regctl|registry", re.IGNORECASE)
+_PINNED_FROM = re.compile(
+    r"^FROM\s+(?:--\S+\s+)*quay\.io/crunchtools/([a-z0-9._-]+)(?::[\w.-]+)?"
+    r"@sha256:[0-9a-f]{64}(?:\s|$)",
+    re.IGNORECASE,
+)
+
+
+def _top_level(expr: str, op: str) -> list[str]:
+    """`expr` split on `op` outside parentheses and quotes."""
+    parts, depth, quoted, start = [], 0, False, 0
+    i = 0
+    while i < len(expr):
+        c = expr[i]
+        if c == "'":
+            quoted = not quoted
+        elif not quoted and c in "()":
+            depth += 1 if c == "(" else -1
+        elif not quoted and depth == 0 and expr.startswith(op, i):
+            parts.append(expr[start:i])
+            start = i = i + len(op)
+            continue
+        i += 1
+    return [*parts, expr[start:]]
+
+
+def _wrapped(term: str) -> bool:
+    """Whether one pair of parentheses encloses the whole of `term`."""
+    if not (term.startswith("(") and term.endswith(")")):
+        return False
+    depth = 0
+    for i, c in enumerate(term):
+        depth += {"(": 1, ")": -1}.get(c, 0)
+        if depth == 0 and i < len(term) - 1:
+            return False
+    return True
+
+
+def _guards_default_branch(condition: object) -> bool:
+    """A job `if:` that cannot be true off the default branch.
+
+    A bare expression only: `${{ }}` anywhere in an `if:` makes it a string
+    template, and `${{ true }} && github.ref == ...` is a non-empty string, so
+    always true. The guard must be a top-level `&&` term on `github.ref`; under
+    `||` it guards nothing, and `github.ref_name` is also the name of a tag. An
+    environment's deployment-branch policy is not a guard; it is repo settings
+    no reviewer of the workflow sees.
+    """
+    expr = condition.strip() if isinstance(condition, str) else ""
+    if not expr or "${{" in expr or "}}" in expr or len(_top_level(expr, "||")) > 1:
+        return False
+    for term in _top_level(expr, "&&"):
+        term = term.strip()
+        while _wrapped(term):
+            term = term[1:-1].strip()
+        if _MAIN_GUARD.match(term):
+            return True
+    return False
+
+
+def _pinned_images(repo_root: Path) -> set[str]:
+    """Image names a Containerfile or Dockerfile in the repo pins by digest on
+    a FROM line; a digest in a comment or a RUN line ships nothing."""
+    names: set[str] = set()
+    for directory, subdirs, files in os.walk(repo_root):
+        subdirs[:] = [d for d in subdirs if d not in _CONTAINERFILE_SKIP]
+        for f in files:
+            if f.startswith(("Containerfile", "Dockerfile")):
+                text = (Path(directory) / f).read_text(errors="ignore")
+                for command in _containerfile_commands(text):
+                    found = _PINNED_FROM.match(command)
+                    if found:
+                        names.add(found.group(1))
+    return names
+
+
+def _expand(text: str) -> str | None:
+    """`text` with each run key swapped for its placeholder; None when any other
+    expression is left. `${{ env.X }}` counts as unknown too: an earlier step
+    can rewrite it through GITHUB_ENV (`core.exportVariable`, a file name built
+    in the shell), so the image and tag must be literal where they are pushed."""
+    expanded = _EXPRESSION.sub(lambda m: _RUN_KEYS.get(m.group(1), m.group(0)), text)
+    return None if "${{" in expanded else expanded
+
+
+def _push_targets(job: dict) -> tuple[list[str], str | None]:
+    """Every image reference the job pushes, and None; or no targets and the
+    first thing in the job that could push and is not a command or action
+    this check reads in full.
+
+    Fail closed: one readable push must not carry an unreadable one along
+    (`sudo podman push`, `bash -c "..."`, `$(...)`, `podman manifest push`,
+    `buildx --push`). A push hidden in a repo script or a composite action is
+    not seen here, as it is not by `_job_publishes`.
+    """
+    targets: list[str] = []
+    for step in job.get("steps") or []:
+        if not isinstance(step, dict):
+            continue
+        uses = str(step.get("uses", ""))
+        with_ = step.get("with") or {}
+        if uses.startswith("docker/build-push-action@"):
+            if "outputs" in with_ or not isinstance(with_.get("tags", ""), str):
+                return [], f"`{uses}` with outputs or non-string tags"
+            if str(with_.get("push", False)).strip().lower() not in ("false", ""):
+                tags = _expand(with_.get("tags", ""))
+                if tags is None:
+                    return [], f"`{uses}` tags `{with_['tags']}`"
+                targets += [t.strip() for t in re.split(r"[,\n]", tags) if t.strip()] or [""]
+        elif _PUSH_ACTION.search(uses):
+            return [], f"`{uses}`"
+        for command in re.split(
+            r"&&|\|\||;|\n|\||&", str(step.get("run", "")).replace("\\\n", " ")
+        ):
+            if not _PUSH_LIKE.search(command):
+                continue
+            expanded = _expand(command)
+            try:
+                words = shlex.split(expanded or "", comments=True)
+            except ValueError as err:
+                return [], f"`{command.strip()[:80]}` ({err})"
+            if expanded is not None and not words:
+                continue  # a comment
+            verb = tuple(words[:2])
+            push = verb in {("podman", "push"), ("buildah", "push"), ("docker", "push")}
+            copy = verb == ("skopeo", "copy") and {"--all", "--preserve-digests"} <= set(words)
+            refs = [w for w in words[2:] if not w.startswith("-")]
+            if expanded is None or not (push or copy) or not refs:
+                return [], f"`{command.strip()[:80]}`"
+            targets.append(refs[-1].removeprefix("docker://"))
+    return targets, None
+
+
+def _target_refusal(ref: str, pinned: set[str]) -> str | None:
+    """Why one pushed reference is not a pinned image on a commit- or run-keyed tag."""
+    found = re.fullmatch(r"quay\.io/crunchtools/([a-z0-9._-]+):([^:/\s]+)", ref.strip())
+    if not found:
+        return f"pushes `{ref}`, not a quay.io/crunchtools image with a literal tag"
+    name, tag = found.groups()
+    if not _ARTIFACT_TAG.match(tag):
+        shown = tag.replace("@@SHA@@", "${{ github.sha }}").replace(
+            "@@RUN@@", "${{ github.run_id }}"
+        )
+        return f"pushes tag `{shown}`, not a literal around ${{{{ github.sha }}}} or run_id"
+    if name not in pinned:
+        return f"pushes `{name}`, which no Containerfile here pins by @sha256 digest"
+    return None
+
+
+def _artifact_refusal(
+    workflow: dict, job: dict, repo_root: Path, pinned: set[str] | None
+) -> tuple[str | None, set[str] | None]:
+    """Why a publishing job is not a build artifact image, or None if it is.
+
+    The one push VII admits outside container-release.yml, which builds only
+    from source at a commit and so cannot carry what another job made (a model
+    a hand-dispatched training run exported and gated). Only from the default
+    branch by dispatch or schedule; only tags keyed to the commit or run; and
+    only an image a Containerfile here pins by digest, so what ships is chosen
+    in a reviewed pull request, not by the push. Returns the pinned set so it
+    is walked once per repo.
+    """
+    events = set(triggers(workflow))
+    if not events or not events <= _ARTIFACT_EVENTS:
+        return (
+            f"runs on {', '.join(sorted(map(str, events - _ARTIFACT_EVENTS))) or 'no event'}",
+            pinned,
+        )
+    if not _guards_default_branch(job.get("if")):
+        return "has no job `if:` requiring the default branch", pinned
+    targets, unreadable = _push_targets(job)
+    if unreadable:
+        return f"runs {unreadable}, which it cannot read in full as a push", pinned
+    if not targets:
+        return "pushes nothing it can read", pinned
+    if pinned is None:
+        pinned = _pinned_images(repo_root)
+    for ref in targets:
+        why = _target_refusal(ref, pinned)
+        if why:
+            return why, pinned
+    return None, pinned
+
+
 def check_container_release(repo_root: Path, inherits: str, requirements: dict) -> list[str]:
     """Since 1.39.0 (RT#1550): build once, gate the digest, promote what was tested.
 
@@ -1777,6 +1982,7 @@ def check_container_release(repo_root: Path, inherits: str, requirements: dict) 
     unpublished = name in fleet.get("container_release_unpublished", [])
     calls = 0
     copies = False
+    pinned: set[str] | None = None
     violations: list[str] = []
     for path in workflow_files(repo_root):
         text = strip_yaml_comments(path.read_text(errors="ignore"))
@@ -1791,7 +1997,8 @@ def check_container_release(repo_root: Path, inherits: str, requirements: dict) 
                 f"single manifest into a new digest no gate tested; use "
                 f"`skopeo copy --all --preserve-digests` (VII)"
             )
-        jobs = (load_yaml(path) or {}).get("jobs") or {}
+        workflow = load_yaml(path) or {}
+        jobs = workflow.get("jobs") or {}
         for job_id, job in jobs.items():
             if not isinstance(job, dict):
                 continue
@@ -1808,11 +2015,14 @@ def check_container_release(repo_root: Path, inherits: str, requirements: dict) 
                     f"promote job (VII)"
                 )
             elif _job_publishes(job, commands):
-                violations.append(
-                    f"CONTAINER: {path.name} job `{job_id}` publishes an image outside "
-                    f"container-release.yml; build once per change and promote the gated "
-                    f"digest (VII, RT#1550)"
-                )
+                why, pinned = _artifact_refusal(workflow, job, repo_root, pinned)
+                if why:
+                    violations.append(
+                        f"CONTAINER: {path.name} job `{job_id}` publishes an image outside "
+                        f"container-release.yml; build once per change and promote the gated "
+                        f"digest, or meet the build artifact image rule (it {why}) "
+                        f"(VII, RT#1550)"
+                    )
     if custom and not copies:
         violations.append(
             "CONTAINER: custom release workflow never promotes with "

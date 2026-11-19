@@ -1,5 +1,6 @@
 """check_container_release: container-image VII, machine-checked since 1.39.0 (RT#1550)."""
 
+import json
 import tomllib
 from pathlib import Path
 
@@ -224,3 +225,202 @@ def test_the_fleet_exempts_claude_agent_under_both_names():
     requirements = Path(__file__).resolve().parent.parent / "profiles/requirements.toml"
     fleet = tomllib.loads(requirements.read_text())["fleet"]
     assert {"claude-agent", "claude-supervisor"} <= set(fleet["container_release_unpublished"])
+
+
+# The build artifact image (VII, since 1.53.0): the one push outside the
+# release workflow, admitted by rule rather than by a list entry.
+ARTIFACT_PIN = "FROM quay.io/crunchtools/x-model@sha256:" + "0" * 64 + " AS model\nFROM scratch\n"
+ARTIFACT_JOB = """  publish:
+    needs: train
+    if: {guard}
+    runs-on: ubuntu-latest
+    env:
+      IMAGE: quay.io/crunchtools/x-model
+    steps:
+      - uses: docker/build-push-action@v7
+        with:
+          push: true
+          tags: {tags}
+"""
+MAIN = "inputs.publish && github.ref == 'refs/heads/main'"
+
+
+def artifact_flow(
+    tmp_path: Path, jobs: str, on: str = "workflow_dispatch", pin: str = ARTIFACT_PIN
+):
+    root = make(tmp_path, container=workflow(CALL), train=f"name: T\non: {on}\njobs:\n{jobs}")
+    (root / "Containerfile").write_text(pin)
+    return check(root)
+
+
+def artifact(
+    tmp_path: Path,
+    on: str = "workflow_dispatch",
+    guard: str = MAIN,
+    tags: str = "quay.io/crunchtools/x-model:${{ github.sha }}",
+    pin: str = ARTIFACT_PIN,
+) -> list[str]:
+    return artifact_flow(tmp_path, ARTIFACT_JOB.format(guard=guard, tags=tags), on, pin)
+
+
+@pytest.mark.parametrize(
+    "guard",
+    [
+        MAIN,
+        "github.ref == 'refs/heads/main'",
+        "(github.ref == 'refs/heads/main') && (inputs.publish)",
+        "github.ref == format('refs/heads/{0}', github.event.repository.default_branch)",
+    ],
+)
+def test_a_build_artifact_image_on_the_default_branch_passes(tmp_path, guard):
+    assert artifact(tmp_path, guard=guard) == []
+
+
+@pytest.mark.parametrize("on", ["[workflow_dispatch, schedule]", "schedule"])
+def test_dispatch_and_schedule_are_the_artifact_triggers(tmp_path, on):
+    assert artifact(tmp_path, on=on) == []
+
+
+@pytest.mark.parametrize(
+    "tags",
+    [
+        "quay.io/crunchtools/x-model:latest",
+        "quay.io/crunchtools/x-model:main",
+        "quay.io/crunchtools/x-model:v1.2.3",
+        "quay.io/crunchtools/x-model:1.2",
+        "quay.io/crunchtools/x-model:gated-${{ github.sha }}",
+        "quay.io/crunchtools/x-model:pr-${{ github.sha }}",
+        "quay.io/crunchtools/x-model:${{ inputs.tag }}",
+        "quay.io/crunchtools/x-model:${{ github.sha }},quay.io/crunchtools/x-model:latest",
+        # A shell expansion is not a run key (#184 2).
+        "quay.io/crunchtools/x-model:${GITHUB_SHA:0:0}latest",
+        "quay.io/crunchtools/x-model:$GITHUB_SHA",
+        # An input can carry a comma, and so a second tag (#184 3).
+        "quay.io/crunchtools/x-model:${{ inputs.t }}-${{ github.sha }}",
+        # An env value can be rewritten at run time, so it is never read.
+        "${{ env.IMAGE }}:${{ github.sha }}",
+    ],
+)
+def test_an_artifact_image_on_a_floating_or_unkeyed_tag_fails(tmp_path, tags):
+    found = artifact(tmp_path, tags=tags)
+    assert any("job `publish`" in v for v in found), found
+
+
+def test_an_artifact_image_no_containerfile_pins_fails(tmp_path):
+    found = artifact(tmp_path, pin="FROM quay.io/crunchtools/x-model:latest\n")
+    assert any("pins by @sha256" in v for v in found), found
+
+
+def test_a_pin_of_another_image_does_not_admit_this_one(tmp_path):
+    other = ARTIFACT_PIN.replace("x-model", "y-model")
+    assert any("pins by @sha256" in v for v in artifact(tmp_path, pin=other))
+
+
+@pytest.mark.parametrize(
+    "on", ["pull_request", "push", "[workflow_dispatch, pull_request]", "workflow_call"]
+)
+def test_an_artifact_image_a_pull_request_can_reach_fails(tmp_path, on):
+    found = artifact(tmp_path, on=on)
+    assert any("runs on" in v for v in found), found
+
+
+@pytest.mark.parametrize(
+    "guard",
+    [
+        "inputs.publish",
+        "inputs.publish || github.ref == 'refs/heads/main'",
+        "github.ref != 'refs/heads/main'",
+        "github.ref == 'refs/heads/feature/l2'",
+        # A `${{ }}` anywhere makes `if:` a string template: always true (#184 4).
+        "${{ true }} && github.ref == 'refs/heads/main'",
+        "${{ github.ref == 'refs/heads/main' }}",
+        # A tag named main has ref_name main too (#184 5).
+        "github.ref_name == 'main'",
+        "github.ref_name == github.event.repository.default_branch && inputs.publish",
+    ],
+)
+def test_an_artifact_image_without_a_default_branch_guard_fails(tmp_path, guard):
+    found = artifact(tmp_path, guard=guard)
+    assert any("requiring the default branch" in v for v in found), found
+
+
+def test_an_artifact_image_by_push_command_passes_and_a_rewrapping_copy_fails(tmp_path):
+    job_text = (
+        f"  publish:\n    if: {MAIN}\n    runs-on: x\n    steps:\n"
+        "      - run: podman push model quay.io/crunchtools/x-model:${{ github.sha }}\n"
+    )
+    assert artifact_flow(tmp_path, job_text) == []
+    copy = job_text.replace(
+        "podman push model",
+        "skopeo copy oci:model docker://quay.io/crunchtools/x-model:$GITHUB_SHA #",
+    )
+    assert any("cannot read in full" in v for v in artifact_flow(tmp_path / "c", copy))
+    digest = job_text.replace(
+        "podman push model quay.io",
+        "skopeo copy --all --preserve-digests oci:model docker://quay.io",
+    )
+    assert artifact_flow(tmp_path / "d", digest) == []
+
+
+@pytest.mark.parametrize(
+    "rider",
+    [
+        "sudo podman push m quay.io/crunchtools/x-model:latest",
+        'bash -c "podman push m quay.io/crunchtools/x-model:latest"',
+        "echo $(podman push m quay.io/crunchtools/x-model:latest)",
+        "podman manifest push m quay.io/crunchtools/x-model:latest",
+        "docker buildx build --push -t quay.io/crunchtools/x-model:latest .",
+        "podman push m quay.io/crunchtools/unpinned:${{ github.sha }}",
+        "podman push m $IMAGE:latest",
+    ],
+)
+def test_one_readable_push_does_not_carry_an_unreadable_one(tmp_path, rider):
+    """Fail closed (#184 1): every push-like command in the job must be read."""
+    job_text = ARTIFACT_JOB.format(guard=MAIN, tags="quay.io/crunchtools/x-model:${{ github.sha }}")
+    job_text += f"      - run: {json.dumps(rider)}\n"
+    found = artifact_flow(tmp_path, job_text)
+    assert any("job `publish`" in v for v in found), found
+
+
+@pytest.mark.parametrize(
+    "rewrite",
+    [
+        "      - uses: actions/github-script@v8\n        with:\n"
+        "          script: core.exportVariable('IMAGE', 'quay.io/crunchtools/x-model:latest')\n",
+        "      - run: 'v=GITHUB_; echo IMAGE=x:latest >> \"$(printenv ${v}ENV)\"'\n",
+    ],
+)
+def test_an_env_value_a_step_can_rewrite_is_never_read(tmp_path, rewrite):
+    """Either step sets IMAGE for the push after it (#184 re-review)."""
+    job_text = ARTIFACT_JOB.format(guard=MAIN, tags="${{ env.IMAGE }}:${{ github.sha }}")
+    job_text = job_text.replace("    steps:\n", "    steps:\n" + rewrite)
+    found = artifact_flow(tmp_path, job_text)
+    assert any("cannot read in full" in v for v in found), found
+
+
+@pytest.mark.parametrize(
+    "pin",
+    [
+        "# FROM quay.io/crunchtools/x-model@sha256:" + "0" * 64 + "\nFROM scratch\n",
+        "FROM scratch\nRUN echo quay.io/crunchtools/x-model@sha256:" + "0" * 64 + "\n",
+    ],
+)
+def test_only_a_from_line_pins_an_artifact_image(tmp_path, pin):
+    assert any("pins by @sha256" in v for v in artifact(tmp_path, pin=pin))
+
+
+@pytest.mark.parametrize(
+    "rider",
+    [
+        "      - uses: redhat-actions/push-to-registry@v2\n",
+        "      - uses: docker/build-push-action@v7\n        with:\n"
+        "          outputs: type=registry,name=quay.io/crunchtools/x-model:latest\n",
+    ],
+)
+def test_an_action_that_may_push_is_read_or_refused(tmp_path, rider):
+    job_text = (
+        ARTIFACT_JOB.format(guard=MAIN, tags="quay.io/crunchtools/x-model:${{ github.sha }}")
+        + rider
+    )
+    found = artifact_flow(tmp_path, job_text)
+    assert any("cannot read in full" in v for v in found), found

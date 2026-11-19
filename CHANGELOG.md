@@ -9,6 +9,23 @@ Entries through 1.14.0 are derived from the Ratification History table in
 
 ## [Unreleased]
 
+### Added
+- Container Image VII, since 1.53.0: a build artifact image may be pushed
+  outside `container-release.yml` when the workflow triggers only on
+  `workflow_dispatch` and/or `schedule`; the job's `if:` is a bare expression
+  with `github.ref == 'refs/heads/main'` as a top-level `&&` term; every tag
+  is a literal around `${{ github.sha }}` or `${{ github.run_id }}`; it pushes
+  to `quay.io/crunchtools/<name>`, spelled literally (never `${{ env.X }}`,
+  which an earlier step can rewrite), with `podman`/`docker`/`buildah push`,
+  `docker/build-push-action` or `skopeo copy --all --preserve-digests`; and a
+  `FROM` line in a Containerfile or Dockerfile in the same repo pins the image
+  by `@sha256:` digest. The shell form `$GITHUB_SHA` is refused as a tag: a
+  shell expansion can be anything (`${GITHUB_SHA:0:0}latest`). The check
+  fails closed: any push-like command or action in the job that it cannot
+  read in full refuses the job. `container-release.yml` builds
+  only from repo source, so it cannot carry an artifact another job made. No
+  repo is listed for it.
+
 ### Changed
 - XII: a commit Gatehouse lists as carried when it skips re-reviewing an
   unchanged rebase counts as on the PR, so a rebase cannot shed an unanswered
