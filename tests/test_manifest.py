@@ -536,6 +536,8 @@ def test_triage_at_the_major_tag_passes(review_result_era):
 
 
 def test_review_result_is_not_required_before_1_52(repo):
+    manifest = repo / ".specify/memory/constitution.md"
+    manifest.write_text(manifest.read_text().replace(f"v{VERSION}", "v1.51.1"))
     edit_triage(repo, "    with:\n      review_result: ${{ needs.review.result }}\n", "")
     edit_triage(repo, "    if: always()\n", "")
     assert violations(repo) == []
