@@ -21,7 +21,7 @@
 
 ## CI
 - Workflows MUST include weekly cron trigger for base image security updates
-- Container builds go through `crunchtools/constitution/.github/workflows/container-release.yml`: build once per change, gate the digest, promote by `skopeo copy --all --preserve-digests`. Outside the repos listed in `container_release_custom` (profiles/requirements.toml), flag any job that publishes an image (`push`, `skopeo copy`, `docker/build-push-action` with push) or moves `:latest`/`:main`; a local build that is never pushed (an integration-test image) is fine. Everywhere, flag `imagetools create` and a `ghcr.io/crunchtools` reference
+- Container builds go through `crunchtools/constitution/.github/workflows/container-release.yml`: build once per change, gate the digest, promote by `skopeo copy --all --preserve-digests`. Outside the repos listed in `container_release_custom` (profiles/requirements.toml), flag any job that publishes an image (`push`, `skopeo copy`, `docker/build-push-action` with push) or moves `:latest`/`:main`; a local build that is never pushed (an integration-test image) is fine. So is a build artifact image (container-image VII, since 1.53.0): a job in a workflow triggered only by `workflow_dispatch`/`schedule`, whose own `if:` requires the default branch as a top-level `&&` term, pushing only commit- or run-keyed tags to a `quay.io/crunchtools` image that a Containerfile or Dockerfile in the same repo pins by `@sha256` digest. Everywhere, flag `imagetools create` and a `ghcr.io/crunchtools` reference
 - Quay.io is the only registry
 
 ## Versioning

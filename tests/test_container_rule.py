@@ -224,3 +224,121 @@ def test_the_fleet_exempts_claude_agent_under_both_names():
     requirements = Path(__file__).resolve().parent.parent / "profiles/requirements.toml"
     fleet = tomllib.loads(requirements.read_text())["fleet"]
     assert {"claude-agent", "claude-supervisor"} <= set(fleet["container_release_unpublished"])
+
+
+# The build artifact image (VII, since 1.53.0): the one push outside the
+# release workflow, admitted by rule rather than by a list entry.
+ARTIFACT_PIN = "FROM quay.io/crunchtools/x-model@sha256:" + "0" * 64 + " AS model\nFROM scratch\n"
+ARTIFACT_JOB = """  publish:
+    needs: train
+    if: {guard}
+    runs-on: ubuntu-latest
+    env:
+      IMAGE: quay.io/crunchtools/x-model
+    steps:
+      - uses: docker/build-push-action@v7
+        with:
+          push: true
+          tags: {tags}
+"""
+MAIN = "inputs.publish && github.ref == 'refs/heads/main'"
+
+
+def artifact_flow(
+    tmp_path: Path, jobs: str, on: str = "workflow_dispatch", pin: str = ARTIFACT_PIN
+):
+    root = make(tmp_path, container=workflow(CALL), train=f"name: T\non: {on}\njobs:\n{jobs}")
+    (root / "Containerfile").write_text(pin)
+    return check(root)
+
+
+def artifact(
+    tmp_path: Path,
+    on: str = "workflow_dispatch",
+    guard: str = MAIN,
+    tags: str = "${{ env.IMAGE }}:${{ github.sha }}",
+    pin: str = ARTIFACT_PIN,
+) -> list[str]:
+    return artifact_flow(tmp_path, ARTIFACT_JOB.format(guard=guard, tags=tags), on, pin)
+
+
+@pytest.mark.parametrize(
+    "guard",
+    [
+        MAIN,
+        "${{ github.ref == 'refs/heads/main' }}",
+        "github.ref_name == 'main' && inputs.publish",
+        "(github.ref == 'refs/heads/main') && (inputs.publish)",
+        "github.ref_name == github.event.repository.default_branch",
+    ],
+)
+def test_a_build_artifact_image_on_the_default_branch_passes(tmp_path, guard):
+    assert artifact(tmp_path, guard=guard) == []
+
+
+@pytest.mark.parametrize("on", ["[workflow_dispatch, schedule]", "schedule"])
+def test_dispatch_and_schedule_are_the_artifact_triggers(tmp_path, on):
+    assert artifact(tmp_path, on=on) == []
+
+
+@pytest.mark.parametrize(
+    "tags",
+    [
+        "${{ env.IMAGE }}:latest",
+        "${{ env.IMAGE }}:main",
+        "${{ env.IMAGE }}:v1.2.3",
+        "${{ env.IMAGE }}:1.2",
+        "${{ env.IMAGE }}:gated-${{ github.sha }}",
+        "${{ env.IMAGE }}:pr-${{ github.sha }}",
+        "${{ env.IMAGE }}:${{ inputs.tag }}",
+        "${{ env.IMAGE }}:${{ github.sha }},${{ env.IMAGE }}:latest",
+    ],
+)
+def test_an_artifact_image_on_a_floating_or_unkeyed_tag_fails(tmp_path, tags):
+    found = artifact(tmp_path, tags=tags)
+    assert any("job `publish`" in v for v in found), found
+
+
+def test_an_artifact_image_no_containerfile_pins_fails(tmp_path):
+    found = artifact(tmp_path, pin="FROM quay.io/crunchtools/x-model:latest\n")
+    assert any("pins by @sha256" in v for v in found), found
+
+
+def test_a_pin_of_another_image_does_not_admit_this_one(tmp_path):
+    other = ARTIFACT_PIN.replace("x-model", "y-model")
+    assert any("pins by @sha256" in v for v in artifact(tmp_path, pin=other))
+
+
+@pytest.mark.parametrize(
+    "on", ["pull_request", "push", "[workflow_dispatch, pull_request]", "workflow_call"]
+)
+def test_an_artifact_image_a_pull_request_can_reach_fails(tmp_path, on):
+    found = artifact(tmp_path, on=on)
+    assert any("runs on" in v for v in found), found
+
+
+@pytest.mark.parametrize(
+    "guard",
+    [
+        "inputs.publish",
+        "inputs.publish || github.ref == 'refs/heads/main'",
+        "github.ref != 'refs/heads/main'",
+        "github.ref == 'refs/heads/feature/l2'",
+    ],
+)
+def test_an_artifact_image_without_a_default_branch_guard_fails(tmp_path, guard):
+    found = artifact(tmp_path, guard=guard)
+    assert any("refs/heads/main" in v for v in found), found
+
+
+def test_an_artifact_image_by_push_command_passes_and_a_rewrapping_copy_fails(tmp_path):
+    job_text = (
+        f"  publish:\n    if: {MAIN}\n    runs-on: x\n    steps:\n"
+        "      - run: podman push model quay.io/crunchtools/x-model:$GITHUB_SHA\n"
+    )
+    assert artifact_flow(tmp_path, job_text) == []
+    copy = job_text.replace(
+        "podman push model",
+        "skopeo copy oci:model docker://quay.io/crunchtools/x-model:$GITHUB_SHA #",
+    )
+    assert any("--preserve-digests" in v for v in artifact_flow(tmp_path / "c", copy))

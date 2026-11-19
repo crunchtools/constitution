@@ -113,6 +113,10 @@ commit and gates that digest; the merge promotes the PR's digest without
 rebuilding; a release tag copies main's digest. The rules the workflow keeps are
 in the Container Image profile, VII.
 
+The one push outside it is a build artifact image: a hand-dispatched or
+scheduled job pushing a run- or commit-keyed tag that a reviewed PR pins by
+digest. Container Image VII has the rule; no list entry is needed.
+
 ### Fresh builds
 
 A release build runs on a fresh runner with `--pull=always`, so no stale base
