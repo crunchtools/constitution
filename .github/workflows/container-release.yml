@@ -290,6 +290,7 @@ jobs:
           ref: ${{ steps.src.outputs.sha }}
           persist-credentials: false
       - name: Build once
+        id: build
         env:
           SHA: ${{ steps.src.outputs.sha }}
           FILE: ${{ inputs.containerfile }}
@@ -303,6 +304,10 @@ jobs:
           # src=, which failed every id=RHSM_ACTIVATION_KEY build.
           RHSM_KEY_VALUE: ${{ secrets.RHSM_ACTIVATION_KEY }}
           RHSM_ORG_VALUE: ${{ secrets.RHSM_ORG_ID }}
+          # GitHub withholds Actions secrets from every run Dependabot triggers,
+          # re-runs included, and decides that by github.actor (a805). Only its
+          # pull request may build without them; any other keyless run fails.
+          DEPENDABOT_PR: ${{ github.actor == 'dependabot[bot]' && github.event_name == 'pull_request' }}
           REDHAT_REGISTRY: ${{ inputs.redhat-registry }}
           RH_USER: ${{ secrets.REGISTRY_REDHAT_IO_USER }}
           RH_PASSWORD: ${{ secrets.REGISTRY_REDHAT_IO_PASSWORD }}
@@ -313,6 +318,14 @@ jobs:
           if [ "$REDHAT_REGISTRY" = true ]; then
             [ -n "$RH_USER" ] || { echo "redhat-registry: true but no REGISTRY_REDHAT_IO_USER" >&2; exit 1; }
             printf '%s' "$RH_PASSWORD" | podman login -u "$RH_USER" --password-stdin registry.redhat.io
+          fi
+          if [ "$RHSM" = true ] && [ -z "$RHSM_KEY_VALUE" ] && [ "$DEPENDABOT_PR" = true ]; then
+            # The profile's Containerfile guard ([ -s /run/secrets/activation_key ])
+            # skips registration when no secret is mounted. push never pushes
+            # this image, even with Quay credentials, so the merge rebuilds it.
+            echo "::notice::Dependabot pull request gets no RHSM_ACTIVATION_KEY; building without the subscription"
+            echo "unsubscribed=true" >> "$GITHUB_OUTPUT"
+            RHSM=false
           fi
           if [ "$RHSM" = true ]; then
             # Files, not env=: the runner's podman predates env-sourced secrets.
@@ -345,12 +358,14 @@ jobs:
           IMAGE: ${{ inputs.image }}
           SHA: ${{ steps.src.outputs.sha }}
           PR: ${{ github.event.pull_request.number }}
+          UNSUBSCRIBED: ${{ steps.build.outputs.unsubscribed }}
         run: |
           set -eu
-          if [ -z "$QUAY_USERNAME" ]; then
-            # Dependabot and forks get no secrets: gate from an archive, push
-            # nothing. Their merge rebuilds and gates on the default branch.
-            echo "::notice::no registry credentials; gating a local archive, nothing is pushed"
+          if [ -z "$QUAY_USERNAME" ] || [ "$UNSUBSCRIBED" = true ]; then
+            # Dependabot and forks get no secrets, and an rhsm image built
+            # without the subscription must never reach a gated- or sha- tag:
+            # gate from an archive, push nothing. The merge rebuilds and gates.
+            echo "::notice::no registry credentials or no subscription; gating a local archive, nothing is pushed"
             podman save --format oci-archive -o "$RUNNER_TEMP/image.tar" localhost/release:candidate
             echo "pushed=false" >> "$GITHUB_OUTPUT"
             exit 0
