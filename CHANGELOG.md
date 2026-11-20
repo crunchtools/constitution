@@ -13,11 +13,14 @@ Entries through 1.14.0 are derived from the Ratification History table in
 - `container-release.yml` no longer fails the build of every Dependabot pull
   request in a repo that sets `rhsm: true` (a805). GitHub gives runs that
   Dependabot triggers no Actions secrets, so the missing-key guard fired and
-  green minor/patch bumps never auto-merged. A run whose `github.actor` is
-  `dependabot[bot]` and that has no `RHSM_ACTIVATION_KEY` now builds without
-  the RHSM secrets, relying on the profile's `[ -s /run/secrets/... ]`
-  Containerfile guard, and pushes nothing. Every other run with `rhsm: true`
-  and no key still fails, and a Dependabot run that does have the key (from
+  green minor/patch bumps never auto-merged. A `pull_request` run whose
+  `github.actor` is `dependabot[bot]` and that has no `RHSM_ACTIVATION_KEY`
+  now builds without the RHSM secrets, relying on the profile's
+  `[ -s /run/secrets/... ]` Containerfile guard, and the push step never
+  pushes that image, even when Quay credentials are present, so an
+  unsubscribed build cannot be gated, reused on merge or promoted. Every other
+  run with `rhsm: true` and no key still fails, a Dependabot push or schedule
+  included, and a Dependabot run that does have the key (from
   Dependabot secrets) uses it.
 
 ## [1.54.0] - 2026-11-19
