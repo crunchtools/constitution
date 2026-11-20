@@ -9,6 +9,14 @@ Entries through 1.14.0 are derived from the Ratification History table in
 
 ## [Unreleased]
 
+### Added
+- `container-release.yml` input `outside-image` (RT#1660): globs of files the
+  Containerfile never COPYs, such as `VERSION CHANGELOG.md`. A pull request,
+  merge or tag that changes only those reuses the gated digest of its base
+  instead of rebuilding, so a release costs a tag move rather than a second
+  build. On the bootc images that is 12-14 minutes per release down to under
+  a minute. Off by default; a caller opts in.
+
 ## [1.54.0] - 2026-11-19
 
 ### Changed

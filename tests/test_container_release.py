@@ -50,6 +50,8 @@ class World:
         self.pulls: dict[str, list] = {}  # commit -> PRs
         self.tip = ""
         self.compare: dict[str, str] = {}  # commit -> status against the branch
+        self.files: dict[str, list] = {}  # commit -> files it changes on its base
+        self.parents: dict[str, str] = {}  # commit -> first parent
         self.compare_error = False
         self.release: dict[str, str] = {}  # vX.Y.Z -> commit
         self.read_error = False
@@ -98,9 +100,17 @@ class World:
         if path.startswith("compare/"):
             if self.compare_error:
                 return CR.Result(1, "", "HTTP 502")
-            found = {"status": self.compare.get(path.rsplit("...", 1)[1], "diverged")}
+            sha = path.rsplit("...", 1)[1]
+            found = {
+                "status": self.compare.get(sha, "diverged"),
+                "files": [{"filename": f} for f in self.files.get(sha, [])],
+            }
         elif path.startswith("git/commits/"):
-            found = {"tree": {"sha": self.trees[path.removeprefix("git/commits/")]}}
+            sha = path.removeprefix("git/commits/")
+            found = {
+                "tree": {"sha": self.trees.get(sha, f"tree-{sha}")},
+                "parents": [{"sha": self.parents[sha]}] if sha in self.parents else [],
+            }
         elif path.endswith("/pulls"):
             found = self.pulls.get(path.split("/")[1], [])
         else:
@@ -131,6 +141,119 @@ def merged(w, merge, head, number=7, same_tree=True):
 
 
 # ---------------------------------------------------------------- resolve
+
+
+OUTSIDE = ("VERSION", "CHANGELOG.md", "docs/**")
+
+
+def release_commit(w, sha, base, files, status="ahead"):
+    w.parents[sha] = base
+    w.compare[sha] = status
+    w.files[sha] = files
+
+
+def test_a_release_pr_reuses_its_bases_gated_digest(w):
+    """RT#1660: VERSION and CHANGELOG never reach the image, so nothing is built."""
+    d = w.image("feature", "gated-base1")
+    release_commit(w, "head1", "base1", ["VERSION", "CHANGELOG.md"])
+    digest, why = CR.resolve_pr(*parts(w), "base1", "head1", OUTSIDE)
+    assert digest == d and "reused" in why
+
+
+def test_a_pr_touching_an_image_input_builds(w):
+    w.image("feature", "gated-base1")
+    release_commit(w, "head1", "base1", ["CHANGELOG.md", "etc/motd"])
+    digest, why = CR.resolve_pr(*parts(w), "base1", "head1", OUTSIDE)
+    assert digest is None and "etc/motd" in why
+
+
+def test_a_pr_behind_or_diverged_from_its_base_builds(w):
+    w.image("feature", "gated-base1")
+    release_commit(w, "head1", "base1", ["VERSION"], status="diverged")
+    assert CR.resolve_pr(*parts(w), "base1", "head1", OUTSIDE)[0] is None
+
+
+def test_an_ungated_base_builds(w):
+    release_commit(w, "head1", "base1", ["VERSION"])
+    digest, why = CR.resolve_pr(*parts(w), "base1", "head1", OUTSIDE)
+    assert digest is None and "never gated" in why
+
+
+def test_a_pr_with_no_outside_globs_builds(w):
+    w.image("feature", "gated-base1")
+    release_commit(w, "head1", "base1", ["VERSION"])
+    assert CR.resolve_pr(*parts(w), "base1", "head1", ())[0] is None
+
+
+def test_too_many_files_to_check_builds(w):
+    w.image("feature", "gated-base1")
+    release_commit(w, "head1", "base1", [f"docs/{n}.md" for n in range(300)])
+    assert CR.resolve_pr(*parts(w), "base1", "head1", OUTSIDE)[0] is None
+
+
+def test_a_pr_already_gated_keeps_its_own_digest(w):
+    w.image("feature", "gated-base1")
+    own = w.image("rerun", "gated-head1")
+    assert CR.resolve_pr(*parts(w), "base1", "head1", OUTSIDE)[0] == own
+
+
+def test_an_ungated_release_merge_reuses_the_parent_not_a_rebuild(w):
+    """A release PR nothing marked (Dependabot, no credentials) still costs no build."""
+    d = w.image("feature", "gated-main0")
+    merged(w, "merge1", "head1")
+    release_commit(w, "merge1", "main0", ["VERSION", "CHANGELOG.md"])
+    assert CR.resolve(*parts(w), "merge1", "refs/heads/main")[0] is None
+    digest, why = CR.resolve_parent(*parts(w), "merge1", OUTSIDE)
+    assert digest == d and "reused" in why
+
+
+def test_resolve_cli_without_outside_rebuilds_an_ungated_release_merge(w, monkeypatch, tmp_path):
+    w.image("feature", "gated-main0")
+    merged(w, "merge1", "head1", same_tree=False)
+    release_commit(w, "merge1", "main0", ["VERSION"])
+    out = tmp_path / "out"
+    monkeypatch.setenv("GITHUB_OUTPUT", str(out))
+    monkeypatch.setattr(CR.GitHub.__init__, "__defaults__", (w.gh,))
+    monkeypatch.setattr(CR.Registry.__init__, "__defaults__", (w.skopeo, None))
+    argv = [
+        "resolve",
+        "--image",
+        IMAGE,
+        "--repo",
+        REPO,
+        "--sha",
+        "merge1",
+        "--ref",
+        "refs/heads/main",
+    ]
+    assert CR.main(argv) == 0
+    assert "rebuild=true" in out.read_text()
+    out.write_text("")
+    assert CR.main([*argv, "--outside", "VERSION"]) == 0
+    assert "rebuild=false" in out.read_text()
+
+
+def test_a_merge_changing_an_input_rebuilds_and_says_why(w, capsys):
+    w.image("feature", "gated-main0")
+    release_commit(w, "merge1", "main0", ["Containerfile"])
+    digest, why = CR.resolve_parent(*parts(w), "merge1", OUTSIDE)
+    assert digest is None and "Containerfile" in why
+
+
+def test_a_root_commit_has_no_parent_to_reuse(w):
+    assert CR.resolve_parent(*parts(w), "c0", OUTSIDE)[0] is None
+
+
+def test_resolve_cli_on_a_pull_request_reads_base_and_outside(w, monkeypatch, tmp_path):
+    d = w.image("feature", "gated-base1")
+    release_commit(w, "head1", "base1", ["VERSION"])
+    out = tmp_path / "out"
+    monkeypatch.setenv("GITHUB_OUTPUT", str(out))
+    monkeypatch.setattr(CR.GitHub.__init__, "__defaults__", (w.gh,))
+    monkeypatch.setattr(CR.Registry.__init__, "__defaults__", (w.skopeo, None))
+    argv = ["resolve", "--image", IMAGE, "--repo", REPO, "--sha", "head1", "--base", "base1"]
+    assert CR.main([*argv, "--outside", "VERSION CHANGELOG.md"]) == 0
+    assert f"digest={d}" in out.read_text() and "rebuild=false" in out.read_text()
 
 
 def test_merge_promotes_the_pr_image_without_rebuilding(w):

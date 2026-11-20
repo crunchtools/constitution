@@ -29,6 +29,10 @@ jobs:
       boot: mcp
       boot-env: |
         EXAMPLE_API_KEY=gate-dummy
+      # Files the Containerfile never COPYs: a change touching only these
+      # (a release PR) reuses the gated digest instead of building again.
+      # Leave it out if the image COPYs the whole context.
+      outside-image: VERSION CHANGELOG.md
       # Hosts refuse an unsigned quay.io/crunchtools image
       # (rhel10-bootc-server#47). Provision the repo's cosign-signing
       # environment BEFORE setting this: deployment rules for main and v*
