@@ -9,6 +9,8 @@ Entries through 1.14.0 are derived from the Ratification History table in
 
 ## [Unreleased]
 
+## [1.55.0] - 2026-11-20
+
 ### Fixed
 - `container-release.yml` no longer fails the build of every Dependabot pull
   request in a repo that sets `rhsm: true` (a805). GitHub gives runs that
