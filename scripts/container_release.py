@@ -207,7 +207,13 @@ class GitHub:
         found = self._object(f"compare/{base}...{sha}")
         if found.get("status") != "ahead":
             return None
-        return [str(f["filename"]) for f in found.get("files") or []]
+        # A rename lists the old path too: etc/x moved to docs/x left the image.
+        return [
+            str(name)
+            for f in found.get("files") or []
+            for name in (f.get("previous_filename"), f["filename"])
+            if name
+        ]
 
     def tip(self, branch: str) -> str:
         return str(self._object(f"commits/{branch}")["sha"])

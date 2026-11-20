@@ -103,7 +103,10 @@ class World:
             sha = path.rsplit("...", 1)[1]
             found = {
                 "status": self.compare.get(sha, "diverged"),
-                "files": [{"filename": f} for f in self.files.get(sha, [])],
+                "files": [
+                    dict(zip(("filename", "previous_filename"), f.split(" <- "), strict=False))
+                    for f in self.files.get(sha, [])
+                ],
             }
         elif path.startswith("git/commits/"):
             sha = path.removeprefix("git/commits/")
@@ -173,6 +176,14 @@ def test_a_pr_widening_its_own_globs_still_builds(w):
     release_commit(w, "head1", "base1", [".github/workflows/container.yml", "VERSION"])
     digest, why = CR.resolve_pr(*parts(w), "base1", "head1", ("**", "*"))
     assert digest is None and ".github/workflows/container.yml" in why
+
+
+def test_a_rename_out_of_the_image_still_builds(w):
+    """Gatehouse: docs/motd renamed from etc/motd changes what the image holds."""
+    w.image("feature", "gated-base1")
+    release_commit(w, "head1", "base1", ["docs/motd <- etc/motd"])
+    digest, why = CR.resolve_pr(*parts(w), "base1", "head1", OUTSIDE)
+    assert digest is None and "etc/motd" in why
 
 
 def test_a_pr_behind_or_diverged_from_its_base_builds(w):
