@@ -290,7 +290,10 @@ def _run_build_step(
 
     workflow = yaml.safe_load((ROOT / ".github/workflows/container-release.yml").read_text())
     build = next(s for s in workflow["jobs"]["build"]["steps"] if s.get("name") == "Build once")
-    assert build["env"]["DEPENDABOT"] == "${{ github.actor == 'dependabot[bot]' }}"
+    # Only a Dependabot pull request skips: its push, schedule or dispatch still fails.
+    assert build["env"]["DEPENDABOT_PR"] == (
+        "${{ github.actor == 'dependabot[bot]' && github.event_name == 'pull_request' }}"
+    )
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     log = tmp_path / "podman.args"
@@ -299,6 +302,7 @@ def _run_build_step(
     env = {
         "PATH": f"{bin_dir}:/usr/bin:/bin",
         "RUNNER_TEMP": str(tmp_path),
+        "GITHUB_OUTPUT": str(tmp_path / "output"),
         "SHA": "0" * 40,
         "FILE": "Containerfile",
         "CONTEXT": ".",
@@ -308,7 +312,7 @@ def _run_build_step(
         "RHSM": "true",
         "RHSM_KEY_VALUE": key,
         "RHSM_ORG_VALUE": "org" if key else "",
-        "DEPENDABOT": "true" if dependabot else "false",
+        "DEPENDABOT_PR": "true" if dependabot else "false",
         "REDHAT_REGISTRY": "false",
         "RH_USER": "",
         "RH_PASSWORD": "",
@@ -330,6 +334,7 @@ def test_a_dependabot_run_builds_an_rhsm_image_without_the_subscription(tmp_path
     assert result.returncode == 0, result.stderr
     assert "building without the subscription" in result.stdout
     assert "build" in args and "--secret" not in args
+    assert "unsubscribed=true" in (tmp_path / "output").read_text()
 
 
 def test_any_other_run_without_the_rhsm_key_still_fails(tmp_path):
@@ -346,6 +351,49 @@ def test_a_dependabot_run_that_has_the_key_still_uses_it(tmp_path):
     assert result.returncode == 0, result.stderr
     assert "id=activation_key,src=" in args and "id=RHSM_ORG_ID,src=" in args
     assert not (tmp_path / "activation_key").exists()  # the trap removed it
+    assert not (tmp_path / "output").exists()  # no unsubscribed flag
+
+
+def test_an_image_built_without_the_subscription_is_never_pushed(tmp_path):
+    """Review of #191: a repo that gives Dependabot the Quay secrets but not the RHSM
+    key would push the unsubscribed image, and resolve would promote it on merge."""
+    import yaml
+
+    workflow = yaml.safe_load((ROOT / ".github/workflows/container-release.yml").read_text())
+    steps = workflow["jobs"]["build"]["steps"]
+    build = next(s for s in steps if s.get("name") == "Build once")
+    push = next(s for s in steps if s.get("id") == "push")
+    assert push["env"]["UNSUBSCRIBED"] == f"${{{{ steps.{build['id']}.outputs.unsubscribed }}}}"
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    log = tmp_path / "podman.args"
+    for tool in ("podman", "skopeo"):
+        (bin_dir / tool).write_text(f'#!/bin/sh\necho {tool} "$@" >> {log}\n')
+        (bin_dir / tool).chmod(0o755)
+    out = tmp_path / "output"
+    env = {
+        "PATH": f"{bin_dir}:/usr/bin:/bin",
+        "RUNNER_TEMP": str(tmp_path),
+        "GITHUB_OUTPUT": str(out),
+        "QUAY_USERNAME": "robot",
+        "QUAY_PASSWORD": "pw",
+        "IMAGE": "quay.io/crunchtools/canary",
+        "SHA": "0" * 40,
+        "PR": "7",
+        "UNSUBSCRIBED": "true",
+    }
+    result = subprocess.run(
+        ["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", push["run"]],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert out.read_text().strip() == "pushed=false"
+    calls = log.read_text()
+    assert "podman save" in calls
+    assert not any(c in calls for c in ("login", "podman push", "skopeo"))
 
 
 def test_no_build_env_var_shares_a_name_with_a_secret_id():
