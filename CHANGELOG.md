@@ -9,6 +9,8 @@ Entries through 1.14.0 are derived from the Ratification History table in
 
 ## [Unreleased]
 
+## [1.56.0] - 2026-11-20
+
 ### Added
 - `container-release.yml` input `outside-image` (RT#1660): globs of files the
   Containerfile never COPYs, such as `VERSION CHANGELOG.md`. A pull request,
@@ -16,6 +18,8 @@ Entries through 1.14.0 are derived from the Ratification History table in
   instead of rebuilding, so a release costs a tag move rather than a second
   build. On the bootc images that is 12-14 minutes per release down to under
   a minute. Off by default; a caller opts in.
+
+## [1.55.0] - 2026-11-20
 
 ### Fixed
 - `container-release.yml` no longer fails the build of every Dependabot pull

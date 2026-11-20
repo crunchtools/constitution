@@ -13,3 +13,11 @@ file = "scripts/release_alert.py"
 evidence = "TITLE = \"Scheduled container release failed\"\n\"\"\"The title before a693, with no image in it; see alerts().\"\"\""
 status = "not-a-bug"
 reason = "Attribute docstrings are this file's idiom (AUTHORS and VERDICTS carry them) and Sphinx/pdoc read them; a # comment would break the pattern."
+
+[[findings]]
+agent = "constitution"
+category = "constitution"
+file = ".github/workflows/validate.yml"
+evidence = "ref: v1.55.0"
+status = "not-a-bug"
+reason = "This repo's own check calls validate.yml@v1.46.0 (constitution.yml), which this release leaves alone; the ref inside validate.yml is the scripts checkout shipped with the tag, which test_reusable_workflow_checks_out_this_release requires to equal the release version, as every release has moved it."
