@@ -276,6 +276,9 @@ jobs:
           # src=, which failed every id=RHSM_ACTIVATION_KEY build.
           RHSM_KEY_VALUE: ${{ secrets.RHSM_ACTIVATION_KEY }}
           RHSM_ORG_VALUE: ${{ secrets.RHSM_ORG_ID }}
+          # GitHub withholds Actions secrets from every run Dependabot triggers,
+          # re-runs included, and decides that by github.actor (a805).
+          DEPENDABOT: ${{ github.actor == 'dependabot[bot]' }}
           REDHAT_REGISTRY: ${{ inputs.redhat-registry }}
           RH_USER: ${{ secrets.REGISTRY_REDHAT_IO_USER }}
           RH_PASSWORD: ${{ secrets.REGISTRY_REDHAT_IO_PASSWORD }}
@@ -286,6 +289,13 @@ jobs:
           if [ "$REDHAT_REGISTRY" = true ]; then
             [ -n "$RH_USER" ] || { echo "redhat-registry: true but no REGISTRY_REDHAT_IO_USER" >&2; exit 1; }
             printf '%s' "$RH_PASSWORD" | podman login -u "$RH_USER" --password-stdin registry.redhat.io
+          fi
+          if [ "$RHSM" = true ] && [ -z "$RHSM_KEY_VALUE" ] && [ "$DEPENDABOT" = true ]; then
+            # The profile's Containerfile guard ([ -s /run/secrets/activation_key ])
+            # skips registration when no secret is mounted. Nothing is pushed
+            # (push below), and the merge rebuilds with the subscription.
+            echo "::notice::Dependabot run gets no RHSM_ACTIVATION_KEY; building without the subscription"
+            RHSM=false
           fi
           if [ "$RHSM" = true ]; then
             # Files, not env=: the runner's podman predates env-sourced secrets.

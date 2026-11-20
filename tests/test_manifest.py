@@ -7,6 +7,7 @@ thing, and checks that exactly that is reported. Names follow XVII's roster.
 import json
 import re
 import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -279,6 +280,72 @@ def test_rhsm_passes_both_secret_ids_from_the_same_files():
         assert f'--secret "id={sid},src=$RUNNER_TEMP/{src}"' in run
     rhsm_block = run.split('if [ "$RHSM" = true ]; then', 1)[1].split("\n          fi", 1)[0]
     assert "--secret" in rhsm_block and "--secret" not in run.split('if [ "$RHSM"', 1)[0]
+
+
+def _run_build_step(
+    tmp_path, *, dependabot: bool, key: str
+) -> tuple[subprocess.CompletedProcess, str]:
+    """Run the `Build once` script as Actions would, with podman stubbed to record its args."""
+    import yaml
+
+    workflow = yaml.safe_load((ROOT / ".github/workflows/container-release.yml").read_text())
+    build = next(s for s in workflow["jobs"]["build"]["steps"] if s.get("name") == "Build once")
+    assert build["env"]["DEPENDABOT"] == "${{ github.actor == 'dependabot[bot]' }}"
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    log = tmp_path / "podman.args"
+    (bin_dir / "podman").write_text(f'#!/bin/sh\nprintf "%s\\n" "$@" > {log}\n')
+    (bin_dir / "podman").chmod(0o755)
+    env = {
+        "PATH": f"{bin_dir}:/usr/bin:/bin",
+        "RUNNER_TEMP": str(tmp_path),
+        "SHA": "0" * 40,
+        "FILE": "Containerfile",
+        "CONTEXT": ".",
+        "BUILD_ARGS": "",
+        "FORMAT": "docker",
+        "SOURCE": "https://github.com/crunchtools/canary",
+        "RHSM": "true",
+        "RHSM_KEY_VALUE": key,
+        "RHSM_ORG_VALUE": "org" if key else "",
+        "DEPENDABOT": "true" if dependabot else "false",
+        "REDHAT_REGISTRY": "false",
+        "RH_USER": "",
+        "RH_PASSWORD": "",
+    }
+    result = subprocess.run(
+        ["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", build["run"]],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return result, log.read_text() if log.exists() else ""
+
+
+def test_a_dependabot_run_builds_an_rhsm_image_without_the_subscription(tmp_path):
+    """a805: Dependabot runs get no Actions secrets, so `rhsm: true` failed every
+    Dependabot PR's build and no minor/patch bump ever merged itself."""
+    result, args = _run_build_step(tmp_path, dependabot=True, key="")
+    assert result.returncode == 0, result.stderr
+    assert "building without the subscription" in result.stdout
+    assert "build" in args and "--secret" not in args
+
+
+def test_any_other_run_without_the_rhsm_key_still_fails(tmp_path):
+    """A misconfigured repo (rhsm: true, no secret passed) must fail loudly."""
+    result, args = _run_build_step(tmp_path, dependabot=False, key="")
+    assert result.returncode == 1
+    assert "rhsm: true but no RHSM_ACTIVATION_KEY" in result.stderr
+    assert args == ""
+
+
+def test_a_dependabot_run_that_has_the_key_still_uses_it(tmp_path):
+    """Dependabot secrets, if a repo provisions them, are mounted like any other run's."""
+    result, args = _run_build_step(tmp_path, dependabot=True, key="k")
+    assert result.returncode == 0, result.stderr
+    assert "id=activation_key,src=" in args and "id=RHSM_ORG_ID,src=" in args
+    assert not (tmp_path / "activation_key").exists()  # the trap removed it
 
 
 def test_no_build_env_var_shares_a_name_with_a_secret_id():

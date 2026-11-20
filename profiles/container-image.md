@@ -63,7 +63,10 @@ This is the ONLY permitted form. Specifically:
   is exactly the 2026-10-22 incident recorded in Section VI (a swallowed
   unregister shipped an image with a live registration).
 - Keep the `if [ -s /run/secrets/... ]` guard so PR builds without the secret
-  still parse and run.
+  still parse and run. `container-release.yml` relies on it: a run Dependabot
+  triggers gets no Actions secrets, so with `rhsm: true` it builds without the
+  subscription (a notice says so) and pushes nothing, and the merge rebuilds
+  with it. Any other run with `rhsm: true` and no `RHSM_ACTIVATION_KEY` fails.
 
 CI workflows pass secrets via the build action:
 
