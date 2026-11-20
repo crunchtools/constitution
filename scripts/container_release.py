@@ -57,6 +57,9 @@ HTTP_TIMEOUT = 10  # seconds per request to the server under test
 POLL_SECONDS = 2
 LOG_TAIL = 4000  # characters of a failed container's log worth showing
 MISSING = re.compile(r"manifest unknown|not found|no such|name unknown", re.I)
+# Never outside the image, whatever the caller's globs say: a pull request that
+# widens `outside-image` edits a workflow, so it cannot skip its own build.
+ALWAYS_BUILT = (".github/*",)
 COMPARE_FILES_CAP = 300  # GitHub's compare API lists no more than this many files
 
 
@@ -314,7 +317,11 @@ def outside_only(
         return None, f"{sha} does not descend from {base}"
     if len(files) >= COMPARE_FILES_CAP:
         return None, f"{sha} changes {len(files)}+ files on {base}; not checked as release-only"
-    inside = [f for f in files if not any(fnmatch(f, g) for g in outside)]
+    inside = [
+        f
+        for f in files
+        if any(fnmatch(f, g) for g in ALWAYS_BUILT) or not any(fnmatch(f, g) for g in outside)
+    ]
     if inside:
         return None, f"{sha} changes {inside[0]}, which may reach the image"
     gated = reg.digest(f":gated-{base}")

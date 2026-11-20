@@ -162,7 +162,9 @@ on:
           `VERSION CHANGELOG.md docs/**`. A change touching only these reuses
           the gated digest of its base (the PR's base, or the commit's first
           parent) instead of rebuilding. The caller vouches for it: list
-          nothing its Containerfile COPYs, and never with `COPY . `.
+          nothing its Containerfile COPYs, and never with `COPY . `. A
+          change under .github/ always builds, so a PR cannot widen this to
+          skip its own build.
         type: string
         default: ""
       constitution-ref:

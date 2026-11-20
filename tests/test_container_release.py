@@ -167,6 +167,14 @@ def test_a_pr_touching_an_image_input_builds(w):
     assert digest is None and "etc/motd" in why
 
 
+def test_a_pr_widening_its_own_globs_still_builds(w):
+    """Gatehouse: `outside-image: '**'` set in the PR's own workflow skips nothing."""
+    w.image("feature", "gated-base1")
+    release_commit(w, "head1", "base1", [".github/workflows/container.yml", "VERSION"])
+    digest, why = CR.resolve_pr(*parts(w), "base1", "head1", ("**", "*"))
+    assert digest is None and ".github/workflows/container.yml" in why
+
+
 def test_a_pr_behind_or_diverged_from_its_base_builds(w):
     w.image("feature", "gated-base1")
     release_commit(w, "head1", "base1", ["VERSION"], status="diverged")
