@@ -233,6 +233,23 @@ def test_the_alert_job_runs_only_on_runs_that_judge_the_default_branch():
     assert alert["continue-on-error"] is True
 
 
+def test_a_reused_pr_digest_is_marked_without_a_build():
+    """RT#1660: with outside-image, a release PR resolves instead of building, and mark
+    tags the reused digest gated-<head> so the merge finds it; no credentials, no tag."""
+    import yaml
+
+    jobs = yaml.safe_load((ROOT / ".github/workflows/container-release.yml").read_text())["jobs"]
+    resolve, build, mark = jobs["resolve"], jobs["build"], jobs["mark"]
+    assert "github.event_name == 'pull_request' && inputs.outside-image != ''" in resolve["if"]
+    assert "needs.resolve.outputs.rebuild == 'true'" in build["if"]
+    assert "resolve" in mark["needs"]
+    assert "github.event_name == 'pull_request' && needs.resolve.outputs.digest != ''" in mark["if"]
+    env = mark["steps"][-2]["env"]
+    assert env["DIGEST"] == "${{ needs.build.outputs.digest || needs.resolve.outputs.digest }}"
+    assert env["SHA"] == "${{ needs.build.outputs.sha || needs.resolve.outputs.sha }}"
+    assert 'if [ -z "$QUAY_USERNAME" ]' in mark["steps"][-2]["run"]
+
+
 def test_promotes_queue_per_image_and_never_cancel():
     """a693: trentina releases two images from one repo; a group keyed on the repo
     let one image's queued promote cancel the other's pending one."""

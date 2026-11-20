@@ -18,6 +18,11 @@
 # refused, and so is a release whose image is labelled another of the repo's
 # releases (#171). Untested bytes never reach a floating tag on any path.
 #
+# `outside-image` names files the Containerfile never COPYs (VERSION,
+# CHANGELOG.md). A pull request or push that changes only those reuses the
+# digest gated for its base instead of building: a release PR, its merge and
+# its v* tag each move tags in seconds, and a feature costs one build (RT#1660).
+#
 # The logic is scripts/container_release.py at the release written below as a
 # literal `ref:` (a reusable workflow cannot name its own ref, #42);
 # tests/test_manifest.py fails when it is not this constitution's version.
@@ -151,6 +156,17 @@ on:
           is a caller change (examples/container.yml), never a default.
         type: boolean
         default: false
+      outside-image:
+        description: >-
+          Space-separated globs of files that never reach the image, e.g.
+          `VERSION CHANGELOG.md docs/**`. A change touching only these reuses
+          the gated digest of its base (the PR's base, or the commit's first
+          parent) instead of rebuilding. The caller vouches for it: list
+          nothing its Containerfile COPYs, and never with `COPY . `. A
+          change under .github/ always builds, so a PR cannot widen this to
+          skip its own build.
+        type: string
+        default: ""
       constitution-ref:
         description: "Internal: the canary tests the candidate scripts. Leave empty."
         type: string
@@ -197,7 +213,9 @@ on:
 jobs:
   resolve:
     name: resolve
-    if: github.event_name == 'push'
+    if: >-
+      github.event_name == 'push' ||
+      (github.event_name == 'pull_request' && inputs.outside-image != '')
     # Same pool as build in a private repo (a308): GitHub-hosted jobs there have no minutes.
     runs-on: ${{ github.repository_visibility == 'private' && vars.UNCACHED_RUNNER_LABEL || 'ubuntu-latest' }}
     permissions:
@@ -206,11 +224,12 @@ jobs:
     outputs:
       digest: ${{ steps.r.outputs.digest }}
       rebuild: ${{ steps.r.outputs.rebuild }}
+      sha: ${{ steps.r.outputs.sha }}
     steps:
       - uses: actions/checkout@v7
         with:
           repository: crunchtools/constitution
-          ref: ${{ inputs.constitution-ref || 'v1.55.0' }}
+          ref: ${{ inputs.constitution-ref || 'v1.56.0' }}
           path: .constitution
           persist-credentials: false
       - id: r
@@ -218,9 +237,17 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           IMAGE: ${{ inputs.image }}
           BRANCH: ${{ inputs.default-branch }}
+          OUTSIDE: ${{ inputs.outside-image }}
+          # Empty except on a pull request, which resolves against its base.
+          BASE: ${{ github.event.pull_request.base.sha }}
+          SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         # A floating major tag (v4) ends here with a notice and no digest, so
         # build, gates and promote all skip and the run is green (#176).
-        run: python3 -I .constitution/scripts/container_release.py resolve --image "$IMAGE" --branch "$BRANCH"
+        run: |
+          set -eu
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          python3 -I .constitution/scripts/container_release.py resolve --image "$IMAGE" \
+            --branch "$BRANCH" --sha "$SHA" --base "$BASE" --outside "$OUTSIDE"
 
   build:
     name: build
@@ -405,7 +432,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           repository: crunchtools/constitution
-          ref: ${{ inputs.constitution-ref || 'v1.55.0' }}
+          ref: ${{ inputs.constitution-ref || 'v1.56.0' }}
           path: .constitution
           persist-credentials: false
       - if: needs.build.outputs.pushed == 'false'
@@ -470,10 +497,14 @@ jobs:
           CONTRACT: ${{ inputs.contract-test }}
         run: bash -euo pipefail -c "$CONTRACT"
 
+  # Marks what gates passed, or on a pull request what resolve reused
+  # (outside-image), so the merge finds gated-<head> either way.
   mark:
     name: mark gated
-    needs: [build, gates]
-    if: always() && needs.gates.result == 'success' && needs.build.outputs.pushed == 'true'
+    needs: [resolve, build, gates]
+    if: >-
+      always() && ((needs.gates.result == 'success' && needs.build.outputs.pushed == 'true') ||
+      (github.event_name == 'pull_request' && needs.resolve.outputs.digest != ''))
     # A private repo's runs go to our uncached pool, because GitHub-hosted jobs
     # there have no minutes (a308). Visibility comes from the github context, not
     # the event: a schedule's payload has no repository. Never the cached pool: this job holds
@@ -493,17 +524,22 @@ jobs:
       - uses: actions/checkout@v7
         with:
           repository: crunchtools/constitution
-          ref: ${{ inputs.constitution-ref || 'v1.55.0' }}
+          ref: ${{ inputs.constitution-ref || 'v1.56.0' }}
           path: .constitution
           persist-credentials: false
       - env:
           QUAY_USERNAME: ${{ secrets.QUAY_USERNAME }}
           QUAY_PASSWORD: ${{ secrets.QUAY_PASSWORD }}
           IMAGE: ${{ inputs.image }}
-          DIGEST: ${{ needs.build.outputs.digest }}
-          SHA: ${{ needs.build.outputs.sha }}
+          DIGEST: ${{ needs.build.outputs.digest || needs.resolve.outputs.digest }}
+          SHA: ${{ needs.build.outputs.sha || needs.resolve.outputs.sha }}
         run: |
           set -eu
+          if [ -z "$QUAY_USERNAME" ]; then
+            # A reuse on a Dependabot or fork PR: the merge resolves it again.
+            echo "::notice::no registry credentials; gated-$SHA not written"
+            exit 0
+          fi
           printf '%s' "$QUAY_PASSWORD" | skopeo login -u "$QUAY_USERNAME" --password-stdin quay.io
           python3 -I .constitution/scripts/container_release.py mark \
             --image "$IMAGE" --digest "$DIGEST" --sha "$SHA"
@@ -549,7 +585,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           repository: crunchtools/constitution
-          ref: ${{ inputs.constitution-ref || 'v1.55.0' }}
+          ref: ${{ inputs.constitution-ref || 'v1.56.0' }}
           path: .constitution
           persist-credentials: false
       # The check and the copies read REGISTRY_AUTH_FILE from here. Only this
@@ -703,7 +739,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           repository: crunchtools/constitution
-          ref: ${{ inputs.constitution-ref || 'v1.55.0' }}
+          ref: ${{ inputs.constitution-ref || 'v1.56.0' }}
           path: .constitution
           persist-credentials: false
       - name: Open or comment on the alert issue

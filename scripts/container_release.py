@@ -8,6 +8,8 @@ Subcommands, each run by one job of that workflow:
 
   resolve   on a push to the default branch or a v* tag: find the digest a
             pull request (or main) already gated, so nothing is rebuilt.
+            On a pull request, with --outside: reuse the base's gated digest
+            when the change touches only files that never reach the image.
   mark      after the gates pass: tag the tested digest gated-<sha>.
   check     refuse, before anything is signed, what promote would refuse:
             not a digest, a tag that is not vX.Y.Z or not on the branch, or
@@ -41,6 +43,7 @@ import threading
 import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from fnmatch import fnmatch
 from typing import Any
 
 DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
@@ -54,6 +57,10 @@ HTTP_TIMEOUT = 10  # seconds per request to the server under test
 POLL_SECONDS = 2
 LOG_TAIL = 4000  # characters of a failed container's log worth showing
 MISSING = re.compile(r"manifest unknown|not found|no such|name unknown", re.I)
+# Never outside the image, whatever the caller's globs say: a pull request that
+# widens `outside-image` edits a workflow, so it cannot skip its own build.
+ALWAYS_BUILT = (".github/*",)
+COMPARE_FILES_CAP = 300  # GitHub's compare API lists no more than this many files
 
 
 class Refused(Exception):
@@ -190,6 +197,24 @@ class GitHub:
     def tree(self, sha: str) -> str:
         return str(self._object(f"git/commits/{sha}")["tree"]["sha"])
 
+    def parent(self, sha: str) -> str | None:
+        """The first parent: for a merge commit, the branch before the merge."""
+        parents = self._object(f"git/commits/{sha}").get("parents") or []
+        return str(parents[0]["sha"]) if parents else None
+
+    def changed(self, base: str, sha: str) -> list[str] | None:
+        """Files `sha` changes on top of `base`, or None when `sha` does not descend from it."""
+        found = self._object(f"compare/{base}...{sha}")
+        if found.get("status") != "ahead":
+            return None
+        # A rename lists the old path too: etc/x moved to docs/x left the image.
+        return [
+            str(name)
+            for f in found.get("files") or []
+            for name in (f.get("previous_filename"), f["filename"])
+            if name
+        ]
+
     def tip(self, branch: str) -> str:
         return str(self._object(f"commits/{branch}")["sha"])
 
@@ -279,6 +304,56 @@ def resolve(
     if gated is None:
         return None, f"PR #{pr['number']} head {head} was never gated (no push credentials?)"
     return gated, f"PR #{pr['number']} gated {head}, same tree as {sha}"
+
+
+def outside_only(
+    reg: Registry, gh: GitHub, base: str, sha: str, outside: Sequence[str]
+) -> tuple[str | None, str]:
+    """The digest gated for `base`, if `sha` adds to it only files that never reach the image.
+
+    `outside` is the caller's own claim (the `outside-image` input): globs of
+    files its Containerfile never COPYs, such as VERSION and CHANGELOG.md. A
+    release commit that moves only those builds the same filesystem, so the
+    bytes already gated for `base` stand for it, and a release costs a tag
+    move instead of a second build (RT#1660). The image's revision label
+    keeps naming the commit that was built. `sha` must descend from `base`.
+    """
+    files = gh.changed(base, sha)
+    if files is None:
+        return None, f"{sha} does not descend from {base}"
+    if len(files) >= COMPARE_FILES_CAP:
+        return None, f"{sha} changes {len(files)}+ files on {base}; not checked as release-only"
+    inside = [
+        f
+        for f in files
+        if any(fnmatch(f, g) for g in ALWAYS_BUILT) or not any(fnmatch(f, g) for g in outside)
+    ]
+    if inside:
+        return None, f"{sha} changes {inside[0]}, which may reach the image"
+    gated = reg.digest(f":gated-{base}")
+    if gated is None:
+        return None, f"{base} was never gated"
+    return gated, f"{sha} changes only {' '.join(files) or 'nothing'} on gated {base}; reused"
+
+
+def resolve_parent(
+    reg: Registry, gh: GitHub, sha: str, outside: Sequence[str]
+) -> tuple[str | None, str]:
+    """resolve's last resort for a push that was never gated: its first parent's digest."""
+    parent = gh.parent(sha)
+    if parent is None:
+        return None, f"{sha} has no parent"
+    return outside_only(reg, gh, parent, sha, outside)
+
+
+def resolve_pr(
+    reg: Registry, gh: GitHub, base: str, head: str, outside: Sequence[str]
+) -> tuple[str | None, str]:
+    """(digest, why) for a pull request: None means build and gate it as usual."""
+    marker = reg.digest(f":gated-{head}")
+    if marker:
+        return marker, f"gated-{head} exists"
+    return outside_only(reg, gh, base, head, outside)
 
 
 # ------------------------------------------------------------------ promote
@@ -681,6 +756,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         p.add_argument("--digest", default="")
         p.add_argument("--authfile")
         p.add_argument("--cascade", action="store_true")
+        p.add_argument("--outside", default="", help="globs that never reach the image")
+        p.add_argument("--base", default="", help="resolve a pull request against this base")
 
     b = sub.add_parser("boot")
     b.add_argument("--image", required=True)
@@ -728,7 +805,14 @@ def _registry_action(a: argparse.Namespace) -> None:
     reg = Registry(a.image, authfile=a.authfile)
     gh = GitHub(a.repo)
     if a.action == "resolve":
-        digest, why = resolve(reg, gh, a.sha, a.ref, a.branch)
+        outside = a.outside.split()
+        if a.base:
+            digest, why = resolve_pr(reg, gh, a.base, a.sha, outside)
+        else:
+            digest, why = resolve(reg, gh, a.sha, a.ref, a.branch)
+            if digest is None and outside:
+                digest, reason = resolve_parent(reg, gh, a.sha, outside)
+                why = reason if digest else f"{why}; {reason}"
         log(why)
         output("digest", digest or "")
         output("rebuild", "false" if digest else "true")
