@@ -694,7 +694,9 @@ jobs:
         # Whitespace alone names no repo; an empty `repositories` would mint an
         # org-wide token, so no output, and no token.
         run: |
-          read -ra repos <<< "$DOWNSTREAM"
+          # -d '': every line, as the dispatch loop below splits it; read then
+          # exits 1 at the end of input, which is not an error here.
+          read -ra repos -d '' <<< "$DOWNSTREAM" || true
           if [ "${#repos[@]}" -gt 0 ]; then
             (IFS=,; echo "repos=${repos[*]}") >> "$GITHUB_OUTPUT"
           fi

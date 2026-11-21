@@ -27,6 +27,7 @@ def lines(report: dict) -> list[str]:
 
 
 def main(argv: list[str]) -> int:
+    """Print the log for the SARIF file named by argv[1]; always 0, the job is advisory."""
     print("\n".join(lines(json.loads(Path(argv[1]).read_text()))))
     return 0
 
