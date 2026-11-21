@@ -150,15 +150,25 @@ def cut_job(text: str, job_id: str) -> str:
     only the blank lines separating the cut job from them go with it.
     """
     lines = text.splitlines(keepends=True)
-    head = re.compile(rf"^(\s+){re.escape(job_id)}:\s*(?:#.*)?$")
-    found = next(((i, m) for i, line in enumerate(lines) if (m := head.match(line))), None)
-    if found is None:
-        return text
-    start, match = found
-    indent = len(match.group(1))
 
     def inert(line: str) -> bool:
         return not line.strip() or line.lstrip().startswith("#")
+
+    # Only a key directly under the top-level `jobs:` is a job; the same name
+    # under `on:`, `env:` or inside another job is not.
+    jobs = next((i for i, line in enumerate(lines) if re.match(r"jobs:\s*(?:#.*)?$", line)), None)
+    if jobs is None:
+        return text
+    body = [i for i in range(jobs + 1, len(lines)) if not inert(lines[i])]
+    block = next((n for n, i in enumerate(body) if not lines[i][0].isspace()), len(body))
+    body = body[:block]
+    if not body:
+        return text
+    indent = len(lines[body[0]]) - len(lines[body[0]].lstrip())
+    head = re.compile(rf"^ {{{indent}}}{re.escape(job_id)}:\s*(?:#.*)?$")
+    start = next((i for i in body if head.match(lines[i])), None)
+    if start is None:
+        return text
 
     def outside(line: str) -> bool:
         return not inert(line) and len(line) - len(line.lstrip()) <= indent

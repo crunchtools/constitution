@@ -282,6 +282,18 @@ def test_cutting_a_job_keeps_the_comment_that_introduces_the_next_one(tmp_path):
     )
 
 
+def test_only_a_job_directly_under_jobs_is_cut():
+    """A same-named key under `on:` or inside another job is not the job."""
+    text = (
+        "on:\n  automerge:\n    types: [x]\njobs:\n  test:\n    automerge:\n      a: 1\n"
+        "  automerge:\n    uses: ./.github/workflows/dependabot-automerge.yml\n"
+    )
+    assert bump.cut_job(text, "automerge") == (
+        "on:\n  automerge:\n    types: [x]\njobs:\n  test:\n    automerge:\n      a: 1\n"
+    )
+    assert bump.cut_job("on: push\n", "automerge") == "on: push\n"
+
+
 def test_a_mixed_workflow_that_needs_the_automerge_job_is_left_for_a_human(tmp_path):
     mixed = MIXED + "  after:\n    needs: [automerge]\n    runs-on: ubuntu-latest\n"
     flows = dependabot_repo(tmp_path, {"ci.yml": mixed})

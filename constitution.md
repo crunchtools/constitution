@@ -632,7 +632,9 @@ and the build broke with zero code changes to point at.
    `security:minimumReleaseAge*`): the cooldown is fleet policy
    (machine-checked, `renovate_locked` and `renovate_locked_presets` in
    `requirements.toml`; `ci.yml` fails if a Renovate release adds a built-in
-   preset the list misses).
+   preset the list misses). Third-party presets (`github>`, `local>` and the
+   like) are not inspected: extending one that sets a cooldown is the same
+   violation, caught only in review.
 
 4. **Minor and patch updates merge themselves, in every ecosystem.** Every
    repo has `allow_auto_merge` on, and the preset sets `automerge` with
