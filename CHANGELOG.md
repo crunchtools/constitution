@@ -9,6 +9,16 @@ Entries through 1.14.0 are derived from the Ratification History table in
 
 ## [Unreleased]
 
+### Added
+- `.github/workflows/fleet-bump.yml` (a867): runs `fleet-bump.py` in the pipeline
+  on `workflow_dispatch` (`mode` bump, zizmor-callers or renovate; `version`;
+  `only`; `dry-run`, on by default), so a fleet rollout needs no `gh` or
+  org-wide token on a seat. A dry run reads with the crunchtools-ci App's token
+  and its job summary counts and lists the repos that would get a PR. A real
+  run takes its App key (`FLEET_BUMP_CLIENT_ID`, `FLEET_BUMP_APP_KEY`) only from
+  the `fleet-bump` environment, which deploys from main only, and queues apart
+  from dry runs.
+
 ## [1.59.0] - 2026-11-21
 
 ### Added

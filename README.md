@@ -83,6 +83,7 @@ Then turn on `allow_auto_merge` for the repo.
 - `.github/workflows/major-tag.yml` (`scripts/major_tag.py`) moves `v1` to each published release, which is what delivers it to the fleet.
 - `scripts/fleet-bump.py` runs after a release is tagged. It opens a PR in each manifest repo that moves `Inherits` and turns any exact crunchtools workflow pin into its major tag, and queues it for auto-merge.
 - `scripts/fleet-bump.py --zizmor-callers` is the one-off that justifies the dangerous triggers in each repo's Gatehouse and Ashigaru callers.
+- The Fleet Bump workflow (`fleet-bump.yml`, `workflow_dispatch`) runs either of them in the pipeline with the crunchtools-ci App's token; it dry-runs by default and puts the repo count in the job summary.
 - `validate-cascade.py` checks that image rebuilds cascade along the `FROM` graph.
 
 ## License
