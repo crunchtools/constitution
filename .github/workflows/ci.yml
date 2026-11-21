@@ -49,6 +49,27 @@ jobs:
         run: >-
           node scripts/validate-renovate-inherited.mjs
           "$RUNNER_TEMP/renovate/node_modules/renovate" renovate/org-inherited-config.json
+      # The inherit-mode script against Renovate's real code: an error and a
+      # warning (a global-only key the inherited file may not carry) each fail
+      # it, with the diagnostic printed. pytest cannot run these: `sdlc ci` has
+      # no Node or Renovate.
+      - name: Inherited-config validator rejects errors and warnings
+        env:
+          RENOVATE_PKG: ${{ runner.temp }}/renovate/node_modules/renovate
+        run: |
+          set -u
+          for case in "error:should be boolean:1 error(s), 0 warning(s)" \
+                      "warning:binarySource:0 error(s), 1 warning(s)"; do
+            IFS=: read -r name diagnostic summary <<<"$case"
+            file="tests/renovate/inherited-$name.json"
+            if out=$(node scripts/validate-renovate-inherited.mjs "$RENOVATE_PKG" "$file" 2>&1); then
+              echo "ERROR: $file passed"; exit 1
+            fi
+            echo "$out"
+            for expected in "$diagnostic" "$summary"; do
+              grep -qF "$expected" <<<"$out" || { echo "ERROR: $file missing '$expected'"; exit 1; }
+            done
+          done
 
   # This repo's own checks: the validator run against fixture constitutions
   # that must pass and fixture constitutions that must fail. They are tests,
