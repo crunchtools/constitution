@@ -9,6 +9,8 @@ Entries through 1.14.0 are derived from the Ratification History table in
 
 ## [Unreleased]
 
+## [1.57.0] - 2026-11-21
+
 ### Changed
 - Dependency updates move from Dependabot to Renovate, run from one policy
   (XV, a851). `renovate/default.json` holds it, versioned by the `v1` tag the
