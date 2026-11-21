@@ -40,9 +40,12 @@ jobs:
     name: Fleet bump (${{ inputs.mode }})
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    # The write key lives only in the fleet-bump environment, which deploys from
+    # main only: a branch that drops the guard below still gets no write key. An
+    # empty name is no environment, so a dry run needs no approval.
+    environment: ${{ !inputs.dry-run && 'fleet-bump' || '' }}
     steps:
-      # workflow_dispatch runs this file from any branch; only main's copy may
-      # write to the fleet.
+      # Fails fast with a clear message; the environment is what enforces it.
       - name: Refuse a real run off main
         if: ${{ !inputs.dry-run && github.ref != 'refs/heads/main' }}
         run: |
@@ -55,9 +58,9 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install --quiet pyyaml==6.0.3
-      # The crunchtools-ci App's token, org-wide because the script walks the
-      # whole fleet. A dry run asks for read only; a real run also needs to push
-      # branches that touch workflows and to open PRs.
+      # Org-wide tokens, because the script walks the whole fleet. A dry run
+      # reads with the crunchtools-ci App; a real run pushes branches that touch
+      # workflows and opens PRs with the fleet-bump environment's App.
       - name: Mint read token
         id: read-token
         if: ${{ inputs.dry-run }}
@@ -72,8 +75,8 @@ jobs:
         if: ${{ !inputs.dry-run }}
         uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         with:
-          client-id: ${{ vars.CRUNCHTOOLS_CI_CLIENT_ID }}
-          private-key: ${{ secrets.CRUNCHTOOLS_CI_APP_KEY }}
+          client-id: ${{ vars.FLEET_BUMP_CLIENT_ID }}
+          private-key: ${{ secrets.FLEET_BUMP_APP_KEY }}
           owner: crunchtools  # zizmor: ignore[github-app]
           permission-contents: write
           permission-pull-requests: write
