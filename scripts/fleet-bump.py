@@ -63,6 +63,20 @@ REVIEWED_CALLS = {
 # The step keys a reviewed guard uses; `shell:` or anything else that changes
 # how a reviewed script runs is left for a human, as is a `defaults:` block.
 GUARD_STEP_KEYS = {"name", "id", "env", "run"}
+# The job keys the templates' jobs use. Anything else that decides where or
+# how a job runs (`container:`, `services:`, `strategy:`, `defaults:`) is left
+# for a human.
+CALL_JOB_KEYS = {"name", "if", "needs", "permissions", "uses", "with", "secrets"}
+GUARD_JOB_KEYS = {
+    "name",
+    "if",
+    "needs",
+    "permissions",
+    "runs-on",
+    "timeout-minutes",
+    "env",
+    "steps",
+}
 ON_BLOCK = re.compile(
     r"^(?:on|\"on\"|'on'):[ \t]*(?:#.*)?\n(?:(?:[ \t]+.*|[ \t]*#.*|[ \t]*)\n)*", re.MULTILINE
 )
@@ -98,6 +112,8 @@ TRIGGER_REASONS = {
 # every such expression the Gatehouse templates have ever used.
 SAFE_EXPRESSIONS = {
     "needs.review.result",
+    # The runner choice this repo's own caller makes; no PR sets either value.
+    "github.event.repository.private && vars.UNCACHED_RUNNER_LABEL || 'ubuntu-latest'",
     "github.token",
     "github.event_name",
     "github.event.pull_request.number",
@@ -422,7 +438,7 @@ def caller_product(text: str) -> str | None:
     That is a workflow whose every job either calls one product's reusable
     workflows (by the job's `uses:`, not by text anywhere in the file, and with
     `with:` inputs no PR author chooses) or, like
-    Gatehouse's guard, is `shell_only`. Anything else is left for a human,
+    Gatehouse's guard, is `reviewed_guard`. Anything else is left for a human,
     because the reason written next to the ignore would not be known to be true.
     """
     import yaml  # deferred, like drop_automerge's
@@ -441,22 +457,24 @@ def caller_product(text: str) -> str | None:
         if "uses" in job:
             call = CALLER_USES.fullmatch(str(job["uses"]))
             if (
-                call is None
+                set(job) - CALL_JOB_KEYS
+                or call is None
                 or call.group(2) not in REVIEWED_CALLS[call.group(1)]
                 or not safe_expressions(job.get("with"))
             ):
                 return None
             products.add(call.group(1))
-        elif not shell_only(job, workflow.get("env")):
+        elif not reviewed_guard(job, workflow.get("env")):
             return None
     return products.pop() if len(products) == 1 else None
 
 
-def shell_only(job: dict, workflow_env: dict | None) -> bool:
+def reviewed_guard(job: dict, workflow_env: dict | None) -> bool:
     """Whether the job is a reviewed Gatehouse guard that sees no PR-chosen text.
 
-    Its steps carry only GUARD_STEP_KEYS (no action, no `shell:`), it sets no
-    `defaults:`, their scripts together are one of REVIEWED_GUARDS,
+    It carries only GUARD_JOB_KEYS and its steps only GUARD_STEP_KEYS (no
+    container, no action, no `shell:`), its runner is chosen by no PR, its
+    scripts together are one of REVIEWED_GUARDS,
     and every expression an `env:` (the workflow's, the job's or a step's)
     feeds them is in SAFE_EXPRESSIONS. What a script does cannot be read off its shape,
     so only scripts already read are let through. `workflow_env` is the
@@ -465,7 +483,9 @@ def shell_only(job: dict, workflow_env: dict | None) -> bool:
     steps = job.get("steps")
     if not isinstance(steps, list) or not all(isinstance(s, dict) for s in steps):
         return False
-    if "defaults" in job or any(set(s) - GUARD_STEP_KEYS for s in steps):
+    if set(job) - GUARD_JOB_KEYS or any(set(s) - GUARD_STEP_KEYS for s in steps):
+        return False
+    if not safe_expressions({"runs-on": job.get("runs-on")}):
         return False
     script = "\n".join(str(s.get("run", "")) for s in steps)
     if hashlib.sha256(script.encode()).hexdigest() not in REVIEWED_GUARDS:

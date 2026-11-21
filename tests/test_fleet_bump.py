@@ -449,6 +449,15 @@ def test_an_ashigaru_caller_gets_each_flagged_trigger_justified():
         OWN_CALLER.replace("        run: |\n", "        shell: python {0}\n        run: |\n", 1),
         # The shipped guard under a workflow-wide default shell.
         OWN_CALLER.replace("\njobs:\n", "\ndefaults:\n  run:\n    shell: python {0}\njobs:\n", 1),
+        # The shipped guard, run inside an image a PR names.
+        OWN_CALLER.replace(
+            "    permissions:\n      contents: read\n      pull-requests: write\n    steps:",
+            "    container: ${{ github.event.pull_request.head.repo.full_name }}\n"
+            "    permissions:\n      contents: read\n      pull-requests: write\n    steps:",
+            1,
+        ),
+        # A reusable call fanned out by a matrix.
+        GATEHOUSE_CALLER + "    strategy:\n      matrix:\n        x: [1]\n",
         # A same-named key outside `on:` is not a trigger.
         GATEHOUSE_CALLER.replace("  pull_request_target:\n", "  push:\n")
         + "env:\n  workflow_run:\n",
