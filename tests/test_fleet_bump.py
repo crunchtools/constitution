@@ -266,3 +266,20 @@ def test_renovate_and_version_are_exclusive(monkeypatch):
     monkeypatch.setattr(bump.sys, "argv", ["fleet-bump.py", "--renovate", "--version", "1.2.3"])
     with pytest.raises(SystemExit):
         bump.main()
+
+
+def test_run_keeps_going_past_a_failed_repo_and_reports_it(monkeypatch, capsys):
+    """One repo's failure must not leave the rest of the fleet behind, nor read as success."""
+    monkeypatch.setattr(bump, "select_repos", lambda only: [{"name": n} for n in "abc"])
+    seen = []
+
+    def handle(name, clone_root):
+        seen.append(name)
+        if name == "b":
+            raise RuntimeError("push timed out")
+
+    assert bump.run(None, handle) == 1
+    assert seen == ["a", "b", "c"]
+    err = capsys.readouterr().err
+    assert "b: FAILED: push timed out" in err
+    assert "rerun with --only b" in err
