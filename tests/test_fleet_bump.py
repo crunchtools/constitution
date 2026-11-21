@@ -201,39 +201,44 @@ def dependabot_repo(tmp_path, workflows):
     return flows
 
 
-def test_swap_drops_dependabot_and_adds_the_stub(tmp_path):
+def test_drop_removes_dependabot_and_writes_no_renovate_json(tmp_path):
     flows = dependabot_repo(
         tmp_path,
         {"dependabot-automerge.yml": CALLER, "other.yml": CALLER, "ci.yml": "on: push\n"},
     )
-    changes = bump.swap(tmp_path)
+    changes = bump.drop_dependabot(tmp_path)
     assert changes == [
         "-.github/dependabot.yml",
         "-.github/workflows/dependabot-automerge.yml",
         "-.github/workflows/other.yml",
-        "+renovate.json",
     ]
     assert not (tmp_path / ".github/dependabot.yml").exists()
     assert [p.name for p in flows.iterdir()] == ["ci.yml"]
-    assert (tmp_path / "renovate.json").read_text() == bump.RENOVATE_STUB.read_text()
+    assert not (tmp_path / "renovate.json").exists()
 
 
-def test_swap_keeps_the_reusable_definition_and_drops_its_caller(tmp_path):
+def test_drop_keeps_the_reusable_definition_and_drops_its_caller(tmp_path):
     flows = dependabot_repo(
         tmp_path,
         {"dependabot-automerge.yml": DEFINITION, "dependabot-automerge-caller.yml": CALLER},
     )
-    bump.swap(tmp_path)
+    bump.drop_dependabot(tmp_path)
     assert (flows / "dependabot-automerge.yml").is_file()
     assert not (flows / "dependabot-automerge-caller.yml").exists()
 
 
-def test_an_already_swapped_repo_reports_no_change(tmp_path):
-    (tmp_path / "renovate.json").write_text(bump.RENOVATE_STUB.read_text())
-    assert bump.swap(tmp_path) == []
+def test_a_repo_with_nothing_to_delete_is_skipped(monkeypatch, tmp_path, capsys):
+    """A stackrox-like repo: no dependabot, no callers, and no renovate.json is added."""
+    (tmp_path / ".github/workflows").mkdir(parents=True)
+    (tmp_path / ".github/workflows/ci.yml").write_text("on: push\n")
+    monkeypatch.setattr(bump, "clone", lambda name, dest: tmp_path)
+    monkeypatch.setattr(bump, "open_pr", lambda *a: pytest.fail("no PR for an empty drop"))
+    bump.drop_repo("stackrox-like", tmp_path, False)
+    assert capsys.readouterr().out == ""
+    assert not (tmp_path / "renovate.json").exists()
 
 
-def swap_main(monkeypatch, tmp_path, *argv):
+def drop_main(monkeypatch, tmp_path, *argv):
     dependabot_repo(tmp_path, {"dependabot-automerge.yml": CALLER})
     calls = []
     monkeypatch.setattr(bump, "select_repos", lambda only: [{"name": "example"}])
@@ -242,19 +247,19 @@ def swap_main(monkeypatch, tmp_path, *argv):
     monkeypatch.setattr(bump, "gh", lambda *a, **k: calls.append(a) or "url\n")
     monkeypatch.setattr(bump.subprocess, "run", lambda *a, **k: calls.append(a) or completed(0))
     monkeypatch.setattr(bump.sys, "argv", ["fleet-bump.py", "--renovate", *argv])
-    monkeypatch.setattr(bump, "major_tag_refusal", lambda v: pytest.fail("not in swap mode"))
+    monkeypatch.setattr(bump, "major_tag_refusal", lambda v: pytest.fail("not in drop mode"))
     return calls
 
 
-def test_swap_dry_run_makes_no_git_or_gh_calls(monkeypatch, tmp_path, capsys):
-    calls = swap_main(monkeypatch, tmp_path, "--dry-run")
+def test_drop_dry_run_makes_no_git_or_gh_calls(monkeypatch, tmp_path, capsys):
+    calls = drop_main(monkeypatch, tmp_path, "--dry-run")
     assert bump.main() == 0
     assert calls == []
-    assert "example: renovate swap (-.github/dependabot.yml" in capsys.readouterr().out
+    assert "example: drop Dependabot (-.github/dependabot.yml" in capsys.readouterr().out
 
 
-def test_swap_opens_a_pr_and_queues_auto_merge(monkeypatch, tmp_path):
-    calls = swap_main(monkeypatch, tmp_path)
+def test_drop_opens_a_pr_and_queues_auto_merge(monkeypatch, tmp_path):
+    calls = drop_main(monkeypatch, tmp_path)
     assert bump.main() == 0
     assert ("checkout", "-b", "chore/renovate") in [c[1:] for c in calls if c[0] == tmp_path]
     assert any("create" in c for c in calls) and any(

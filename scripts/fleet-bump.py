@@ -15,9 +15,9 @@ Usage:
     fleet-bump.py --renovate [--only repo,repo] [--dry-run]
 
 Run after tagging a release. Needs GH_TOKEN with contents, pull-requests and
-workflows write across the org. `--renovate` is the one-off swap from Dependabot
-to the shared Renovate preset (XV): in every repo it drops dependabot.yml and the
-auto-merge caller workflows and adds the stub renovate.json.
+workflows write across the org. `--renovate` is the one-off Dependabot teardown (XV):
+in every repo it drops dependabot.yml and the auto-merge caller workflows. Renovate
+needs no per-repo file; it runs from the org config in crunchtools/renovate-config.
 """
 
 import argparse
@@ -43,8 +43,6 @@ MAJOR_TAGGED = re.compile(
 MAJOR_TAGS_SINCE = (1, 24, 0)
 CONSTITUTION_MAJOR_SINCE = (1, 45, 0)
 PRE_COMMIT = ".pre-commit-config.yaml"
-RENOVATE = Path("renovate.json")
-RENOVATE_STUB = Path(__file__).resolve().parents[1] / "examples" / "renovate.json"
 AUTOMERGE_CALL = re.compile(r"^\s*(?:-\s*)?uses:\s*\S*dependabot-automerge\.yml", re.MULTILINE)
 WORKFLOW_CALL = re.compile(r"^\s*(?:on:\s*\[?.*)?\bworkflow_call\b", re.MULTILINE)
 
@@ -144,8 +142,8 @@ def is_automerge_caller(path: Path) -> bool:
     return path.name == "dependabot-automerge.yml" or bool(AUTOMERGE_CALL.search(text))
 
 
-def swap(root: Path) -> list[str]:
-    """Replace Dependabot with the Renovate stub; returns the changes as `-path` / `+path`."""
+def drop_dependabot(root: Path) -> list[str]:
+    """Delete dependabot.yml and the auto-merge callers; returns the removed paths."""
     changes = []
     doomed = [root / ".github" / "dependabot.yml"]
     doomed += sorted((root / ".github" / "workflows").glob("*.y*ml"))
@@ -153,29 +151,25 @@ def swap(root: Path) -> list[str]:
         if (path.name == "dependabot.yml" or is_automerge_caller(path)) and path.is_file():
             path.unlink()
             changes.append(f"-{path.relative_to(root)}")
-    stub = RENOVATE_STUB.read_text()
-    target = root / RENOVATE
-    if not target.is_file() or target.read_text() != stub:
-        target.write_text(stub)
-        changes.append(f"+{RENOVATE}")
     return changes
 
 
-def swap_repo(name: str, clone_root: Path, dry_run: bool) -> None:
-    """Swap one repo from Dependabot to the Renovate preset, if it is not already."""
+def drop_repo(name: str, clone_root: Path, dry_run: bool) -> None:
+    """Drop Dependabot from one repo; a repo with nothing to delete is skipped."""
     root = clone(name, clone_root)
-    changes = swap(root)
+    changes = drop_dependabot(root)
     if not changes:
         return
-    print(f"{name}: renovate swap ({', '.join(changes)})")
+    print(f"{name}: drop Dependabot ({', '.join(changes)})")
     if not dry_run:
         body = (
-            "Replaces Dependabot with the shared Renovate preset (constitution XV): drops "
-            "`.github/dependabot.yml` and the Dependabot auto-merge caller, adds `renovate.json` "
-            "extending `crunchtools/constitution` `renovate/default.json`. Opened by "
-            "constitution/scripts/fleet-bump.py --renovate."
+            "Renovate now applies the fleet policy to every repo from "
+            "`crunchtools/renovate-config`'s `org-inherited-config.json`, which extends "
+            "`crunchtools/constitution` `renovate/default.json` (constitution XV), so the repo "
+            "needs no config of its own. Drops `.github/dependabot.yml` and the Dependabot "
+            "auto-merge caller. Opened by constitution/scripts/fleet-bump.py --renovate."
         )
-        title = "chore: replace Dependabot with the shared Renovate preset"
+        title = "chore: drop Dependabot; Renovate runs from the org config"
         print(f"  {open_pr(root, name, 'chore/renovate', title, body)}")
 
 
@@ -230,14 +224,14 @@ def main() -> int:
     mode.add_argument(
         "--renovate",
         action="store_true",
-        help="one-off: replace Dependabot with the shared Renovate preset in every repo",
+        help="one-off: delete Dependabot config and auto-merge callers in every repo",
     )
     parser.add_argument("--only", help="comma-separated repo names")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
 
     if args.renovate:
-        return run(args.only, lambda name, root: swap_repo(name, root, args.dry_run))
+        return run(args.only, lambda name, root: drop_repo(name, root, args.dry_run))
     validator = load_validator()
     version = args.version or validator.own_version()
     if tuple(int(part) for part in version.split(".")) >= CONSTITUTION_MAJOR_SINCE and (

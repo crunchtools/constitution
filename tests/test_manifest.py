@@ -6,7 +6,6 @@ thing, and checks that exactly that is reported. Names follow XVII's roster.
 
 import json
 import re
-import shutil
 import subprocess
 from pathlib import Path
 
@@ -752,62 +751,77 @@ def test_dependabot_must_cover_profile_ecosystem(repo):
     assert violations(repo) == ["FILES: .github/dependabot.yml does not cover `uv` (XV)"]
 
 
-def renovate(root: Path) -> Path:
-    """Swap the fixture to Renovate the way fleet-bump.py --renovate does."""
+def drop_dependabot(root: Path) -> None:
+    """What fleet-bump.py --renovate does: Renovate runs from the org config instead."""
     (root / ".github/dependabot.yml").unlink()
     (root / ".github/workflows/dependabot-automerge.yml").unlink()
-    shutil.copy(ROOT / "examples" / "renovate.json", root / "renovate.json")
-    return root / "renovate.json"
 
 
-def test_renovate_stub_replaces_dependabot_and_its_automerge(repo):
-    """The preset covers every ecosystem and merges through GitHub's auto-merge."""
-    renovate(repo)
+def test_a_repo_needs_no_update_config_of_its_own(repo):
+    """Renovate reaches every repo from crunchtools/renovate-config (XV)."""
+    drop_dependabot(repo)
+    assert violations(repo) == []
+
+
+def test_dependabot_fails_from_the_cutoff(repo):
+    """At `dependabot_until` the file and its auto-merge caller are both reported."""
+    fleet = {"dependabot_until": VERSION}
+    found = V.dependabot_violations(repo, VERSION, fleet, [])
+    assert [v.split("`")[1] for v in found] == [
+        ".github/dependabot.yml",
+        ".github/workflows/dependabot-automerge.yml",
+    ]
+    assert all("scripts/fleet-bump.py --renovate deletes it" in v for v in found)
+    drop_dependabot(repo)
+    assert V.dependabot_violations(repo, VERSION, fleet, []) == []
+
+
+def test_dependabot_is_judged_as_before_until_the_cutoff(repo):
+    assert V.dependabot_violations(repo, "1.59.9", {"dependabot_until": "1.60.0"}, []) == []
+
+
+def test_a_repo_renovate_config_may_override_anything_but_the_cooldown(repo):
+    drop_dependabot(repo)
+    write(repo, "renovate.json", '{"labels": ["deps"], "packageRules": [{"automerge": false}]}\n')
     assert violations(repo) == []
 
 
 @pytest.mark.parametrize(
-    "extends", ['"github>crunchtools/constitution//renovate/default#v1.57.0"', '"x", "{p}#v2"']
-)
-def test_renovate_may_extend_the_preset_at_any_release_tag(repo, extends):
-    preset = "github>crunchtools/constitution//renovate/default"
-    renovate(repo).write_text(f'{{"extends": [{extends.replace("{p}", preset)}]}}\n')
-    assert violations(repo) == []
-
-
-@pytest.mark.parametrize(
-    "text",
+    ("name", "text", "key"),
     [
-        '{"extends": ["config:recommended"]}',
-        '{"extends": ["github>crunchtools/constitution//renovate/default"]}',
-        '{"extends": ["github>crunchtools/constitution//renovate/default#main"]}',
-        '{"extends": "github>crunchtools/constitution//renovate/default#v1"}',
-        "[]",
+        ("renovate.json", '{"minimumReleaseAge": "0 days"}', "minimumReleaseAge"),
+        (".github/renovate.json5", "{internalChecksFilter: 'none'}", "internalChecksFilter"),
+        (
+            ".renovaterc",
+            '{"packageRules": [{"matchManagers": ["npm"], '
+            '"minimumReleaseAgeBehaviour": "timestamp-optional"}]}',
+            "minimumReleaseAgeBehaviour",
+        ),
+        ("package.json", '{"renovate": {"npm": {"minimumReleaseAge": null}}}', "minimumReleaseAge"),
     ],
 )
-def test_renovate_must_extend_the_preset_at_a_tag(repo, text):
-    renovate(repo).write_text(text)
+def test_a_repo_renovate_config_must_not_touch_the_cooldown(repo, name, text, key):
+    drop_dependabot(repo)
+    write(repo, name, text)
     assert violations(repo) == [
-        "FILES: renovate.json does not extend "
-        "`github>crunchtools/constitution//renovate/default#v1` (XV); "
-        "copy examples/renovate.json"
+        f"FILES: {name} sets `{key}`; the release-age cooldown is fleet policy, "
+        f"set only in renovate/default.json (XV)"
     ]
 
 
-def test_renovate_json_must_parse(repo):
-    renovate(repo).write_text("{,}")
-    assert violations(repo) == ["FILES: renovate.json is not valid JSON"]
+def test_a_package_json_without_renovate_is_not_renovate_config(repo):
+    write(repo, "package.json", '{"name": "x", "config": {"minimumReleaseAge": 1}}')
+    assert violations(repo) == []
 
 
-def test_a_repo_with_no_update_config_fails(repo):
-    renovate(repo).unlink()
-    assert violations(repo) == ["FILES: no renovate.json; copy examples/renovate.json (XV)"]
-
-
-def test_examples_renovate_is_the_three_line_stub():
-    text = (ROOT / "examples" / "renovate.json").read_text()
-    assert json.loads(text) == {"extends": ["github>crunchtools/constitution//renovate/default#v1"]}
-    assert text.count("\n") == len(("{", "extends", "}"))
+def test_org_inherited_config_extends_the_preset_at_the_major_tag():
+    """The canonical copy of crunchtools/renovate-config's file: Renovate on every repo."""
+    doc = json.loads((ROOT / "renovate" / "org-inherited-config.json").read_text())
+    assert doc == {
+        "onboarding": False,
+        "requireConfig": "optional",
+        "extends": ["github>crunchtools/constitution//renovate/default#v1"],
+    }
 
 
 def test_forked_server_needs_its_sections_not_agpl(repo):

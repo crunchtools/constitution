@@ -1,8 +1,9 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "description": [
-    "Crunchtools dependency policy (constitution XV). Repos extend this at the major tag:",
-    "{\"extends\": [\"github>crunchtools/constitution//renovate/default#v1\"]}",
+    "Crunchtools dependency policy (constitution XV). Every repo gets it from",
+    "crunchtools/renovate-config's org-inherited-config.json, which extends this",
+    "at the v1 tag; renovate/org-inherited-config.json is that file's canonical copy.",
     "A policy change here is one commit, and reaches every repo when v1 moves."
   ],
   "extends": [
@@ -54,11 +55,17 @@
     },
     {
       "description": [
-        "Registries other than Docker Hub publish no release timestamps, and the",
-        "default timestamp-required would hold their updates back forever."
+        "These datasources give no release time to age against: docker outside",
+        "Docker Hub (quay, ghcr, Red Hat registries), git-tags, git-refs and",
+        "python-version. Under the default timestamp-required their updates would",
+        "wait forever, unseen with the dashboard off; here they wait only for the",
+        "weekly window."
       ],
       "matchDatasources": [
-        "docker"
+        "docker",
+        "git-tags",
+        "git-refs",
+        "python-version"
       ],
       "minimumReleaseAgeBehaviour": "timestamp-optional"
     },

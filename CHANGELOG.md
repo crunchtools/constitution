@@ -10,35 +10,41 @@ Entries through 1.14.0 are derived from the Ratification History table in
 ## [Unreleased]
 
 ### Changed
-- Dependency updates move from Dependabot to a shared Renovate preset (XV,
-  a851). `renovate/default.json` holds the whole policy, versioned by the `v1`
-  tag the workflows use, and each repo's config becomes the three-line
-  `examples/renovate.json`, so a policy change is one commit here instead of
-  an edit in some 60 repos. The preset waits until a release is 7 days old
-  before opening a PR (`minimumReleaseAge`, `internalChecksFilter: strict`)
-  except for vulnerability fixes, groups minor and patch updates into one
-  weekly PR per repo, merges them on green required checks through GitHub's
-  auto-merge, leaves majors for a human, pins third-party actions and images by
-  digest, never pins crunchtools' own `@vN` calls or floating tool images, and
-  ignores `crunchtools/constitution`. `ci.yml` validates it with
-  `renovate-config-validator`.
-- The validator requires `renovate.json` extending the preset at a tag, and
-  needs the Dependabot auto-merge workflow only in a repo still on Dependabot.
-  `.github/dependabot.yml` is accepted, judged as before, until v1.60.0.
-- `fleet-drift.py` reports stale Renovate PRs as well as Dependabot ones.
+- Dependency updates move from Dependabot to Renovate, run from one policy
+  (XV, a851). `renovate/default.json` holds it, versioned by the `v1` tag the
+  workflows use; the org's Renovate app applies it to every repo through
+  `org-inherited-config.json` in `crunchtools/renovate-config`, whose
+  canonical copy is `renovate/org-inherited-config.json`. A repo needs no
+  config of its own, so a policy change is one commit here instead of an edit
+  in some 60 repos. A non-security update waits a week where the registry
+  publishes release times (Docker Hub, PyPI, npm, GitHub releases); otherwise
+  (quay, ghcr, Red Hat registries, git tags and refs, Python versions) it waits
+  for the weekly window. Vulnerability fixes skip the wait. Minor and patch
+  updates come as one weekly PR per repo, merged on green required checks
+  through GitHub's auto-merge; majors wait for a human. Third-party actions and
+  images are pinned by digest; crunchtools' own `@vN` calls and floating tool
+  images never are, and `crunchtools/constitution` is ignored. `ci.yml`
+  validates both files with Renovate's own code.
+- The validator rejects a repo Renovate config that sets `minimumReleaseAge`,
+  `minimumReleaseAgeBehaviour` or `internalChecksFilter`, in any file Renovate
+  reads; any other override is fine. `.github/dependabot.yml` and its auto-merge
+  caller are accepted, judged as before, by a repo inheriting a release before
+  v1.60.0, and fail from it. The auto-merge workflow is required only where
+  `dependabot.yml` still exists.
+- `fleet-drift.py` reports stale Renovate PRs as well as Dependabot ones, and
+  goes red when `crunchtools/renovate-config` differs from the canonical copy.
 
 ### Added
 - `fleet-bump.py --renovate [--only ...] [--dry-run]`: the one-off swap that,
   per repo, deletes `.github/dependabot.yml` and the Dependabot auto-merge
-  caller, adds `renovate.json`, and opens an auto-merged PR.
+  caller and opens an auto-merged PR.
 
 ### Deprecated
 - `dependabot-automerge.yml` and `examples/dependabot-automerge.yml`: kept
   working for repos not yet swapped, removed with Dependabot support at v1.60.0.
 
 ### Removed
-- `examples/dependabot.yml` and `examples/dependabot-uv.yml`, replaced by
-  `examples/renovate.json`.
+- `examples/dependabot.yml` and `examples/dependabot-uv.yml`.
 
 ## [1.56.0] - 2026-11-20
 

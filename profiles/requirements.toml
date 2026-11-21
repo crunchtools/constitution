@@ -23,12 +23,17 @@ third_party_pins = "report"
 # Files every repo carries (globs relative to the repo root).
 files = ["CHANGELOG.md", ".pre-commit-config.yaml"]
 
-# XV rule 2: dependency updates come from the shared Renovate preset. The repo's
-# whole config is a root renovate.json that extends this at a constitution tag
-# (`#v1`); copy examples/renovate.json. A .github/dependabot.yml in its place is
-# still accepted, judged by the `dependabot` keys below, but Dependabot support
-# ends at v1.60.0: scripts/fleet-bump.py --renovate swaps it before then.
-renovate_preset = "github>crunchtools/constitution//renovate/default"
+# XV rules 2-4: Renovate runs on every repo from the org-inherited config
+# (crunchtools/renovate-config, canonical copy renovate/org-inherited-config.json),
+# which extends renovate/default.json. A repo needs no config of its own, and one
+# it adds may override anything except these keys: the release-age cooldown.
+renovate_locked = ["minimumReleaseAge", "minimumReleaseAgeBehaviour", "internalChecksFilter"]
+
+# Dependabot support ends here. A repo inheriting an earlier release may keep
+# .github/dependabot.yml and its auto-merge caller, judged by the `dependabot`
+# keys below; from this release both fail. scripts/fleet-bump.py --renovate
+# deletes them.
+dependabot_until = "1.60.0"
 
 # XII since v1.30.0: a repo with a pyproject.toml runs its checks through
 # python-sdlc. These are the hooks repo it pins, the two hooks it must enable,

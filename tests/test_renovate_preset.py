@@ -21,11 +21,19 @@ def test_no_pr_before_a_release_is_a_week_old():
     assert PRESET["internalChecksFilter"] == "strict"
 
 
+def test_sources_without_release_times_wait_for_the_weekly_window_not_forever():
+    (rule,) = [r for r in PRESET["packageRules"] if "minimumReleaseAgeBehaviour" in r]
+    assert rule["minimumReleaseAgeBehaviour"] == "timestamp-optional"
+    assert set(rule["matchDatasources"]) == {"docker", "git-tags", "git-refs", "python-version"}
+    assert "matchUpdateTypes" not in rule and "matchPackageNames" not in rule
+
+
 def test_vulnerability_fixes_skip_the_age_wait():
     assert PRESET["vulnerabilityAlerts"]["minimumReleaseAge"] is None
     assert PRESET["osvVulnerabilityAlerts"] is True
     # No rule may put an age gate back on everything, which would cover fixes too.
     assert not any("minimumReleaseAge" in r for r in PRESET["packageRules"])
+    assert PRESET["dependencyDashboard"] is False
 
 
 def test_minor_and_patch_are_one_automerged_group():

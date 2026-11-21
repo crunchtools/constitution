@@ -1,6 +1,8 @@
 """fleet-drift.py: settings the workflow token can't see are unknown, not violations."""
 
+import base64
 import importlib.util
+import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -269,3 +271,32 @@ def test_a_current_pin_that_is_somehow_not_sdlc_is_left_alone(tmp_path):
     """At or above SDLC_SINCE the validator's own XII rules do the judging."""
     row = _audited(tmp_path, _Validator("1.30.0", sdlc=False))
     assert PROBLEM not in row["problems"]
+
+
+# ------------------------------------------------ the org Renovate config
+
+
+def _renovate_file(monkeypatch, live):
+    """Fake the contents API: `live` is the JSON the repo holds, or None if unreadable."""
+    content = None if live is None else base64.b64encode(json.dumps(live).encode()).decode()
+    monkeypatch.setattr(
+        drift, "gh_json", lambda *a: None if content is None else {"content": content}
+    )
+
+
+def test_a_matching_renovate_config_is_clean(monkeypatch):
+    _renovate_file(monkeypatch, json.loads(drift.RENOVATE_CANONICAL.read_text()))
+    assert drift.renovate_config_gaps() == []
+
+
+def test_a_differing_renovate_config_is_a_problem(monkeypatch):
+    _renovate_file(monkeypatch, {"extends": ["config:base"]})
+    assert drift.renovate_config_gaps() == [
+        "crunchtools/renovate-config org-inherited-config.json differs from constitution "
+        "renovate/org-inherited-config.json; copy it there"
+    ]
+
+
+def test_an_unreadable_renovate_config_is_unknown_not_a_problem(monkeypatch):
+    _renovate_file(monkeypatch, None)
+    assert drift.renovate_config_gaps() is None

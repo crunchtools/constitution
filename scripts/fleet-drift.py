@@ -17,7 +17,10 @@ Out of policy:
     bump); each bot is reported on its own, so a repo mid-migration shows both
 
 The org ruleset check needs a token that can read org rulesets; without one
-it is reported as a note and does not fail the run.
+it is reported as a note and does not fail the run. The org Renovate config
+(crunchtools/renovate-config org-inherited-config.json) must match this
+checkout's renovate/org-inherited-config.json; a readable copy that differs
+fails the run, an unreadable one is a note.
 
 Usage:
     fleet-drift.py [--stale-days 14] [--only repo,repo]
@@ -28,6 +31,8 @@ their own pinned validation.
 """
 
 import argparse
+import base64
+import json
 import os
 import sys
 import tempfile
@@ -46,6 +51,9 @@ AUDIT_WORKERS = 8  # concurrent clones; well under GitHub's secondary rate limit
 # XII (v1.31.0): the job name that must be a required check in every Python
 # repo. It is a job NAME, so renaming the job silently stops it gating.
 SDLC_CHECK = "sdlc ci"
+
+RENOVATE_CONFIG = "org-inherited-config.json"
+RENOVATE_CANONICAL = Path(__file__).resolve().parents[1] / "renovate" / RENOVATE_CONFIG
 
 REQUIRED_CHECKS = {
     "Protect workflows",
@@ -153,6 +161,21 @@ def sdlc_gate_gaps(rows: list[dict]) -> list[str] | None:
     ]
 
 
+def renovate_config_gaps() -> list[str] | None:
+    """Whether the org Renovate config matches the canonical copy; None if unreadable."""
+    found = gh_json("api", f"repos/{ORG}/renovate-config/contents/{RENOVATE_CONFIG}")
+    try:
+        live = json.loads(base64.b64decode(found["content"]))
+    except (TypeError, KeyError, ValueError):
+        return None  # unreadable is unknown, not clean
+    if live == json.loads(RENOVATE_CANONICAL.read_text()):
+        return []
+    return [
+        f"{ORG}/renovate-config {RENOVATE_CONFIG} differs from constitution "
+        f"renovate/{RENOVATE_CONFIG}; copy it there"
+    ]
+
+
 def audit_checkout(root: Path, row: dict, validator, latest: tuple) -> None:
     """Validate a fresh clone; the clone is deleted as soon as this returns."""
     name = row["repo"]
@@ -232,9 +255,13 @@ def main() -> int:
     # not look" into "nothing wrong", which is the shape of failure this whole
     # report exists to catch.
     org_gaps: list[str] | None = []
+    renovate: list[str] | None = []
     if not args.only:
         checks, gates = ruleset_gaps(), sdlc_gate_gaps(rows)
         org_gaps = None if checks is None or gates is None else checks + gates
+        renovate = renovate_config_gaps()
+        if renovate:
+            org_gaps = (org_gaps or []) + renovate
 
     failing = [r for r in rows if r["problems"]]
     lines = [
@@ -254,6 +281,8 @@ def main() -> int:
             "",
             "Note: org rulesets not readable with this token; required checks not audited.",
         ]
+    if renovate is None:
+        lines += ["", f"Note: {ORG}/renovate-config {RENOVATE_CONFIG} not readable; not audited."]
     report = "\n".join(lines)
     print(report)
     if summary := os.environ.get("GITHUB_STEP_SUMMARY"):

@@ -933,8 +933,12 @@ GATEHOUSE_REUSABLE = re.compile(
 CONSTITUTION_REUSABLE = re.compile(
     r"^(?:crunchtools/constitution|\.)/\.github/workflows/(\w[\w-]*)\.yml(?:@(\S+))?$"
 )
-# The shared Renovate preset every repo extends (XV); requirements.toml may override it.
-RENOVATE_PRESET = "github>crunchtools/constitution//renovate/default"
+# Every file Renovate reads a repo's own config from (renovate@44 config/app-strings).
+RENOVATE_CONFIG_FILES = [
+    f"{d}{n}"
+    for d in ("", ".github/", ".gitlab/")
+    for n in ("renovate.json", "renovate.jsonc", "renovate.json5")
+] + [".renovaterc", ".renovaterc.json", ".renovaterc.jsonc", ".renovaterc.json5", "package.json"]
 ROMAN_HEADING = re.compile(r"^##\s+[IVXLC]+\.\s+(.+?)\s*$", re.MULTILINE)
 LEGACY_VALIDATOR_CHECKOUT = re.compile(r"repository:\s*['\"]?crunchtools/constitution\b")
 SEMVER = re.compile(r"^v?(\d+)\.(\d+)\.(\d+)$")
@@ -1200,9 +1204,7 @@ def check_gate_workflows(repo_root: Path, inherits: str, requirements: dict) -> 
     ]
     # Renovate merges through GitHub's own auto-merge (platformAutomerge); only a
     # repo still on Dependabot needs the auto-merge workflow (XV, until v1.60.0).
-    if (repo_root / ".github" / "dependabot.yml").is_file() and not (
-        repo_root / "renovate.json"
-    ).is_file():
+    if (repo_root / ".github" / "dependabot.yml").is_file():
         required.append(
             (constitution, "dependabot-automerge", "pull_request", None, "Dependabot auto-merge")
         )
@@ -1242,39 +1244,69 @@ def check_gate_workflows(repo_root: Path, inherits: str, requirements: dict) -> 
     return violations
 
 
-def renovate_violations(path: Path, preset: str) -> list[str]:
-    """renovate.json must extend the fleet preset at a constitution tag (XV).
+def renovate_override_violations(repo_root: Path, locked: list[str]) -> list[str]:
+    """A repo's own Renovate config must not touch the fleet's release-age cooldown (XV).
 
-    The preset holds the whole policy, so a repo that extends it at `#v1`
-    follows every later change without a commit of its own. Settings added
-    after it are the repo's own.
+    The org-inherited config applies renovate/default.json to every repo and a
+    repo config merges on top of it, so one key here undoes the week's wait for
+    that repo. Any other override is the repo's own business. Matched as text,
+    in every file Renovate reads, because JSON5 and JSONC are not parseable here
+    and a key inside a packageRule loosens it as surely as one at the top.
     """
-    try:
-        doc = json.loads(path.read_text())
-    except (json.JSONDecodeError, UnicodeDecodeError):
-        return ["FILES: renovate.json is not valid JSON"]
-    extends = doc.get("extends") if isinstance(doc, dict) else None
-    ref = re.compile(rf"{re.escape(preset)}#v\d+(?:\.\d+\.\d+)?")
-    if not any(isinstance(e, str) and ref.fullmatch(e) for e in extends or []):
-        return [
-            f"FILES: renovate.json does not extend `{preset}#v1` (XV); copy examples/renovate.json"
-        ]
-    return []
+    key = re.compile(rf"[\"']?\b({'|'.join(map(re.escape, locked))})\b[\"']?\s*:")
+    violations = []
+    for name in RENOVATE_CONFIG_FILES:
+        path = repo_root / name
+        if not path.is_file():
+            continue
+        text = path.read_text(errors="ignore")
+        if name == "package.json":
+            try:
+                doc = json.loads(text)
+            except json.JSONDecodeError:
+                continue
+            renovate = doc.get("renovate") if isinstance(doc, dict) else None
+            text = json.dumps(renovate) if renovate is not None else ""
+        for found in sorted(set(key.findall(text))):
+            violations.append(
+                f"FILES: {name} sets `{found}`; the release-age cooldown is fleet policy, "
+                f"set only in renovate/default.json (XV)"
+            )
+    return violations
 
 
-def dependency_update_violations(repo_root: Path, fleet: dict, rules: list[dict]) -> list[str]:
-    """XV rule 2: the repo's dependencies have an automated update path.
+def dependabot_violations(
+    repo_root: Path, inherits: str, fleet: dict, rules: list[dict]
+) -> list[str]:
+    """Dependabot is gone from the fleet (XV); until `dependabot_until` it is still judged.
 
-    `renovate.json` extending the fleet preset is the rule. A Dependabot config
-    is still accepted, judged as before (ecosystem coverage and the constitution
-    ignore), until v1.60.0 drops it; scripts/fleet-bump.py --renovate swaps it.
+    Renovate runs on every repo from the org-inherited config, so a repo needs
+    no update config of its own. Before the cut-off a `.github/dependabot.yml`
+    is accepted and checked as before (ecosystem coverage and the constitution
+    ignore; check_gate_workflows wants its auto-merge caller). From it, the file
+    and any auto-merge caller fail: scripts/fleet-bump.py --renovate deletes both.
     """
-    renovate = repo_root / "renovate.json"
-    if renovate.is_file():
-        return renovate_violations(renovate, fleet.get("renovate_preset", RENOVATE_PRESET))
     dependabot = repo_root / ".github" / "dependabot.yml"
+    until = version_tuple(fleet.get("dependabot_until"))
+    if until and (version_tuple(inherits) or ()) >= until:
+        flows = Workflows(repo_root)
+        callers = sorted(
+            {
+                name
+                for name, _, _, m in flows.calls(CONSTITUTION_REUSABLE)
+                if m.group(1) == "dependabot-automerge"
+            }
+        )
+        found = [".github/dependabot.yml"] if dependabot.is_file() else []
+        found += [f".github/workflows/{name}" for name in callers]
+        return [
+            f"FILES: `{path}` is Dependabot, which the fleet dropped at "
+            f"v{fleet['dependabot_until']}; Renovate runs from the org config (XV). "
+            f"scripts/fleet-bump.py --renovate deletes it"
+            for path in found
+        ]
     if not dependabot.is_file():
-        return ["FILES: no renovate.json; copy examples/renovate.json (XV)"]
+        return []
     violations = []
     doc = load_yaml(dependabot)
     covered = {
@@ -1301,11 +1333,22 @@ def dependency_update_violations(repo_root: Path, fleet: dict, rules: list[dict]
     return violations
 
 
+def check_dependency_updates(
+    repo_root: Path, inherits: str, profiles: list[str], requirements: dict
+) -> list[str]:
+    """XV rules 2-4: Renovate's cooldown is untouched, and Dependabot is on its way out."""
+    fleet = requirements.get("fleet", {})
+    rules = [requirements.get("profile", {}).get(p, {}) for p in profiles]
+    return dependabot_violations(repo_root, inherits, fleet, rules) + (
+        renovate_override_violations(repo_root, fleet.get("renovate_locked", []))
+    )
+
+
 def check_repo_files(repo_root: Path, profiles: list[str], requirements: dict) -> list[str]:
     """Files the fleet and each declared profile require, read from disk.
 
     Checks the `files` globs, the AGPL LICENSE unless a profile turns it off,
-    the dependency update config (XV), and a profile's
+    and a profile's
     required Containerfile base. Returns one FILES: violation per gap.
     """
     fleet = requirements.get("fleet", {})
@@ -1332,8 +1375,6 @@ def check_repo_files(repo_root: Path, profiles: list[str], requirements: dict) -
             "GNU AFFERO GENERAL PUBLIC LICENSE" in p.read_text(errors="ignore") for p in licenses
         ):
             violations.append("FILES: no AGPL-3.0 LICENSE file in the repo root (I)")
-
-    violations += dependency_update_violations(repo_root, fleet, rules)
 
     for r in rules:
         if r.get("containerfile_from"):
@@ -2480,6 +2521,7 @@ def validate_manifest(
         violations += check_host_contract(repo_root, inherits, requirements)
         violations += check_gate_workflows(repo_root, inherits, requirements)
         violations += check_repo_files(repo_root, profiles, requirements)
+        violations += check_dependency_updates(repo_root, inherits, profiles, requirements)
         violations += check_locked_install(repo_root, requirements)
         violations += check_container_release(repo_root, inherits, requirements)
         violations += check_floating_images(repo_root, inherits, requirements)

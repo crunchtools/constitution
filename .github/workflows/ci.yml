@@ -25,9 +25,9 @@ jobs:
           SDLC_IMAGE: ${{ vars.SDLC_IMAGE }}
         run: .sdlc/bin/sdlc ci
 
-  # The shared Renovate preset every repo extends (XV), and the stub they copy,
-  # checked by Renovate's own validator at a pinned release. --no-global judges
-  # them as repo config, which is how Renovate reads a preset.
+  # The fleet's Renovate policy (XV), checked by Renovate's own code at a pinned
+  # release: the preset as repo config (--no-global, which is how Renovate reads
+  # a preset), and the canonical org-inherited config as inherited config.
   renovate:
     name: Renovate preset
     runs-on: ubuntu-latest
@@ -39,10 +39,16 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: "24"
-      - name: renovate-config-validator
+      - name: Install Renovate
+        run: npm install --prefix "$RUNNER_TEMP/renovate" --no-save --no-audit renovate@44.221.0
+      - name: Validate the preset
         run: >-
-          npx --yes --package renovate@44.221.0 -- renovate-config-validator
-          --strict --no-global renovate/default.json examples/renovate.json
+          "$RUNNER_TEMP/renovate/node_modules/.bin/renovate-config-validator"
+          --strict --no-global renovate/default.json
+      - name: Validate the org-inherited config
+        run: >-
+          node scripts/validate-renovate-inherited.mjs
+          "$RUNNER_TEMP/renovate/node_modules/renovate" renovate/org-inherited-config.json
 
   # This repo's own checks: the validator run against fixture constitutions
   # that must pass and fixture constitutions that must fail. They are tests,
