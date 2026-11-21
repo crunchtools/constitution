@@ -27,7 +27,11 @@ def lines(report: dict) -> list[str]:
 
 
 def main(argv: list[str]) -> int:
-    """Print the log for the SARIF file named by argv[1]; always 0, the job is advisory."""
+    """Print the log for the SARIF file named by argv[1] and return 0.
+
+    A missing or malformed file raises; the step is continue-on-error, so the
+    advisory job still passes and the traceback is the log.
+    """
     print("\n".join(lines(json.loads(Path(argv[1]).read_text()))))
     return 0
 
