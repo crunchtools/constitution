@@ -9,6 +9,48 @@ Entries through 1.14.0 are derived from the Ratification History table in
 
 ## [Unreleased]
 
+### Changed
+- Dependency updates move from Dependabot to Renovate, run from one policy
+  (XV, a851). `renovate/default.json` holds it, versioned by the `v1` tag the
+  workflows use; the org's Renovate app applies it to every repo through
+  `org-inherited-config.json` in `crunchtools/renovate-config`, whose
+  canonical copy is `renovate/org-inherited-config.json`. A repo needs no
+  config of its own, so a policy change is one commit here instead of an edit
+  in some 60 repos. A non-security update waits a week where the registry
+  publishes release times (Docker Hub, PyPI, npm, GitHub releases); otherwise
+  (quay, ghcr, Red Hat registries, git tags and refs, Python versions) it waits
+  for the weekly window. Vulnerability fixes skip the wait. Minor and patch
+  updates come as one weekly PR per repo, merged on green required checks
+  through GitHub's auto-merge; majors wait for a human. Third-party actions and
+  images are pinned by digest; crunchtools' own `@vN` calls and floating tool
+  images never are, and `crunchtools/constitution` is ignored. `ci.yml`
+  validates both files with Renovate's own code.
+- The validator rejects a repo Renovate config that sets `minimumReleaseAge`,
+  `minimumReleaseAgeBehaviour`, `internalChecksFilter` or `stabilityDays`, or
+  extends `config:best-practices` or `security:minimumReleaseAge*`, in any file
+  Renovate reads; any other override is fine. `ci.yml` recomputes the built-in
+  presets that set a cooldown from the pinned Renovate and fails if the list
+  misses one. `.github/dependabot.yml` and its auto-merge
+  caller are accepted, judged as before, by a repo inheriting a release before
+  v1.60.0, and fail from it. The auto-merge workflow is required only where
+  `dependabot.yml` still exists.
+- `fleet-drift.py` reports stale Renovate PRs as well as Dependabot ones, and
+  goes red when `crunchtools/renovate-config` differs from the canonical copy.
+
+### Added
+- `fleet-bump.py --renovate [--only ...] [--dry-run]`: the one-off swap that,
+  per repo, deletes `.github/dependabot.yml` and the Dependabot auto-merge
+  caller and opens an auto-merged PR. A workflow whose only job is the caller
+  is deleted; in one with other jobs only that job is cut, and a repo where it
+  cannot be cut cleanly is listed for hand work.
+
+### Deprecated
+- `dependabot-automerge.yml` and `examples/dependabot-automerge.yml`: kept
+  working for repos not yet swapped, removed with Dependabot support at v1.60.0.
+
+### Removed
+- `examples/dependabot.yml` and `examples/dependabot-uv.yml`.
+
 ## [1.56.0] - 2026-11-20
 
 ### Added

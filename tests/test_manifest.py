@@ -6,7 +6,6 @@ thing, and checks that exactly that is reported. Names follow XVII's roster.
 
 import json
 import re
-import shutil
 import subprocess
 from pathlib import Path
 
@@ -118,6 +117,24 @@ def write(root: Path, rel: str, text: str) -> None:
     path.write_text(text)
 
 
+# A repo still on Dependabot (XV, accepted until v1.60.0): the fixture's default,
+# since most of the fleet has not been swapped to Renovate yet.
+DEPENDABOT_UV = """\
+version: 2
+updates:
+  - package-ecosystem: "uv"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    ignore:
+      - dependency-name: "crunchtools/constitution*"
+"""
+
+
 @pytest.fixture
 def repo(tmp_path: Path) -> Path:
     root = tmp_path / "example-server"
@@ -133,7 +150,7 @@ def repo(tmp_path: Path) -> Path:
     for name in ("constitution.yml", "dependabot-automerge.yml", "container.yml"):
         text = re.sub(r"@v\d+\.\d+\.\d+", f"@v{VERSION}", (ROOT / "examples" / name).read_text())
         write(root, f".github/workflows/{name}", text)
-    shutil.copy(ROOT / "examples" / "dependabot-uv.yml", root / ".github" / "dependabot.yml")
+    write(root, ".github/dependabot.yml", DEPENDABOT_UV)
     for rel in ("pyproject.toml", "uv.lock", "Containerfile"):
         write(root, rel, "")
     write(root, "tests/test_tools.py", "assert tool.annotations.readOnlyHint is True\n")
@@ -729,8 +746,116 @@ def test_dependabot_must_ignore_constitution(repo):
 
 
 def test_dependabot_must_cover_profile_ecosystem(repo):
-    shutil.copy(ROOT / "examples" / "dependabot.yml", repo / ".github" / "dependabot.yml")
+    dependabot = repo / ".github/dependabot.yml"
+    dependabot.write_text(dependabot.read_text().replace('"uv"', '"pip"'))
     assert violations(repo) == ["FILES: .github/dependabot.yml does not cover `uv` (XV)"]
+
+
+def drop_dependabot(root: Path) -> None:
+    """What fleet-bump.py --renovate does: Renovate runs from the org config instead."""
+    (root / ".github/dependabot.yml").unlink()
+    (root / ".github/workflows/dependabot-automerge.yml").unlink()
+
+
+def test_a_repo_needs_no_update_config_of_its_own(repo):
+    """Renovate reaches every repo from crunchtools/renovate-config (XV)."""
+    drop_dependabot(repo)
+    assert violations(repo) == []
+
+
+def test_dependabot_fails_from_the_cutoff(repo):
+    """At `dependabot_until` the file and its auto-merge caller are both reported."""
+    fleet = {"dependabot_until": VERSION}
+    found = V.dependabot_violations(repo, VERSION, fleet, [])
+    assert [v.split("`")[1] for v in found] == [
+        ".github/dependabot.yml",
+        ".github/workflows/dependabot-automerge.yml",
+    ]
+    assert all("scripts/fleet-bump.py --renovate deletes it" in v for v in found)
+    drop_dependabot(repo)
+    assert V.dependabot_violations(repo, VERSION, fleet, []) == []
+
+
+def test_dependabot_is_judged_as_before_until_the_cutoff(repo):
+    assert V.dependabot_violations(repo, "1.59.9", {"dependabot_until": "1.60.0"}, []) == []
+
+
+def test_a_repo_renovate_config_may_override_anything_but_the_cooldown(repo):
+    drop_dependabot(repo)
+    write(repo, "renovate.json", '{"labels": ["deps"], "packageRules": [{"automerge": false}]}\n')
+    assert violations(repo) == []
+
+
+@pytest.mark.parametrize(
+    ("name", "text", "key"),
+    [
+        ("renovate.json", '{"minimumReleaseAge": "0 days"}', "minimumReleaseAge"),
+        (".github/renovate.json5", "{internalChecksFilter: 'none'}", "internalChecksFilter"),
+        (
+            ".renovaterc",
+            '{"packageRules": [{"matchManagers": ["npm"], '
+            '"minimumReleaseAgeBehaviour": "timestamp-optional"}]}',
+            "minimumReleaseAgeBehaviour",
+        ),
+        ("package.json", '{"renovate": {"npm": {"minimumReleaseAge": null}}}', "minimumReleaseAge"),
+        # Renovate migrates stabilityDays to minimumReleaseAge, and 0 to none at all.
+        ("renovate.json", '{"packageRules": [{"stabilityDays": 0}]}', "stabilityDays"),
+    ],
+)
+def test_a_repo_renovate_config_must_not_touch_the_cooldown(repo, name, text, key):
+    drop_dependabot(repo)
+    write(repo, name, text)
+    assert violations(repo) == [
+        f"FILES: {name} sets `{key}`; the release-age cooldown is fleet policy, "
+        f"set only in renovate/default.json (XV)"
+    ]
+
+
+@pytest.mark.parametrize(
+    ("name", "text", "preset"),
+    [
+        # Brings security:minimumReleaseAgeNpm: a 3-day packageRule that beats the 7 days.
+        ("renovate.json", '{"extends": ["config:best-practices"]}', "config:best-practices"),
+        (
+            ".github/renovate.json5",
+            "{extends: ['config:recommended', 'security:minimumReleaseAgeNpm']}",
+            "security:minimumReleaseAgeNpm",
+        ),
+        (
+            "package.json",
+            '{"renovate": {"extends": ["security:minimumReleaseAgePypi"]}}',
+            "security:minimumReleaseAgePypi",
+        ),
+    ],
+)
+def test_a_repo_renovate_config_must_not_extend_a_cooldown_preset(repo, name, text, preset):
+    drop_dependabot(repo)
+    write(repo, name, text)
+    assert violations(repo) == [
+        f"FILES: {name} extends `{preset}`, which sets its own release-age cooldown; "
+        f"that is fleet policy, set only in renovate/default.json (XV)"
+    ]
+
+
+def test_a_repo_renovate_config_may_extend_other_presets(repo):
+    drop_dependabot(repo)
+    write(repo, "renovate.json", '{"extends": ["config:recommended", ":label(deps)"]}')
+    assert violations(repo) == []
+
+
+def test_a_package_json_without_renovate_is_not_renovate_config(repo):
+    write(repo, "package.json", '{"name": "x", "config": {"minimumReleaseAge": 1}}')
+    assert violations(repo) == []
+
+
+def test_org_inherited_config_extends_the_preset_at_the_major_tag():
+    """The canonical copy of crunchtools/renovate-config's file: Renovate on every repo."""
+    doc = json.loads((ROOT / "renovate" / "org-inherited-config.json").read_text())
+    assert doc == {
+        "onboarding": False,
+        "requireConfig": "optional",
+        "extends": ["github>crunchtools/constitution//renovate/default#v1"],
+    }
 
 
 def test_forked_server_needs_its_sections_not_agpl(repo):

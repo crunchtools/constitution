@@ -186,3 +186,180 @@ def test_main_refuses_before_touching_a_repo(monkeypatch, capsys):
     monkeypatch.setattr(bump.sys, "argv", ["fleet-bump.py", "--version", "1.45.0"])
     assert bump.main() == 1
     assert "refused: v1 does not exist" in capsys.readouterr().err
+
+
+CALLER = "jobs:\n  merge:\n    uses: ./.github/workflows/dependabot-automerge.yml\n"
+VALIDATOR = bump.load_validator()
+MIXED = """\
+name: CI
+on: [pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - run: pytest  # the job that must survive
+
+  automerge:
+    name: Dependabot
+    uses: crunchtools/constitution/.github/workflows/dependabot-automerge.yml@v1
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - run: ruff check
+"""
+DEFINITION = "on:\n  workflow_call:\njobs:\n  merge:\n    runs-on: ubuntu-latest\n"
+
+
+def dependabot_repo(tmp_path, workflows):
+    flows = tmp_path / ".github/workflows"
+    flows.mkdir(parents=True)
+    (tmp_path / ".github/dependabot.yml").write_text("version: 2\n")
+    for name, text in workflows.items():
+        (flows / name).write_text(text)
+    return flows
+
+
+def test_drop_removes_dependabot_and_writes_no_renovate_json(tmp_path):
+    flows = dependabot_repo(
+        tmp_path,
+        {"dependabot-automerge.yml": CALLER, "other.yml": CALLER, "ci.yml": "on: push\njobs: {}\n"},
+    )
+    changes = bump.drop_dependabot(tmp_path, VALIDATOR)
+    assert changes == [
+        "-.github/dependabot.yml",
+        "-.github/workflows/dependabot-automerge.yml",
+        "-.github/workflows/other.yml",
+    ]
+    assert not (tmp_path / ".github/dependabot.yml").exists()
+    assert [p.name for p in flows.iterdir()] == ["ci.yml"]
+    assert not (tmp_path / "renovate.json").exists()
+
+
+def test_drop_keeps_the_reusable_definition_and_drops_its_caller(tmp_path):
+    flows = dependabot_repo(
+        tmp_path,
+        {"dependabot-automerge.yml": DEFINITION, "dependabot-automerge-caller.yml": CALLER},
+    )
+    bump.drop_dependabot(tmp_path, VALIDATOR)
+    assert (flows / "dependabot-automerge.yml").is_file()
+    assert not (flows / "dependabot-automerge-caller.yml").exists()
+
+
+def test_a_repo_with_nothing_to_delete_is_skipped(monkeypatch, tmp_path, capsys):
+    """A stackrox-like repo: no dependabot, no callers, and no renovate.json is added."""
+    (tmp_path / ".github/workflows").mkdir(parents=True)
+    (tmp_path / ".github/workflows/ci.yml").write_text("on: push\n")
+    monkeypatch.setattr(bump, "clone", lambda name, dest: tmp_path)
+    monkeypatch.setattr(bump, "open_pr", lambda *a: pytest.fail("no PR for an empty drop"))
+    bump.drop_repo("stackrox-like", tmp_path, VALIDATOR, False)
+    assert capsys.readouterr().out == ""
+    assert not (tmp_path / "renovate.json").exists()
+
+
+def test_a_mixed_workflow_loses_only_the_automerge_job(tmp_path):
+    """A ci.yml with tests and the caller keeps its tests, byte for byte (#195 review)."""
+    flows = dependabot_repo(tmp_path, {"ci.yml": MIXED})
+    changes = bump.drop_dependabot(tmp_path, VALIDATOR)
+    assert changes == ["-.github/dependabot.yml", "~.github/workflows/ci.yml (-job automerge)"]
+    text = (flows / "ci.yml").read_text()
+    assert "dependabot-automerge" not in text
+    assert text == MIXED.replace(
+        "  automerge:\n    name: Dependabot\n    uses: crunchtools/constitution/.github/"
+        "workflows/dependabot-automerge.yml@v1\n\n",
+        "",
+    )
+
+
+def test_cutting_a_job_keeps_the_comment_that_introduces_the_next_one(tmp_path):
+    """data-collector's shape: the comment above the surviving job stays with it."""
+    text = (
+        "jobs:\n  automerge:\n    uses: ./.github/workflows/dependabot-automerge.yml\n\n"
+        "  # Why the next job exists.\n  next:\n    runs-on: ubuntu-latest\n"
+    )
+    assert bump.cut_job(text, "automerge") == (
+        "jobs:\n  # Why the next job exists.\n  next:\n    runs-on: ubuntu-latest\n"
+    )
+
+
+def test_only_a_job_directly_under_jobs_is_cut():
+    """A same-named key under `on:` or inside another job is not the job."""
+    text = (
+        "on:\n  automerge:\n    types: [x]\njobs:\n  test:\n    automerge:\n      a: 1\n"
+        "  automerge:\n    uses: ./.github/workflows/dependabot-automerge.yml\n"
+    )
+    assert bump.cut_job(text, "automerge") == (
+        "on:\n  automerge:\n    types: [x]\njobs:\n  test:\n    automerge:\n      a: 1\n"
+    )
+    assert bump.cut_job("on: push\n", "automerge") == "on: push\n"
+
+
+def test_a_mixed_workflow_that_needs_the_automerge_job_is_left_for_a_human(tmp_path):
+    mixed = MIXED + "  after:\n    needs: [automerge]\n    runs-on: ubuntu-latest\n"
+    flows = dependabot_repo(tmp_path, {"ci.yml": mixed})
+    with pytest.raises(
+        RuntimeError, match=r"\.github/workflows/ci\.yml mixes .* remove job\(s\) automerge by hand"
+    ):
+        bump.drop_automerge(tmp_path, flows / "ci.yml", VALIDATOR)
+    assert (flows / "ci.yml").read_text() == mixed  # refused before writing anything
+    with pytest.raises(RuntimeError):
+        bump.drop_dependabot(tmp_path, VALIDATOR)
+    assert (tmp_path / ".github/dependabot.yml").is_file()
+
+
+def test_a_workflow_named_like_the_caller_but_not_calling_it_is_kept(tmp_path):
+    flows = dependabot_repo(tmp_path, {"dependabot-automerge.yml": "on: push\njobs:\n  x: {}\n"})
+    bump.drop_dependabot(tmp_path, VALIDATOR)
+    assert (flows / "dependabot-automerge.yml").is_file()
+
+
+def drop_main(monkeypatch, tmp_path, *argv):
+    dependabot_repo(tmp_path, {"dependabot-automerge.yml": CALLER})
+    calls = []
+    monkeypatch.setattr(bump, "select_repos", lambda only: [{"name": "example"}])
+    monkeypatch.setattr(bump, "clone", lambda name, dest: tmp_path)
+    monkeypatch.setattr(bump, "git", lambda *a: calls.append(a))
+    monkeypatch.setattr(bump, "gh", lambda *a, **k: calls.append(a) or "url\n")
+    monkeypatch.setattr(bump.subprocess, "run", lambda *a, **k: calls.append(a) or completed(0))
+    monkeypatch.setattr(bump.sys, "argv", ["fleet-bump.py", "--renovate", *argv])
+    monkeypatch.setattr(bump, "major_tag_refusal", lambda v: pytest.fail("not in drop mode"))
+    return calls
+
+
+def test_drop_dry_run_makes_no_git_or_gh_calls(monkeypatch, tmp_path, capsys):
+    calls = drop_main(monkeypatch, tmp_path, "--dry-run")
+    assert bump.main() == 0
+    assert calls == []
+    assert "example: drop Dependabot (-.github/dependabot.yml" in capsys.readouterr().out
+
+
+def test_drop_opens_a_pr_and_queues_auto_merge(monkeypatch, tmp_path):
+    calls = drop_main(monkeypatch, tmp_path)
+    assert bump.main() == 0
+    assert ("checkout", "-b", "chore/renovate") in [c[1:] for c in calls if c[0] == tmp_path]
+    assert any("create" in c for c in calls) and any(
+        "--auto" in c[0] for c in calls if isinstance(c[0], list)
+    )
+
+
+def test_renovate_and_version_are_exclusive(monkeypatch):
+    monkeypatch.setattr(bump.sys, "argv", ["fleet-bump.py", "--renovate", "--version", "1.2.3"])
+    with pytest.raises(SystemExit):
+        bump.main()
+
+
+def test_run_keeps_going_past_a_failed_repo_and_reports_it(monkeypatch, capsys):
+    """One repo's failure must not leave the rest of the fleet behind, nor read as success."""
+    monkeypatch.setattr(bump, "select_repos", lambda only: [{"name": n} for n in "abc"])
+    seen = []
+
+    def handle(name, clone_root):
+        seen.append(name)
+        if name == "b":
+            raise RuntimeError("push timed out")
+
+    assert bump.run(None, handle) == 1
+    assert seen == ["a", "b", "c"]
+    err = capsys.readouterr().err
+    assert "b: FAILED: push timed out" in err
+    assert "rerun with --only b" in err

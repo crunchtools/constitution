@@ -25,6 +25,60 @@ jobs:
           SDLC_IMAGE: ${{ vars.SDLC_IMAGE }}
         run: .sdlc/bin/sdlc ci
 
+  # The fleet's Renovate policy (XV), checked by Renovate's own code at a pinned
+  # release: the preset as repo config (--no-global, which is how Renovate reads
+  # a preset), and the canonical org-inherited config as inherited config.
+  renovate:
+    name: Renovate preset
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+      - name: Install Renovate
+        run: npm install --prefix "$RUNNER_TEMP/renovate" --no-save --no-audit renovate@44.221.0
+      - name: Validate the preset
+        run: >-
+          "$RUNNER_TEMP/renovate/node_modules/.bin/renovate-config-validator"
+          --strict --no-global renovate/default.json
+      - name: Validate the org-inherited config
+        run: >-
+          node scripts/validate-renovate-inherited.mjs
+          "$RUNNER_TEMP/renovate/node_modules/renovate" renovate/org-inherited-config.json
+      - name: Locked presets cover every built-in cooldown preset
+        run: |
+          read -r keys patterns < <(python3 -c '
+          import tomllib
+          fleet = tomllib.load(open("profiles/requirements.toml", "rb"))["fleet"]
+          print(",".join(fleet["renovate_locked"]), ",".join(fleet["renovate_locked_presets"]))')
+          node scripts/renovate-cooldown-presets.mjs \
+            "$RUNNER_TEMP/renovate/node_modules/renovate" "$keys" "$patterns"
+      # The inherit-mode script against Renovate's real code: an error and a
+      # warning (a global-only key the inherited file may not carry) each fail
+      # it, with the diagnostic printed. pytest cannot run these: `sdlc ci` has
+      # no Node or Renovate.
+      - name: Inherited-config validator rejects errors and warnings
+        env:
+          RENOVATE_PKG: ${{ runner.temp }}/renovate/node_modules/renovate
+        run: |
+          set -u
+          for case in "error:should be boolean:1 error(s), 0 warning(s)" \
+                      "warning:binarySource:0 error(s), 1 warning(s)"; do
+            IFS=: read -r name diagnostic summary <<<"$case"
+            file="tests/renovate/inherited-$name.json"
+            if out=$(node scripts/validate-renovate-inherited.mjs "$RENOVATE_PKG" "$file" 2>&1); then
+              echo "ERROR: $file passed"; exit 1
+            fi
+            echo "$out"
+            for expected in "$diagnostic" "$summary"; do
+              grep -qF "$expected" <<<"$out" || { echo "ERROR: $file missing '$expected'"; exit 1; }
+            done
+          done
+
   # This repo's own checks: the validator run against fixture constitutions
   # that must pass and fixture constitutions that must fail. They are tests,
   # and they belong in tests/ where `sdlc ci` would run them -- written as
