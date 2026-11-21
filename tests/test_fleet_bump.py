@@ -363,3 +363,75 @@ def test_run_keeps_going_past_a_failed_repo_and_reports_it(monkeypatch, capsys):
     err = capsys.readouterr().err
     assert "b: FAILED: push timed out" in err
     assert "rerun with --only b" in err
+
+
+GATEHOUSE_CALLER = """on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+  pull_request_review_comment:
+    types: [created]
+jobs:
+  review:
+    uses: crunchtools/gatehouse/.github/workflows/review.yml@v0
+"""
+
+
+def test_a_gatehouse_callers_trigger_is_justified_and_ignored():
+    after = bump.ignore_caller_triggers(GATEHOUSE_CALLER)
+    assert after is not None
+    lines = after.splitlines()
+    trigger = lines.index("  pull_request_target:  # zizmor: ignore[dangerous-triggers]")
+    assert lines[trigger - 1].startswith("  # ") and "checked out" in lines[trigger - 2]
+    # Only the flagged trigger moves; the rest is the repo's own copy, byte for byte.
+    assert "  pull_request_review_comment:\n" in after
+    assert after.endswith(GATEHOUSE_CALLER.split("jobs:")[1])
+
+
+def test_an_ashigaru_caller_gets_each_flagged_trigger_justified():
+    caller = (
+        "on:\n  issue_comment:\n    types: [created]\n  workflow_run:\n"
+        "    workflows: [Gatehouse]\n  pull_request_target:\n    types: [closed]\n"
+        "jobs:\n  a:\n    uses: crunchtools/ashigaru/.github/workflows/router.yml@v5\n"
+    )
+    after = bump.ignore_caller_triggers(caller)
+    flagged = ("issue_comment", "workflow_run", "pull_request_target")
+    assert after is not None
+    for event in flagged:
+        assert f"  {event}:  # zizmor: ignore[dangerous-triggers]\n" in after
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        # Already justified: running the mode twice changes nothing.
+        GATEHOUSE_CALLER.replace(
+            "pull_request_target:\n", "pull_request_target:  # zizmor: ignore[dangerous-triggers]\n"
+        ),
+        # Calls neither product.
+        GATEHOUSE_CALLER.replace("crunchtools/gatehouse", "crunchtools/constitution"),
+        # Checks code out, so the reason would not hold; left for a human.
+        GATEHOUSE_CALLER
+        + "      - uses: actions/checkout@0000000000000000000000000000000000000000\n",
+    ],
+)
+def test_a_caller_the_reason_does_not_cover_is_left_alone(text):
+    assert bump.ignore_caller_triggers(text) is None
+
+
+def test_ignore_callers_rewrites_only_the_files_that_change(tmp_path):
+    workflows = tmp_path / ".github" / "workflows"
+    workflows.mkdir(parents=True)
+    (workflows / "gatehouse.yml").write_text(GATEHOUSE_CALLER)
+    (workflows / "ci.yml").write_text("on: push\njobs: {}\n")
+    assert bump.ignore_callers(tmp_path) == [".github/workflows/gatehouse.yml"]
+    assert bump.ignore_callers(tmp_path) == []
+
+
+def test_zizmor_callers_dry_run_makes_no_git_or_gh_calls(monkeypatch, tmp_path, capsys):
+    workflows = tmp_path / "r" / ".github" / "workflows"
+    workflows.mkdir(parents=True)
+    (workflows / "gatehouse.yml").write_text(GATEHOUSE_CALLER)
+    monkeypatch.setattr(bump, "clone", lambda name, dest: dest / name)
+    monkeypatch.setattr(bump, "open_pr", lambda *a: pytest.fail("dry run opened a PR"))
+    bump.callers_repo("r", tmp_path, dry_run=True)
+    assert "r: justify caller triggers (.github/workflows/gatehouse.yml)" in capsys.readouterr().out

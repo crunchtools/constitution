@@ -13,11 +13,14 @@ lists it.
 Usage:
     fleet-bump.py [--version 1.19.0] [--only repo,repo] [--dry-run]
     fleet-bump.py --renovate [--only repo,repo] [--dry-run]
+    fleet-bump.py --zizmor-callers [--only repo,repo] [--dry-run]
 
 Run after tagging a release. Needs GH_TOKEN with contents, pull-requests and
 workflows write across the org. `--renovate` is the one-off Dependabot teardown (XV):
 in every repo it drops dependabot.yml and the auto-merge caller workflows. Renovate
 needs no per-repo file; it runs from the org config in crunchtools/renovate-config.
+`--zizmor-callers` is the one-off that marks the triggers of each repo's Gatehouse and
+Ashigaru callers as reviewed for zizmor's dangerous-triggers audit (a860).
 """
 
 import argparse
@@ -25,6 +28,7 @@ import re
 import subprocess
 import sys
 import tempfile
+from dataclasses import dataclass
 from pathlib import Path
 
 from fleet_common import MANIFEST, ORG, clone, gh, load_validator, select_repos
@@ -43,6 +47,37 @@ MAJOR_TAGGED = re.compile(
 MAJOR_TAGS_SINCE = (1, 24, 0)
 CONSTITUTION_MAJOR_SINCE = (1, 45, 0)
 PRE_COMMIT = ".pre-commit-config.yaml"
+# A caller of Gatehouse's or Ashigaru's reusable workflows, and the triggers
+# zizmor's dangerous-triggers audit flags in one. A trigger that already carries
+# a comment is left alone.
+CALLER_USES = re.compile(r"crunchtools/(gatehouse|ashigaru)/\.github/workflows/[\w-]+\.ya?ml@")
+FLAGGED_TRIGGER = re.compile(
+    r"^(?P<indent>[ \t]+)(?P<event>pull_request_target|workflow_run|issue_comment):[ \t]*$",
+    re.MULTILINE,
+)
+# Why each trigger is safe, as the templates in crunchtools/gatehouse examples/
+# and crunchtools/ashigaru examples/ word it. Neither product's workflows check
+# out a fork's code; a caller that adds a checkout of its own is not touched.
+TRIGGER_REASONS = {
+    ("gatehouse", "pull_request_target"): (
+        "Nothing from the PR is checked out or run: the guard reads the file list",
+        "and the reviewer reads the diff, which is what makes this trigger safe here.",
+    ),
+    ("gatehouse", "workflow_run"): ("Re-runs a job by id; nothing from the PR is read or run.",),
+    ("ashigaru", "pull_request_target"): (
+        "Only a merged ashigaru/release- branch in this repository is acted on,",
+        "and nothing from the pull request is checked out.",
+    ),
+    ("ashigaru", "workflow_run"): (
+        "Only fix.yml acts on it, for an ashigaru/ branch in this repository that",
+        "the Ashigaru app wrote; it never checks out a fork's code.",
+    ),
+    ("ashigaru", "issue_comment"): (
+        "Ashigaru runs no comment's content and checks out nothing for one; an",
+        "event it does not act on ends in a job that reads no secret.",
+    ),
+}
+ZIZMOR_IGNORE = "  # zizmor: ignore[dangerous-triggers]"
 AUTOMERGE_USES = re.compile(r"(?:^|/)\.github/workflows/dependabot-automerge\.ya?ml(?:@|$)")
 
 
@@ -243,23 +278,92 @@ def drop_dependabot(root: Path, validator) -> list[str]:
     return changes
 
 
-def drop_repo(name: str, clone_root: Path, validator, dry_run: bool) -> None:
-    """Drop Dependabot from one repo; a repo with nothing to delete is skipped."""
+@dataclass(frozen=True)
+class OneOff:
+    """A one-off fleet change: what the dry run calls it, and the PR that carries it."""
+
+    what: str
+    branch: str
+    title: str
+    body: str
+
+
+RENOVATE = OneOff(
+    "drop Dependabot",
+    "chore/renovate",
+    "chore: drop Dependabot; Renovate runs from the org config",
+    "Renovate now applies the fleet policy to every repo from "
+    "`crunchtools/renovate-config`'s `org-inherited-config.json`, which extends "
+    "`crunchtools/constitution` `renovate/default.json` (constitution XV), so the repo "
+    "needs no config of its own. Drops `.github/dependabot.yml` and the Dependabot "
+    "auto-merge caller. Opened by constitution/scripts/fleet-bump.py --renovate.",
+)
+ZIZMOR_CALLERS = OneOff(
+    "justify caller triggers",
+    "chore/zizmor-callers",
+    "chore: justify the Gatehouse and Ashigaru caller triggers for zizmor",
+    "zizmor (constitution XV rule 8) flags `pull_request_target`, `workflow_run` "
+    "and `issue_comment` as dangerous triggers. In a Gatehouse or Ashigaru caller "
+    "each is needed and safe, because neither checks out a fork's code, so each "
+    "now carries an inline `zizmor: ignore[dangerous-triggers]` with its reason, "
+    "as the templates do. No trigger or job changes. Opened by "
+    "constitution/scripts/fleet-bump.py --zizmor-callers.",
+)
+
+
+def one_off_repo(name: str, clone_root: Path, one_off: OneOff, change, dry_run: bool) -> None:
+    """Apply `change(root)` to one repo and open its PR; a repo it leaves alone is skipped."""
     root = clone(name, clone_root)
-    changes = drop_dependabot(root, validator)
+    changes = change(root)
     if not changes:
         return
-    print(f"{name}: drop Dependabot ({', '.join(changes)})")
+    print(f"{name}: {one_off.what} ({', '.join(changes)})")
     if not dry_run:
-        body = (
-            "Renovate now applies the fleet policy to every repo from "
-            "`crunchtools/renovate-config`'s `org-inherited-config.json`, which extends "
-            "`crunchtools/constitution` `renovate/default.json` (constitution XV), so the repo "
-            "needs no config of its own. Drops `.github/dependabot.yml` and the Dependabot "
-            "auto-merge caller. Opened by constitution/scripts/fleet-bump.py --renovate."
-        )
-        title = "chore: drop Dependabot; Renovate runs from the org config"
-        print(f"  {open_pr(root, name, 'chore/renovate', title, body)}")
+        print(f"  {open_pr(root, name, one_off.branch, one_off.title, one_off.body)}")
+
+
+def drop_repo(name: str, clone_root: Path, validator, dry_run: bool) -> None:
+    """Drop Dependabot from one repo; a repo with nothing to delete is skipped."""
+    one_off_repo(name, clone_root, RENOVATE, lambda r: drop_dependabot(r, validator), dry_run)
+
+
+def ignore_caller_triggers(text: str) -> str | None:
+    """The caller with each flagged trigger justified and ignored, or None if nothing changes.
+
+    Only a file that calls Gatehouse or Ashigaru and checks nothing out is
+    rewritten, and only its trigger lines: the rest of a repo's copy stays as
+    the repo has it, whichever template version it came from.
+    """
+    calls = {m.group(1) for m in CALLER_USES.finditer(text)}
+    if len(calls) != 1 or "actions/checkout" in text:
+        return None
+    product = calls.pop()
+
+    def justify(match: re.Match) -> str:
+        reason = TRIGGER_REASONS.get((product, match["event"]))
+        if reason is None:
+            return match[0]
+        comments = "".join(f"{match['indent']}# {line}\n" for line in reason)
+        return f"{comments}{match[0].rstrip()}{ZIZMOR_IGNORE}"
+
+    after = FLAGGED_TRIGGER.sub(justify, text)
+    return after if after != text else None
+
+
+def ignore_callers(root: Path) -> list[str]:
+    """Justify the flagged triggers in every Gatehouse and Ashigaru caller; returns the paths."""
+    changed = []
+    for path in sorted((root / ".github" / "workflows").glob("*.y*ml")):
+        after = ignore_caller_triggers(path.read_text())
+        if after is not None:
+            path.write_text(after)
+            changed.append(str(path.relative_to(root)))
+    return changed
+
+
+def callers_repo(name: str, clone_root: Path, dry_run: bool) -> None:
+    """Justify one repo's caller triggers; a repo with nothing to change is skipped."""
+    one_off_repo(name, clone_root, ZIZMOR_CALLERS, ignore_callers, dry_run)
 
 
 def bump_repo(name: str, version: str, clone_root: Path, validator, dry_run: bool) -> None:
@@ -310,15 +414,17 @@ def main() -> int:
         type=release_version,
         help="target version, X.Y.Z (default: this checkout's)",
     )
-    mode.add_argument(
-        "--renovate",
-        action="store_true",
-        help="one-off: delete Dependabot config and auto-merge callers in every repo",
-    )
+    for flag, purpose in (
+        ("--renovate", "delete Dependabot config and auto-merge callers in every repo"),
+        ("--zizmor-callers", "justify the dangerous triggers in Gatehouse and Ashigaru callers"),
+    ):
+        mode.add_argument(flag, action="store_true", help=f"one-off: {purpose}")
     parser.add_argument("--only", help="comma-separated repo names")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
 
+    if args.zizmor_callers:
+        return run(args.only, lambda name, root: callers_repo(name, root, args.dry_run))
     if args.renovate:
         validator = load_validator()
         return run(args.only, lambda name, root: drop_repo(name, root, validator, args.dry_run))

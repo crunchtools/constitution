@@ -9,6 +9,16 @@ Entries through 1.14.0 are derived from the Ratification History table in
 
 ## [Unreleased]
 
+### Added
+- `fleet-bump.py --zizmor-callers [--only ...] [--dry-run]` (a860): the
+  one-off that clears zizmor's dangerous-triggers highs from each repo's
+  Gatehouse and Ashigaru callers, nearly all of the fleet's 206. In every
+  workflow that calls one of the two and checks nothing out, each bare
+  `pull_request_target`, `workflow_run` and `issue_comment` trigger gets the
+  template's reason and an inline `zizmor: ignore[dangerous-triggers]`. The
+  rest of the file stays as the repo has it, so no caller moves to a newer
+  template in passing. A trigger already carrying a comment is left alone.
+
 ## [1.58.0] - 2026-11-21
 
 ### Added
