@@ -25,12 +25,13 @@ Entries through 1.14.0 are derived from the Ratification History table in
 - The constitution's own workflows pass zizmor: every third-party action is
   pinned by commit SHA, checkouts drop their credentials, `ci.yml` declares
   `contents: read`, the downstream dispatch token in `container-release.yml`
-  reaches only the repos it dispatches to instead of the whole org, local
-  reusable workflows use GitHub's `$/` self-repository syntax, and the
+  reaches only the repos it dispatches to instead of the whole org, and the
   `pull_request_target` and `workflow_run` triggers (Gatehouse, Ashigaru) are
   justified inline: none checks out or runs a pull request's code.
-- The third-party pin check (XV rule 2) treats a `$/` self-repository `uses:`
-  as local, like `./`.
+- The validator treats GitHub's `$/` self-repository `uses:` as local, like
+  `./`, in the third-party pin check (XV rule 2) and when finding the
+  reusable workflows a repo calls. This repo keeps `./` until its pin passes
+  1.58.0: older validators read `$/` as a third-party ref.
 
 ## [1.57.0] - 2026-11-21
 
