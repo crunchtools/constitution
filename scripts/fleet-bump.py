@@ -43,8 +43,7 @@ MAJOR_TAGGED = re.compile(
 MAJOR_TAGS_SINCE = (1, 24, 0)
 CONSTITUTION_MAJOR_SINCE = (1, 45, 0)
 PRE_COMMIT = ".pre-commit-config.yaml"
-AUTOMERGE_CALL = re.compile(r"^\s*(?:-\s*)?uses:\s*\S*dependabot-automerge\.yml", re.MULTILINE)
-WORKFLOW_CALL = re.compile(r"^\s*(?:on:\s*\[?.*)?\bworkflow_call\b", re.MULTILINE)
+AUTOMERGE_USES = re.compile(r"(?:^|/)\.github/workflows/dependabot-automerge\.ya?ml(?:@|$)")
 
 
 def major_tag_refusal(version: str) -> str | None:
@@ -134,30 +133,98 @@ def open_bump_pr(root: Path, name: str, version: str, changed: list[Path]) -> st
     )
 
 
-def is_automerge_caller(path: Path) -> bool:
-    """True for a workflow that calls dependabot-automerge.yml, never for the reusable one."""
+def automerge_jobs(workflow: dict) -> set[str]:
+    """Ids of the jobs that call dependabot-automerge.yml (a reusable-workflow `uses:`)."""
+    jobs = workflow.get("jobs") or {}
+    return {
+        job_id
+        for job_id, job in jobs.items()
+        if isinstance(job, dict) and AUTOMERGE_USES.search(str(job.get("uses", "")))
+    }
+
+
+def cut_job(text: str, job_id: str) -> str:
+    """The workflow text without job `job_id`'s block, everything else byte for byte.
+
+    Comments trailing the block introduce whatever follows it, so they stay;
+    only the blank lines separating the cut job from them go with it.
+    """
+    lines = text.splitlines(keepends=True)
+    head = re.compile(rf"^(\s+){re.escape(job_id)}:\s*(?:#.*)?$")
+    found = next(((i, m) for i, line in enumerate(lines) if (m := head.match(line))), None)
+    if found is None:
+        return text
+    start, match = found
+    indent = len(match.group(1))
+
+    def inert(line: str) -> bool:
+        return not line.strip() or line.lstrip().startswith("#")
+
+    def outside(line: str) -> bool:
+        return not inert(line) and len(line) - len(line.lstrip()) <= indent
+
+    end = next((i for i in range(start + 1, len(lines)) if outside(lines[i])), len(lines))
+    keep = next((i for i in range(start + 1, end) if all(map(inert, lines[i:end]))), end)
+    while keep < end and not lines[keep].strip():
+        keep += 1
+    return "".join(lines[:start] + lines[keep:])
+
+
+def drop_automerge(path: Path, validator) -> str | None:
+    """Remove the auto-merge caller from one workflow; returns the change, or None.
+
+    A file whose every job is the caller is deleted. In a file with other jobs
+    only the caller's job is cut, and only if the rest parses back to exactly
+    the same jobs and none of them `needs` it; otherwise this raises, and the
+    repo is listed for hand work rather than losing its other jobs.
+    """
+    workflow = validator.load_yaml(path)
+    if workflow is None or "workflow_call" in validator.triggers(workflow):
+        return None  # the reusable definition itself, or nothing we can read
+    callers = automerge_jobs(workflow)
+    if not callers:
+        return None
+    jobs = workflow.get("jobs") or {}
+    if callers == set(jobs):
+        path.unlink()
+        return f"-{path.name}"
     text = path.read_text()
-    if WORKFLOW_CALL.search(text):
-        return False
-    return path.name == "dependabot-automerge.yml" or bool(AUTOMERGE_CALL.search(text))
+    for job_id in callers:
+        text = cut_job(text, job_id)
+    kept = {k: v for k, v in jobs.items() if k not in callers}
+    needs = {
+        n
+        for job in kept.values()
+        if isinstance(job, dict)
+        for n in ([job["needs"]] if isinstance(job.get("needs"), str) else job.get("needs") or [])
+    }
+    path.write_text(text)
+    after = validator.load_yaml(path)
+    if after is None or (after.get("jobs") or {}) != kept or needs & callers:
+        raise RuntimeError(
+            f"{path.name} mixes the Dependabot auto-merge job with others and cannot be "
+            f"cut cleanly; remove job(s) {', '.join(sorted(callers))} by hand"
+        )
+    return f"~{path.name} (-job {', '.join(sorted(callers))})"
 
 
-def drop_dependabot(root: Path) -> list[str]:
-    """Delete dependabot.yml and the auto-merge callers; returns the removed paths."""
+def drop_dependabot(root: Path, validator) -> list[str]:
+    """Delete dependabot.yml and the auto-merge callers; returns the changes."""
     changes = []
-    doomed = [root / ".github" / "dependabot.yml"]
-    doomed += sorted((root / ".github" / "workflows").glob("*.y*ml"))
-    for path in doomed:
-        if (path.name == "dependabot.yml" or is_automerge_caller(path)) and path.is_file():
-            path.unlink()
-            changes.append(f"-{path.relative_to(root)}")
+    dependabot = root / ".github" / "dependabot.yml"
+    if dependabot.is_file():
+        dependabot.unlink()
+        changes.append("-.github/dependabot.yml")
+    for path in sorted((root / ".github" / "workflows").glob("*.y*ml")):
+        if change := drop_automerge(path, validator):
+            changes.append(change[0] + ".github/workflows/" + change[1:])
     return changes
 
 
-def drop_repo(name: str, clone_root: Path, dry_run: bool) -> None:
+def drop_repo(name: str, clone_root: Path, validator, dry_run: bool) -> None:
     """Drop Dependabot from one repo; a repo with nothing to delete is skipped."""
     root = clone(name, clone_root)
-    changes = drop_dependabot(root)
+    changes = drop_dependabot(root, validator)
     if not changes:
         return
     print(f"{name}: drop Dependabot ({', '.join(changes)})")
@@ -231,7 +298,8 @@ def main() -> int:
     args = parser.parse_args()
 
     if args.renovate:
-        return run(args.only, lambda name, root: drop_repo(name, root, args.dry_run))
+        validator = load_validator()
+        return run(args.only, lambda name, root: drop_repo(name, root, validator, args.dry_run))
     validator = load_validator()
     version = args.version or validator.own_version()
     if tuple(int(part) for part in version.split(".")) >= CONSTITUTION_MAJOR_SINCE and (

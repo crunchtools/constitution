@@ -18,6 +18,7 @@ Exit codes:
 
 import argparse
 import ast
+import fnmatch
 import hashlib
 import json
 import os
@@ -1244,15 +1245,19 @@ def check_gate_workflows(repo_root: Path, inherits: str, requirements: dict) -> 
     return violations
 
 
-def renovate_override_violations(repo_root: Path, locked: list[str]) -> list[str]:
+def renovate_override_violations(
+    repo_root: Path, locked: list[str], locked_presets: list[str]
+) -> list[str]:
     """A repo's own Renovate config must not touch the fleet's release-age cooldown (XV).
 
     The org-inherited config applies renovate/default.json to every repo and a
     repo config merges on top of it, so one key here undoes the week's wait for
     that repo. Any other override is the repo's own business. Matched as text,
     in every file Renovate reads, because JSON5 and JSONC are not parseable here
-    and a key inside a packageRule loosens it as surely as one at the top.
+    and a key inside a packageRule loosens it as surely as one at the top. An
+    `extends` of a preset that sets them is the same override one step removed.
     """
+    quoted = re.compile(r"[\"']([\w:./>@#-]+?)(?:\([^\"']*\))?[\"']")
     key = re.compile(rf"[\"']?\b({'|'.join(map(re.escape, locked))})\b[\"']?\s*:")
     violations = []
     for name in RENOVATE_CONFIG_FILES:
@@ -1271,6 +1276,16 @@ def renovate_override_violations(repo_root: Path, locked: list[str]) -> list[str
             violations.append(
                 f"FILES: {name} sets `{found}`; the release-age cooldown is fleet policy, "
                 f"set only in renovate/default.json (XV)"
+            )
+        presets = {
+            p
+            for p in quoted.findall(text)
+            if any(fnmatch.fnmatchcase(p, g) for g in locked_presets)
+        }
+        for found in sorted(presets):
+            violations.append(
+                f"FILES: {name} extends `{found}`, which sets its own release-age cooldown; "
+                f"that is fleet policy, set only in renovate/default.json (XV)"
             )
     return violations
 
@@ -1340,7 +1355,9 @@ def check_dependency_updates(
     fleet = requirements.get("fleet", {})
     rules = [requirements.get("profile", {}).get(p, {}) for p in profiles]
     return dependabot_violations(repo_root, inherits, fleet, rules) + (
-        renovate_override_violations(repo_root, fleet.get("renovate_locked", []))
+        renovate_override_violations(
+            repo_root, fleet.get("renovate_locked", []), fleet.get("renovate_locked_presets", [])
+        )
     )
 
 

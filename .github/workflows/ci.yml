@@ -49,6 +49,14 @@ jobs:
         run: >-
           node scripts/validate-renovate-inherited.mjs
           "$RUNNER_TEMP/renovate/node_modules/renovate" renovate/org-inherited-config.json
+      - name: Locked presets cover every built-in cooldown preset
+        run: |
+          read -r keys patterns < <(python3 -c '
+          import tomllib
+          fleet = tomllib.load(open("profiles/requirements.toml", "rb"))["fleet"]
+          print(",".join(fleet["renovate_locked"]), ",".join(fleet["renovate_locked_presets"]))')
+          node scripts/renovate-cooldown-presets.mjs \
+            "$RUNNER_TEMP/renovate/node_modules/renovate" "$keys" "$patterns"
       # The inherit-mode script against Renovate's real code: an error and a
       # warning (a global-only key the inherited file may not carry) each fail
       # it, with the diagnostic printed. pytest cannot run these: `sdlc ci` has

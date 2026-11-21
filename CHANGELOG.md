@@ -26,8 +26,11 @@ Entries through 1.14.0 are derived from the Ratification History table in
   images never are, and `crunchtools/constitution` is ignored. `ci.yml`
   validates both files with Renovate's own code.
 - The validator rejects a repo Renovate config that sets `minimumReleaseAge`,
-  `minimumReleaseAgeBehaviour` or `internalChecksFilter`, in any file Renovate
-  reads; any other override is fine. `.github/dependabot.yml` and its auto-merge
+  `minimumReleaseAgeBehaviour`, `internalChecksFilter` or `stabilityDays`, or
+  extends `config:best-practices` or `security:minimumReleaseAge*`, in any file
+  Renovate reads; any other override is fine. `ci.yml` recomputes the built-in
+  presets that set a cooldown from the pinned Renovate and fails if the list
+  misses one. `.github/dependabot.yml` and its auto-merge
   caller are accepted, judged as before, by a repo inheriting a release before
   v1.60.0, and fail from it. The auto-merge workflow is required only where
   `dependabot.yml` still exists.
@@ -37,7 +40,9 @@ Entries through 1.14.0 are derived from the Ratification History table in
 ### Added
 - `fleet-bump.py --renovate [--only ...] [--dry-run]`: the one-off swap that,
   per repo, deletes `.github/dependabot.yml` and the Dependabot auto-merge
-  caller and opens an auto-merged PR.
+  caller and opens an auto-merged PR. A workflow whose only job is the caller
+  is deleted; in one with other jobs only that job is cut, and a repo where it
+  cannot be cut cleanly is listed for hand work.
 
 ### Deprecated
 - `dependabot-automerge.yml` and `examples/dependabot-automerge.yml`: kept

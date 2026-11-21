@@ -798,6 +798,8 @@ def test_a_repo_renovate_config_may_override_anything_but_the_cooldown(repo):
             "minimumReleaseAgeBehaviour",
         ),
         ("package.json", '{"renovate": {"npm": {"minimumReleaseAge": null}}}', "minimumReleaseAge"),
+        # Renovate migrates stabilityDays to minimumReleaseAge, and 0 to none at all.
+        ("renovate.json", '{"packageRules": [{"stabilityDays": 0}]}', "stabilityDays"),
     ],
 )
 def test_a_repo_renovate_config_must_not_touch_the_cooldown(repo, name, text, key):
@@ -807,6 +809,38 @@ def test_a_repo_renovate_config_must_not_touch_the_cooldown(repo, name, text, ke
         f"FILES: {name} sets `{key}`; the release-age cooldown is fleet policy, "
         f"set only in renovate/default.json (XV)"
     ]
+
+
+@pytest.mark.parametrize(
+    ("name", "text", "preset"),
+    [
+        # Brings security:minimumReleaseAgeNpm: a 3-day packageRule that beats the 7 days.
+        ("renovate.json", '{"extends": ["config:best-practices"]}', "config:best-practices"),
+        (
+            ".github/renovate.json5",
+            "{extends: ['config:recommended', 'security:minimumReleaseAgeNpm']}",
+            "security:minimumReleaseAgeNpm",
+        ),
+        (
+            "package.json",
+            '{"renovate": {"extends": ["security:minimumReleaseAgePypi"]}}',
+            "security:minimumReleaseAgePypi",
+        ),
+    ],
+)
+def test_a_repo_renovate_config_must_not_extend_a_cooldown_preset(repo, name, text, preset):
+    drop_dependabot(repo)
+    write(repo, name, text)
+    assert violations(repo) == [
+        f"FILES: {name} extends `{preset}`, which sets its own release-age cooldown; "
+        f"that is fleet policy, set only in renovate/default.json (XV)"
+    ]
+
+
+def test_a_repo_renovate_config_may_extend_other_presets(repo):
+    drop_dependabot(repo)
+    write(repo, "renovate.json", '{"extends": ["config:recommended", ":label(deps)"]}')
+    assert violations(repo) == []
 
 
 def test_a_package_json_without_renovate_is_not_renovate_config(repo):

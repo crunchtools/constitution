@@ -626,9 +626,13 @@ and the build broke with zero code changes to point at.
    updates come as one grouped PR per repo; silently disabling or ignoring an
    ecosystem is not fine. A repo may add its own Renovate config for what is
    unique to it, and it merges on top of the inherited one, but it MUST NOT
-   set `minimumReleaseAge`, `minimumReleaseAgeBehaviour` or
-   `internalChecksFilter`, at the top or in a `packageRule`: the cooldown is
-   fleet policy (machine-checked, `renovate_locked` in `requirements.toml`).
+   set `minimumReleaseAge`, `minimumReleaseAgeBehaviour`,
+   `internalChecksFilter` or the old `stabilityDays`, at the top or in a
+   `packageRule`, nor extend a preset that sets them (`config:best-practices`,
+   `security:minimumReleaseAge*`): the cooldown is fleet policy
+   (machine-checked, `renovate_locked` and `renovate_locked_presets` in
+   `requirements.toml`; `ci.yml` fails if a Renovate release adds a built-in
+   preset the list misses).
 
 4. **Minor and patch updates merge themselves, in every ecosystem.** Every
    repo has `allow_auto_merge` on, and the preset sets `automerge` with

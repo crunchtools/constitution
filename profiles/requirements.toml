@@ -26,8 +26,20 @@ files = ["CHANGELOG.md", ".pre-commit-config.yaml"]
 # XV rules 2-4: Renovate runs on every repo from the org-inherited config
 # (crunchtools/renovate-config, canonical copy renovate/org-inherited-config.json),
 # which extends renovate/default.json. A repo needs no config of its own, and one
-# it adds may override anything except these keys: the release-age cooldown.
-renovate_locked = ["minimumReleaseAge", "minimumReleaseAgeBehaviour", "internalChecksFilter"]
+# it adds may override anything except the release-age cooldown: these keys
+# (stabilityDays is the old name Renovate migrates to minimumReleaseAge, 0 to
+# none at all) ...
+renovate_locked = [
+  "minimumReleaseAge",
+  "minimumReleaseAgeBehaviour",
+  "internalChecksFilter",
+  "stabilityDays",
+]
+# ... and these built-in presets (fnmatch), which set them themselves or extend
+# one that does: config:best-practices brings security:minimumReleaseAgeNpm, a
+# 3-day packageRule that beats the fleet's 7. ci.yml recomputes the set from the
+# pinned Renovate and fails if a release adds one this list does not match.
+renovate_locked_presets = ["config:best-practices", "security:minimumReleaseAge*"]
 
 # Dependabot support ends here. A repo inheriting an earlier release may keep
 # .github/dependabot.yml and its auto-merge caller, judged by the `dependabot`

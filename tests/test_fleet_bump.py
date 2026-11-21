@@ -189,6 +189,25 @@ def test_main_refuses_before_touching_a_repo(monkeypatch, capsys):
 
 
 CALLER = "jobs:\n  merge:\n    uses: ./.github/workflows/dependabot-automerge.yml\n"
+VALIDATOR = bump.load_validator()
+MIXED = """\
+name: CI
+on: [pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - run: pytest  # the job that must survive
+
+  automerge:
+    name: Dependabot
+    uses: crunchtools/constitution/.github/workflows/dependabot-automerge.yml@v1
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - run: ruff check
+"""
 DEFINITION = "on:\n  workflow_call:\njobs:\n  merge:\n    runs-on: ubuntu-latest\n"
 
 
@@ -204,9 +223,9 @@ def dependabot_repo(tmp_path, workflows):
 def test_drop_removes_dependabot_and_writes_no_renovate_json(tmp_path):
     flows = dependabot_repo(
         tmp_path,
-        {"dependabot-automerge.yml": CALLER, "other.yml": CALLER, "ci.yml": "on: push\n"},
+        {"dependabot-automerge.yml": CALLER, "other.yml": CALLER, "ci.yml": "on: push\njobs: {}\n"},
     )
-    changes = bump.drop_dependabot(tmp_path)
+    changes = bump.drop_dependabot(tmp_path, VALIDATOR)
     assert changes == [
         "-.github/dependabot.yml",
         "-.github/workflows/dependabot-automerge.yml",
@@ -222,7 +241,7 @@ def test_drop_keeps_the_reusable_definition_and_drops_its_caller(tmp_path):
         tmp_path,
         {"dependabot-automerge.yml": DEFINITION, "dependabot-automerge-caller.yml": CALLER},
     )
-    bump.drop_dependabot(tmp_path)
+    bump.drop_dependabot(tmp_path, VALIDATOR)
     assert (flows / "dependabot-automerge.yml").is_file()
     assert not (flows / "dependabot-automerge-caller.yml").exists()
 
@@ -233,9 +252,47 @@ def test_a_repo_with_nothing_to_delete_is_skipped(monkeypatch, tmp_path, capsys)
     (tmp_path / ".github/workflows/ci.yml").write_text("on: push\n")
     monkeypatch.setattr(bump, "clone", lambda name, dest: tmp_path)
     monkeypatch.setattr(bump, "open_pr", lambda *a: pytest.fail("no PR for an empty drop"))
-    bump.drop_repo("stackrox-like", tmp_path, False)
+    bump.drop_repo("stackrox-like", tmp_path, VALIDATOR, False)
     assert capsys.readouterr().out == ""
     assert not (tmp_path / "renovate.json").exists()
+
+
+def test_a_mixed_workflow_loses_only_the_automerge_job(tmp_path):
+    """A ci.yml with tests and the caller keeps its tests, byte for byte (#195 review)."""
+    flows = dependabot_repo(tmp_path, {"ci.yml": MIXED})
+    changes = bump.drop_dependabot(tmp_path, VALIDATOR)
+    assert changes == ["-.github/dependabot.yml", "~.github/workflows/ci.yml (-job automerge)"]
+    text = (flows / "ci.yml").read_text()
+    assert "dependabot-automerge" not in text
+    assert text == MIXED.replace(
+        "  automerge:\n    name: Dependabot\n    uses: crunchtools/constitution/.github/"
+        "workflows/dependabot-automerge.yml@v1\n\n",
+        "",
+    )
+
+
+def test_cutting_a_job_keeps_the_comment_that_introduces_the_next_one(tmp_path):
+    """data-collector's shape: the comment above the surviving job stays with it."""
+    text = (
+        "jobs:\n  automerge:\n    uses: ./.github/workflows/dependabot-automerge.yml\n\n"
+        "  # Why the next job exists.\n  next:\n    runs-on: ubuntu-latest\n"
+    )
+    assert bump.cut_job(text, "automerge") == (
+        "jobs:\n  # Why the next job exists.\n  next:\n    runs-on: ubuntu-latest\n"
+    )
+
+
+def test_a_mixed_workflow_that_needs_the_automerge_job_is_left_for_a_human(tmp_path):
+    mixed = MIXED + "  after:\n    needs: [automerge]\n    runs-on: ubuntu-latest\n"
+    dependabot_repo(tmp_path, {"ci.yml": mixed})
+    with pytest.raises(RuntimeError, match=r"ci.yml mixes .* remove job\(s\) automerge by hand"):
+        bump.drop_dependabot(tmp_path, VALIDATOR)
+
+
+def test_a_workflow_named_like_the_caller_but_not_calling_it_is_kept(tmp_path):
+    flows = dependabot_repo(tmp_path, {"dependabot-automerge.yml": "on: push\njobs:\n  x: {}\n"})
+    bump.drop_dependabot(tmp_path, VALIDATOR)
+    assert (flows / "dependabot-automerge.yml").is_file()
 
 
 def drop_main(monkeypatch, tmp_path, *argv):
