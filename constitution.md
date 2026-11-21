@@ -212,8 +212,8 @@ Every repo in the organization has a profile. There are no exemptions: a repo th
 **Rules (since 1.18.0):**
 - **Reference, don't restate.** The manifest MUST NOT carry a section whose title is a numbered section of this constitution or of a declared profile. Restated copies are what drifted (#22): commands, job names and pins changed upstream while dozens of copies kept the old ones. The validator fails on a restated section.
 - **`Inherits` is the version; the call floats.** `.github/workflows/constitution.yml` (copy [`examples/constitution.yml`](examples/constitution.yml)) calls `crunchtools/constitution/.github/workflows/validate.yml@v1`, the major tag each release moves (XV rule 5). That workflow runs the validator, profiles and [`profiles/requirements.toml`](profiles/requirements.toml) from the release the tag points at, never HEAD. A repo is judged by the rules of the version its `Inherits` names: a check a release adds MUST apply only to repos inheriting that release or later, so moving the tag never fails a repo that has not adopted it. An `Inherits` newer than the validator fails. `scripts/fleet-bump.py` moves `Inherits` after each release. Until 1.45.0 the call named the exact release and moved with `Inherits`; that bump was manual, and every repo sat at v1.41.0 three releases later.
-- **The repo is judged by its files, not its prose.** From 1.18.0 the validator checks the real workflows, `.pre-commit-config.yaml`, `dependabot.yml`, LICENSE and profile files against `requirements.toml`. Rules that cannot be checked mechanically are listed as prose-only in the validator's verbose output.
-- **Drift is reported.** `scripts/fleet-drift.py` (workflow `Fleet Drift`, triggered weekly by Hermes) audits every repo and goes red when one is out of policy: pre-manifest, failing validation, more than one minor release behind, auto-merge off, or Dependabot PRs older than 14 days.
+- **The repo is judged by its files, not its prose.** From 1.18.0 the validator checks the real workflows, `.pre-commit-config.yaml`, Renovate and Dependabot config, LICENSE and profile files against `requirements.toml`. Rules that cannot be checked mechanically are listed as prose-only in the validator's verbose output.
+- **Drift is reported.** `scripts/fleet-drift.py` (workflow `Fleet Drift`, triggered weekly by Hermes) audits every repo and goes red when one is out of policy: pre-manifest, failing validation, more than one minor release behind, auto-merge off, or Renovate or Dependabot PRs older than 14 days.
 
 Repos inheriting a version before 1.18.0 are validated by the older rules until they adopt the manifest.
 
@@ -593,13 +593,20 @@ and the build broke with zero code changes to point at.
 2. **Pinned versions MUST have an automated update path.** A committed
    lockfile with no update mechanism just trades one failure mode
    (invisible drift) for another (silent staleness — security patches and
-   bugfixes never arrive). Configure
-   [Dependabot version updates](https://docs.github.com/en/code-security/dependabot/dependabot-version-updates)
-   for every ecosystem present in the repo, including `github-actions` —
-   a `uses: some-action@v1.2.3` pin goes stale exactly like a lockfile
-   entry does, and Dependabot covers both from the same config file.
-   A third-party `uses:` names a full 40-character commit SHA, with its
-   version as a comment (`actions/checkout@<sha> # v7.0.1`), which Dependabot
+   bugfixes never arrive). [Renovate](https://docs.renovatebot.com/) updates
+   every repo from one policy, [`renovate/default.json`](renovate/default.json).
+   The org's Renovate app reads `org-inherited-config.json` from
+   `crunchtools/renovate-config` and applies it to every repo before the
+   repo's own config; that file turns off onboarding, makes a repo config
+   optional, and extends the preset at the major tag
+   (`github>crunchtools/constitution//renovate/default#v1`). A repo carries no
+   update config at all, so a policy change is one commit here that reaches the
+   fleet when `v1` moves; under Dependabot, which cannot include shared config,
+   the same change was an edit in some 60 repos. The preset covers every ecosystem the profiles use — `github-actions`, uv and
+   pip, Containerfile and workflow images, pre-commit and npm — and a
+   `uses: some-action@v1.2.3` pin goes stale exactly like a lockfile entry
+   does. A third-party `uses:` names a full 40-character commit SHA, with its
+   version as a comment (`actions/checkout@<sha> # v7.0.1`), which Renovate
    updates like any other pin; a `docker://` step names an image digest. A tag
    can be moved under every caller at once, and a SHA cannot. Our own
    `crunchtools/*` workflows float at their major tag instead (rule 5), and a
@@ -607,20 +614,37 @@ and the build broke with zero code changes to point at.
    reference as a warning; `third_party_pins` in `requirements.toml` turns that
    into a failure once the fleet is migrated.
 3. **Updates land as PRs, gated by the same CI as any other change.**
-   Dependabot MUST run on a schedule (`weekly` is the default cadence
-   used across crunchtools projects, matching the existing weekly CVE
-   scan cadence). Grouping minor/patch updates to reduce PR noise is
-   fine; silently disabling or ignoring an ecosystem is not.
+   Renovate runs weekly, matching the weekly CVE scan. A non-security update
+   waits a week where the registry publishes release times (Docker Hub, PyPI,
+   npm, GitHub releases): no PR opens before the release is 7 days old
+   (`minimumReleaseAge` with `internalChecksFilter: strict`), so a release
+   yanked or compromised in its first week never reaches the work pile, and
+   nothing sits there waiting for its age to pass. Where the source gives no
+   release time (quay, ghcr and Red Hat registries, git tags and refs, Python
+   versions) it waits for the weekly window instead; those are vendor
+   registries and our own. A vulnerability fix skips the wait. Minor and patch
+   updates come as one grouped PR per repo; silently disabling or ignoring an
+   ecosystem is not fine. A repo may add its own Renovate config for what is
+   unique to it, and it merges on top of the inherited one, but it MUST NOT
+   set `minimumReleaseAge`, `minimumReleaseAgeBehaviour`,
+   `internalChecksFilter` or the old `stabilityDays`, at the top or in a
+   `packageRule`, nor extend a preset that sets them (`config:best-practices`,
+   `security:minimumReleaseAge*`): the cooldown is fleet policy
+   (machine-checked, `renovate_locked` and `renovate_locked_presets` in
+   `requirements.toml`; `ci.yml` fails if a Renovate release adds a built-in
+   preset the list misses). Third-party presets (`github>`, `local>` and the
+   like) are not inspected: extending one that sets a cooldown is the same
+   violation, caught only in review.
 
 4. **Minor and patch updates merge themselves, in every ecosystem.** Every
-   repo runs [`examples/dependabot-automerge.yml`](examples/dependabot-automerge.yml)
-   and has `allow_auto_merge` on: a green minor/patch bump — github-actions,
-   uv, npm or any other ecosystem — is queued and lands when the required
-   checks pass. Majors, and bumps Dependabot cannot classify as minor or
-   patch, wait for a human. Only Acquacotta, Trentina and ROTV
-   have users besides us, so the required checks are the gate, not a person
-   reading a green diff. Dependabot PRs left open more than 14 days show up
-   in the drift report.
+   repo has `allow_auto_merge` on, and the preset sets `automerge` with
+   `platformAutomerge`: a green minor/patch PR — github-actions, uv, npm or
+   any other ecosystem, with digest refreshes and pins riding along — is
+   handed to GitHub's auto-merge and lands when the required checks pass.
+   Majors, and anything not classified as minor or patch, wait for a human.
+   Only Acquacotta, Trentina and ROTV have users besides us, so the required
+   checks are the gate, not a person reading a green diff. Renovate and
+   Dependabot PRs left open more than 14 days show up in the drift report.
 
 5. **Crunchtools refers to crunchtools at a moving tag.** Exact pins between
    our own repos cost more than the breakage they prevented. On 2026-11-17
@@ -650,8 +674,8 @@ and the build broke with zero code changes to point at.
      the release commit before the tag moves; the constitution's is
      `container-release-canary.yml`.
    There is no per-repo version to keep current, so rule 2 has nothing to
-   update; Dependabot proposes only a new major, and that waits for a human
-   like any other.
+   update; Renovate offers only a new major tag, and that waits for a human
+   like any other. The preset never pins these to a digest.
 
 6. **uv projects scan with the fleet's dependency audit.** `security.yml` calls
    [`dependency-audit.yml`](.github/workflows/dependency-audit.yml) at `@v1`
@@ -679,11 +703,26 @@ and the build broke with zero code changes to point at.
    resolves dependencies outside the lock is reported fleet-wide, and a repo at
    this release or later fails its own `sdlc constitution`.
 
-Canonical files: [`examples/dependabot.yml`](examples/dependabot.yml)
-(github-actions only) and [`examples/dependabot-uv.yml`](examples/dependabot-uv.yml)
-(uv and github-actions). Both ignore `crunchtools/constitution`: it is called
-at its major tag, and a new major moves through `scripts/fleet-bump.py`. Other ecosystems follow the same shape — add one
-`package-ecosystem` block per manifest/lockfile present in the repo.
+Canonical files: [`renovate/default.json`](renovate/default.json), the
+policy, and [`renovate/org-inherited-config.json`](renovate/org-inherited-config.json),
+the canonical copy of the file in `crunchtools/renovate-config`. `ci.yml`
+validates both with Renovate's own code. The copy is synced by hand: a change
+to it here is copied to `crunchtools/renovate-config` in the same sitting, and
+`fleet-drift.py` goes red while the two differ. It rarely changes, since the
+policy lives in the preset. The preset ignores `crunchtools/constitution`: it
+is called at its major tag, and a new major moves through
+`scripts/fleet-bump.py`.
+
+**Transition.** Order matters. The `v1` tag must carry
+`renovate/default.json` before `crunchtools/renovate-config` is created, or
+every repo gets a Renovate config-error issue for a preset that does not
+exist. Then `scripts/fleet-bump.py --renovate` deletes each repo's
+`.github/dependabot.yml` and Dependabot auto-merge caller in one auto-merged
+PR. Dependabot security updates are a repo and org setting, separate from
+`dependabot.yml`, and are turned off org-wide as part of the swap. A repo
+inheriting a release before v1.60.0 may still carry the Dependabot files,
+judged as before; from v1.60.0 they fail validation, and the deprecated
+`dependabot-automerge.yml` goes with them.
 
 ---
 

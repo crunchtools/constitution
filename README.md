@@ -56,9 +56,9 @@ python validate-constitution.py path/to/constitution.md --verbose
 **Manifest repos** (`Inherits` v1.18.0 or later) are judged by their files, not their prose. The validator checks:
 - the header: `Inherits`, and `Profile` (comma-separated for several)
 - no section restating a numbered section of the constitution or a declared profile
-- the gates, on the right triggers: Gourmand, the `Gatehouse` workflow (guard, review, triage), retriage, constitution validation and Dependabot auto-merge
+- the gates, on the right triggers: Gourmand, the `Gatehouse` workflow (guard, review, triage), retriage, constitution validation, and Dependabot auto-merge for a repo not yet on Renovate
 - refs: crunchtools workflows at their major tag (an exact release is accepted, a branch or commit is not), and from v1.45.0 crunchtools tool images in hooks and CI at their floating tag (XV rule 5)
-- files: CHANGELOG, LICENSE (AGPL-3.0 unless the profile says otherwise), both pre-commit hooks, no `language: system` hook that needs a host install (v1.20.0+), Dependabot coverage, and each profile's files, per [`profiles/requirements.toml`](profiles/requirements.toml)
+- files: CHANGELOG, LICENSE (AGPL-3.0 unless the profile says otherwise), both pre-commit hooks, no `language: system` hook that needs a host install (v1.20.0+), no Renovate config that overrides the fleet's release-age cooldown (Renovate itself runs from the org config; until v1.60.0, Dependabot coverage where a repo still has it), and each profile's files, per [`profiles/requirements.toml`](profiles/requirements.toml)
 
 Repos still inheriting an older version get the pre-manifest prose checks.
 
@@ -73,8 +73,6 @@ Copy these into the repo (see constitution.md VII, XII and XV):
 | Example | Destination |
 |---|---|
 | [`examples/constitution.yml`](examples/constitution.yml) | `.github/workflows/constitution.yml`: validation at the major tag (`@v1`) |
-| [`examples/dependabot-automerge.yml`](examples/dependabot-automerge.yml) | `.github/workflows/dependabot-automerge.yml` |
-| [`examples/dependabot.yml`](examples/dependabot.yml) or [`dependabot-uv.yml`](examples/dependabot-uv.yml) | `.github/dependabot.yml` |
 | gatehouse [`examples/`](https://github.com/crunchtools/gatehouse/tree/master/examples) | `gatehouse.yml`, `gatehouse-retriage.yml`, `gourmand.yml`, pre-commit hooks |
 
 Then turn on `allow_auto_merge` for the repo.

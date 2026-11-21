@@ -1,0 +1,99 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "description": [
+    "Crunchtools dependency policy (constitution XV). Every repo gets it from",
+    "crunchtools/renovate-config's org-inherited-config.json, which extends this",
+    "at the v1 tag; renovate/org-inherited-config.json is that file's canonical copy.",
+    "A policy change here is one commit, and reaches every repo when v1 moves."
+  ],
+  "extends": [
+    "config:recommended",
+    "schedule:weekly",
+    "docker:pinDigests",
+    "helpers:pinGitHubActionDigestsToSemver"
+  ],
+  "dependencyDashboard": false,
+  "labels": [
+    "dependencies"
+  ],
+  "minimumReleaseAge": "7 days",
+  "internalChecksFilter": "strict",
+  "platformAutomerge": true,
+  "pre-commit": {
+    "enabled": true
+  },
+  "ignoreDeps": [
+    "crunchtools/constitution"
+  ],
+  "vulnerabilityAlerts": {
+    "minimumReleaseAge": null
+  },
+  "osvVulnerabilityAlerts": true,
+  "packageRules": [
+    {
+      "description": [
+        "One PR per repo for everything that changes no major: minor and patch bumps,",
+        "and digest refreshes and pins, which keep the version they name. It merges",
+        "itself once the required checks pass."
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "patch",
+        "digest",
+        "pin",
+        "pinDigest"
+      ],
+      "groupName": "minor-and-patch",
+      "automerge": true
+    },
+    {
+      "description": "Majors wait for a human.",
+      "matchUpdateTypes": [
+        "major"
+      ],
+      "automerge": false
+    },
+    {
+      "description": [
+        "These datasources give no release time to age against: docker outside",
+        "Docker Hub (quay, ghcr, Red Hat registries), git-tags, git-refs and",
+        "python-version. Under the default timestamp-required their updates would",
+        "wait forever, unseen with the dashboard off; here they wait only for the",
+        "weekly window."
+      ],
+      "matchDatasources": [
+        "docker",
+        "git-tags",
+        "git-refs",
+        "python-version"
+      ],
+      "minimumReleaseAgeBehaviour": "timestamp-optional"
+    },
+    {
+      "description": [
+        "Crunchtools refers to crunchtools at a moving tag (XV rule 5). Tool images",
+        "at :latest or :main are never pinned to a digest."
+      ],
+      "matchPackageNames": [
+        "quay.io/crunchtools/**"
+      ],
+      "pinDigests": false
+    },
+    {
+      "description": [
+        "Workflow calls to crunchtools (@v0, @v1, @v2) are never pinned, and only a",
+        "new major tag is offered, which waits for a human like any major."
+      ],
+      "matchDepTypes": [
+        "action",
+        "workflow"
+      ],
+      "matchPackageNames": [
+        "crunchtools/**"
+      ],
+      "pinDigests": false,
+      "extractVersion": "^(?<version>v\\d+)$",
+      "versioning": "regex:^v(?<major>\\d+)$"
+    }
+  ]
+}

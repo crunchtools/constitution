@@ -1,0 +1,7 @@
+{
+  "onboarding": false,
+  "requireConfig": "optional",
+  "extends": [
+    "github>crunchtools/constitution//renovate/default#v1"
+  ]
+}
