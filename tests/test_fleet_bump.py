@@ -526,3 +526,25 @@ def test_zizmor_callers_opens_its_pr_with_the_one_off_metadata(monkeypatch, tmp_
 )
 def test_an_unreadable_workflow_shape_is_no_caller(text):
     assert bump.caller_product(text) is None
+
+
+@pytest.mark.parametrize(
+    ("caller", "listed"),
+    [
+        # A trigger Gatehouse has no reason on file for.
+        (
+            GATEHOUSE_CALLER.replace("  pull_request_review_comment:\n", "  issue_comment:\n"),
+            [".github/workflows/gatehouse.yml", "?.github/workflows/gatehouse.yml"],
+        ),
+        # A trigger that already carries some other comment.
+        (
+            GATEHOUSE_CALLER.replace("pull_request_target:\n", "pull_request_target:  # forks\n"),
+            ["?.github/workflows/gatehouse.yml"],
+        ),
+    ],
+)
+def test_a_trigger_left_without_the_ignore_is_listed_for_a_human(tmp_path, caller, listed):
+    workflows = tmp_path / ".github" / "workflows"
+    workflows.mkdir(parents=True)
+    (workflows / "gatehouse.yml").write_text(caller)
+    assert bump.ignore_callers(tmp_path) == listed

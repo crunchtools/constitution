@@ -127,6 +127,11 @@ REVIEWED_GUARDS = {
     "0a89f0cdc0e82e469c2c3c478eb948310b87784ae87eebde92d7829e574a086c",
 }
 EXPRESSION = re.compile(r"\$\{\{\s*(.*?)\s*\}\}")
+UNIGNORED_TRIGGER = re.compile(
+    r"^[ \t]+(?:pull_request_target|workflow_run|issue_comment):"
+    r"(?![^\n]*zizmor: ignore\[dangerous-triggers\])",
+    re.MULTILINE,
+)
 ZIZMOR_IGNORE = "  # zizmor: ignore[dangerous-triggers]"
 AUTOMERGE_USES = re.compile(r"(?:^|/)\.github/workflows/dependabot-automerge\.ya?ml(?:@|$)")
 
@@ -462,8 +467,9 @@ def safe_expressions(mapping: dict | None) -> bool:
 def ignore_callers(root: Path) -> list[str]:
     """Justify the flagged triggers in every Gatehouse and Ashigaru caller; returns the changes.
 
-    A caller whose triggers are still bare but whose shape is not the reviewed
-    one is listed as `?path`, for a human.
+    A caller left with a flagged trigger that carries no ignore (its shape is
+    not the reviewed one, the trigger has no reason on file, or it already has
+    some other comment) is also listed, as `?path`, for a human.
     """
     changes = []
     for path in sorted((root / ".github" / "workflows").glob("*.y*ml")):
@@ -473,15 +479,16 @@ def ignore_callers(root: Path) -> list[str]:
         if after is not None:
             path.write_text(after)
             changes.append(where)
-        elif CALLER_USES.search(text) and caller_product(text) is None and bare_triggers(text):
+            text = after
+        if CALLER_USES.search(text) and unignored_triggers(text):
             changes.append(f"?{where}")
     return changes
 
 
-def bare_triggers(text: str) -> bool:
-    """Whether the `on:` block still has a flagged trigger with no comment."""
+def unignored_triggers(text: str) -> bool:
+    """Whether the `on:` block has a flagged trigger without the zizmor ignore."""
     on = ON_BLOCK.search(text)
-    return on is not None and FLAGGED_TRIGGER.search(on[0]) is not None
+    return on is not None and UNIGNORED_TRIGGER.search(on[0]) is not None
 
 
 def callers_repo(name: str, clone_root: Path, dry_run: bool) -> None:
