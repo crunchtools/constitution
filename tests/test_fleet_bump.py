@@ -483,3 +483,20 @@ def test_zizmor_callers_opens_its_pr_with_the_one_off_metadata(monkeypatch, tmp_
     one_off = bump.ZIZMOR_CALLERS
     assert calls == [(tmp_path / "r", "r", one_off.branch, one_off.title, one_off.body)]
     assert "zizmor: ignore[dangerous-triggers]" in (workflows / "gatehouse.yml").read_text()
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "on: [push\n",  # not YAML
+        "- a list\n",  # not a mapping
+        "on: push\n",  # no jobs
+        "on: push\njobs: {}\n",
+        "on: push\njobs:\n  a: just-a-string\n",
+        "on: push\njobs:\n  a:\n    runs-on: x\n",  # no steps
+        "on: push\njobs:\n  a:\n    steps: not-a-list\n",
+        "on: push\njobs:\n  a:\n    steps:\n      - just-a-string\n",
+    ],
+)
+def test_an_unreadable_workflow_shape_is_no_caller(text):
+    assert bump.caller_product(text) is None
