@@ -36,7 +36,7 @@ permissions: {}
 jobs:
   canary:
     if: ${{ !inputs.rollback-drill }}
-    uses: ./.github/workflows/container-release.yml
+    uses: $/.github/workflows/container-release.yml
     permissions:
       contents: read
       pull-requests: read

@@ -226,10 +226,10 @@ jobs:
       rebuild: ${{ steps.r.outputs.rebuild }}
       sha: ${{ steps.r.outputs.sha }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: crunchtools/constitution
-          ref: ${{ inputs.constitution-ref || 'v1.57.0' }}
+          ref: ${{ inputs.constitution-ref || 'v1.58.0' }}
           path: .constitution
           persist-credentials: false
       - id: r
@@ -285,7 +285,7 @@ jobs:
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache
           sudo docker image prune --all --force >/dev/null
           df -h /
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ steps.src.outputs.sha }}
           persist-credentials: false
@@ -381,7 +381,7 @@ jobs:
           echo "pushed=true" >> "$GITHUB_OUTPUT"
           echo "::notice::built once: $IMAGE@$digest (sha-$SHA)"
       - if: steps.push.outputs.pushed == 'false'
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: candidate-image
           path: ${{ runner.temp }}/image.tar
@@ -425,18 +425,18 @@ jobs:
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache
           sudo docker image prune --all --force >/dev/null
           df -h /
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.build.outputs.sha }}
           persist-credentials: false
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: crunchtools/constitution
-          ref: ${{ inputs.constitution-ref || 'v1.57.0' }}
+          ref: ${{ inputs.constitution-ref || 'v1.58.0' }}
           path: .constitution
           persist-credentials: false
       - if: needs.build.outputs.pushed == 'false'
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: candidate-image
           path: ${{ runner.temp }}
@@ -521,10 +521,10 @@ jobs:
         run: |
           echo "REGISTRY_AUTH_FILE=$RUNNER_TEMP/auth.json" >> "$GITHUB_ENV"
           echo "DOCKER_CONFIG=$RUNNER_TEMP/docker" >> "$GITHUB_ENV"
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: crunchtools/constitution
-          ref: ${{ inputs.constitution-ref || 'v1.57.0' }}
+          ref: ${{ inputs.constitution-ref || 'v1.58.0' }}
           path: .constitution
           persist-credentials: false
       - env:
@@ -582,10 +582,10 @@ jobs:
         run: |
           echo "REGISTRY_AUTH_FILE=$RUNNER_TEMP/auth.json" >> "$GITHUB_ENV"
           echo "DOCKER_CONFIG=$RUNNER_TEMP/docker" >> "$GITHUB_ENV"
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: crunchtools/constitution
-          ref: ${{ inputs.constitution-ref || 'v1.57.0' }}
+          ref: ${{ inputs.constitution-ref || 'v1.58.0' }}
           path: .constitution
           persist-credentials: false
       # The check and the copies read REGISTRY_AUTH_FILE from here. Only this
@@ -685,14 +685,24 @@ jobs:
             fi
             echo "Rollback: \`skopeo copy --all --preserve-digests docker://$IMAGE:rollback-main docker://$IMAGE:main\` (or \`rollback-latest\` / \`latest\`)."
           } >> "$GITHUB_STEP_SUMMARY"
+      # The token reaches only the repos it dispatches to, not the whole org.
+      - name: Downstream repositories
+        id: downstream
+        if: inputs.downstream != '' && (contains(steps.p.outputs.tags, 'main') || contains(steps.p.outputs.tags, 'latest'))
+        env:
+          DOWNSTREAM: ${{ inputs.downstream }}
+        run: |
+          read -ra repos <<< "$DOWNSTREAM"
+          (IFS=,; echo "repos=${repos[*]}") >> "$GITHUB_OUTPUT"
       - name: Token for the downstream dispatch
         id: app
-        if: inputs.downstream != '' && (contains(steps.p.outputs.tags, 'main') || contains(steps.p.outputs.tags, 'latest'))
-        uses: actions/create-github-app-token@v3
+        if: steps.downstream.outcome == 'success'
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         with:
           client-id: ${{ vars.CRUNCHTOOLS_CI_CLIENT_ID }}
           private-key: ${{ secrets.CRUNCHTOOLS_CI_APP_KEY }}
           owner: crunchtools
+          repositories: ${{ steps.downstream.outputs.repos }}
           # repository_dispatch needs contents: write on the target.
           permission-contents: write
       - name: Rebuild what builds FROM this (${{ inputs.downstream-event }})
@@ -736,10 +746,10 @@ jobs:
     # No `permissions:` key on purpose: see the comment above `jobs:`. A caller
     # that grants `issues: write` gets the issue; one that does not gets a warning.
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: crunchtools/constitution
-          ref: ${{ inputs.constitution-ref || 'v1.57.0' }}
+          ref: ${{ inputs.constitution-ref || 'v1.58.0' }}
           path: .constitution
           persist-credentials: false
       - name: Open or comment on the alert issue

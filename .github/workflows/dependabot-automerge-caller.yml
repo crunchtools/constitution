@@ -10,4 +10,4 @@ permissions:
 jobs:
   automerge:
     name: Dependabot
-    uses: ./.github/workflows/dependabot-automerge.yml
+    uses: $/.github/workflows/dependabot-automerge.yml

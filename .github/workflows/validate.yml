@@ -11,6 +11,9 @@
 # reusable workflow has no context that names its own ref. Until v1.19.1 this
 # read `github.job_workflow_sha`, which is empty, so every pinned repo was
 # validated against main (#42). Copy examples/constitution.yml.
+#
+# The zizmor job audits the repo's workflows (XV) and uploads SARIF to code
+# scanning. It is advisory: it never fails, and it is not a required check.
 
 name: Constitution
 
@@ -22,7 +25,8 @@ on:
         type: string
         default: .specify/memory/constitution.md
 
-permissions: {}
+# No workflow-level `permissions:` block: in a called workflow it narrows every
+# job, and the zizmor job needs whatever the caller grants (see that job).
 
 jobs:
   validate:
@@ -46,20 +50,20 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: crunchtools/constitution
-          ref: v1.57.0
+          ref: v1.58.0
           path: .constitution
           persist-credentials: false
       # setup-python has no build for our runners' Fedora, so it runs only on
       # GitHub's machines; ours bring their own python3. A venv either way, so
       # pip never touches a system Python.
       - if: runner.environment == 'github-hosted'
-        uses: actions/setup-python@v7
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12"
       - run: |
@@ -70,3 +74,65 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           MANIFEST: ${{ inputs.constitution }}
         run: '"$RUNNER_TEMP/venv/bin/python" .constitution/validate-constitution.py "$MANIFEST" --pinned --freshness --verbose'
+
+  zizmor:
+    name: zizmor
+    runs-on: >-
+      ${{ github.event_name == 'pull_request'
+          && github.event.pull_request.head.repo.full_name == github.repository
+          && github.event.pull_request.user.login != 'dependabot[bot]'
+          && (vars.CACHED_RUNNER_LABEL || 'ubuntu-latest')
+          || contains(fromJSON('["push","schedule","workflow_dispatch","release","merge_group"]'), github.event_name)
+          && !startsWith(github.ref, 'refs/heads/dependabot/')
+          && (vars.UNCACHED_RUNNER_LABEL || 'ubuntu-latest')
+          || 'ubuntu-latest' }}
+    # No `permissions:` block, on purpose: the job takes the caller's grant. A
+    # job here that asked for `security-events: write` would refuse to start in
+    # every repo whose caller does not grant it, Validate included. A caller
+    # copied from examples/constitution.yml grants it and gets code scanning;
+    # an older one grants `contents: read`, and the upload is skipped.
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Only the policy file: a full checkout here would be audited as well.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: crunchtools/constitution
+          ref: v1.58.0
+          path: .constitution
+          sparse-checkout: zizmor.yml
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - if: runner.environment == 'github-hosted'
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - run: |
+          python3 -m venv "$RUNNER_TEMP/venv"
+          "$RUNNER_TEMP/venv/bin/pip" install --quiet zizmor==1.32.0
+      # The log is the record; the SARIF is for code scanning. Advisory until the
+      # fleet is clean: findings never fail the job, and nor does zizmor itself.
+      - name: Audit workflows
+        id: audit
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          zizmor=("$RUNNER_TEMP/venv/bin/zizmor" --config .constitution/zizmor.yml --no-exit-codes)
+          "${zizmor[@]}" .
+          "${zizmor[@]}" --format sarif . > "$RUNNER_TEMP/zizmor.sarif"
+          echo "sarif=$RUNNER_TEMP/zizmor.sarif" >> "$GITHUB_OUTPUT"
+      # A private repo without code scanning (GitHub Advanced Security), a
+      # caller that does not grant `security-events: write`, or a fork's pull
+      # request refuses the upload; the log above still has every finding.
+      - name: Upload SARIF
+        id: upload
+        if: steps.audit.outputs.sarif != ''
+        continue-on-error: true
+        uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+        with:
+          sarif_file: ${{ steps.audit.outputs.sarif }}
+          category: zizmor
+      - if: steps.upload.outcome == 'failure'
+        run: echo "::notice::zizmor findings are in the log only; code scanning refused the upload (needs security-events write, and Advanced Security on a private repo)."

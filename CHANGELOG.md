@@ -9,6 +9,29 @@ Entries through 1.14.0 are derived from the Ratification History table in
 
 ## [Unreleased]
 
+### Added
+- zizmor audits every repo's GitHub Actions workflows (XV rule 8, a854). A
+  `zizmor` job in `validate.yml` runs zizmor 1.32.0 under the fleet policy
+  `zizmor.yml` (third-party actions pinned by SHA, `crunchtools/*` at their
+  major tag) and uploads SARIF to code scanning, category `zizmor`. Every repo
+  calling `validate.yml@v1` gets it with no edit. Advisory: it never fails and
+  is not a required check. The job inherits the caller's token, so a caller
+  that grants `security-events: write` (now in `examples/constitution.yml`)
+  gets code scanning; one that does not, or a private repo without Advanced
+  Security, keeps the findings in the log. `validate.yml` drops its
+  workflow-level `permissions: {}`, which would have zeroed that token.
+
+### Changed
+- The constitution's own workflows pass zizmor: every third-party action is
+  pinned by commit SHA, checkouts drop their credentials, `ci.yml` declares
+  `contents: read`, the downstream dispatch token in `container-release.yml`
+  reaches only the repos it dispatches to instead of the whole org, local
+  reusable workflows use GitHub's `$/` self-repository syntax, and the
+  `pull_request_target` and `workflow_run` triggers (Gatehouse, Ashigaru) are
+  justified inline: none checks out or runs a pull request's code.
+- The third-party pin check (XV rule 2) treats a `$/` self-repository `uses:`
+  as local, like `./`.
+
 ## [1.57.0] - 2026-11-21
 
 ### Changed

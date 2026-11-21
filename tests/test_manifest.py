@@ -10,6 +10,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+import yaml
 
 from fleet_common import load_validator
 
@@ -218,6 +219,24 @@ def test_reusable_workflow_checks_out_this_release(name):
     workflow = (ROOT / ".github/workflows" / name).read_text()
     assert f"ref: v{VERSION}\n" in workflow
     assert "job_workflow_sha }}" not in workflow
+
+
+def test_zizmor_job_takes_the_callers_token_and_this_releases_policy():
+    """XV rule 8: a job that asked for security-events would refuse to start in
+    every caller that does not grant it, so it asks for nothing."""
+    flow = yaml.safe_load((ROOT / ".github/workflows/validate.yml").read_text())
+    assert "permissions" not in flow
+    job = flow["jobs"]["zizmor"]
+    assert "permissions" not in job
+    steps = job["steps"]
+    policy = next(
+        s for s in steps if s.get("with", {}).get("repository") == "crunchtools/constitution"
+    )
+    assert policy["with"]["ref"] == f"v{VERSION}"
+    assert policy["with"]["sparse-checkout"] == "zizmor.yml"
+    assert any(re.search(r"zizmor==\d+\.\d+\.\d+\b", s.get("run", "")) for s in steps)
+    assert all(s.get("continue-on-error") for s in steps if s.get("id") in ("audit", "upload"))
+    assert (ROOT / "zizmor.yml").is_file()
 
 
 def test_container_release_checks_out_this_release():

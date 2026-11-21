@@ -9,7 +9,8 @@
 name: Gatehouse retriage
 
 on:
-  workflow_run:
+  # Re-runs a job by id; nothing from the PR is read or run.
+  workflow_run:  # zizmor: ignore[dangerous-triggers]
     workflows: [Gatehouse]   # the `name:` of your gatehouse.yml
     types: [completed]
 
