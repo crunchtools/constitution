@@ -10,6 +10,11 @@ Entries through 1.14.0 are derived from the Ratification History table in
 ## [Unreleased]
 
 ### Added
+- `.github/workflows/fleet-bump.yml` (a867): runs `fleet-bump.py` in the pipeline
+  on `workflow_dispatch` (`mode` bump, zizmor-callers or renovate; `version`;
+  `only`; `dry-run`, on by default) with the crunchtools-ci App's token, so a
+  fleet rollout needs no `gh` or org-wide token on a seat. The job summary
+  counts and lists the repos that would get a PR; a real run is refused off main.
 - `fleet-bump.py --zizmor-callers [--only ...] [--dry-run]` (a860): the
   one-off that clears zizmor's dangerous-triggers highs from each repo's
   Gatehouse and Ashigaru callers, nearly all of the fleet's 206. A workflow
