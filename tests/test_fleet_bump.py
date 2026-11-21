@@ -376,6 +376,17 @@ jobs:
 """
 
 
+# This repo's own Gatehouse caller as it stood before its triggers were justified:
+# the shipped guard job and two calls into Gatehouse.
+OWN_CALLER = (
+    (Path(__file__).resolve().parents[1] / ".github" / "workflows" / "gatehouse.yml")
+    .read_text()
+    .replace(
+        "  pull_request_target:  # zizmor: ignore[dangerous-triggers]\n", "  pull_request_target:\n"
+    )
+)
+
+
 def test_a_gatehouse_callers_trigger_is_justified_and_ignored():
     after = bump.ignore_caller_triggers(GATEHOUSE_CALLER)
     assert after is not None
@@ -432,6 +443,12 @@ def test_an_ashigaru_caller_gets_each_flagged_trigger_justified():
         + '    steps:\n      - run: eval "$T"\n',
         # A reusable call handed PR-chosen text as an input.
         GATEHOUSE_CALLER + "    with:\n      title: ${{ github.event.pull_request.title }}\n",
+        # A product workflow nobody reviewed for these triggers.
+        GATEHOUSE_CALLER.replace("workflows/review.yml", "workflows/gourmand.yml"),
+        # The shipped guard, run by another shell.
+        OWN_CALLER.replace("        run: |\n", "        shell: python {0}\n        run: |\n", 1),
+        # The shipped guard under a workflow-wide default shell.
+        OWN_CALLER.replace("\njobs:\n", "\ndefaults:\n  run:\n    shell: python {0}\njobs:\n", 1),
         # A same-named key outside `on:` is not a trigger.
         GATEHOUSE_CALLER.replace("  pull_request_target:\n", "  push:\n")
         + "env:\n  workflow_run:\n",
@@ -458,17 +475,6 @@ def test_zizmor_callers_dry_run_makes_no_git_or_gh_calls(monkeypatch, tmp_path, 
     monkeypatch.setattr(bump, "open_pr", lambda *a: pytest.fail("dry run opened a PR"))
     bump.callers_repo("r", tmp_path, dry_run=True)
     assert "r: justify caller triggers (.github/workflows/gatehouse.yml)" in capsys.readouterr().out
-
-
-# This repo's own Gatehouse caller as it stood before its triggers were justified:
-# the shipped guard job and two calls into Gatehouse.
-OWN_CALLER = (
-    (Path(__file__).resolve().parents[1] / ".github" / "workflows" / "gatehouse.yml")
-    .read_text()
-    .replace(
-        "  pull_request_target:  # zizmor: ignore[dangerous-triggers]\n", "  pull_request_target:\n"
-    )
-)
 
 
 def test_the_shipped_guard_job_qualifies_its_caller():

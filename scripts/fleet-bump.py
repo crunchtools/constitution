@@ -51,7 +51,18 @@ PRE_COMMIT = ".pre-commit-config.yaml"
 # A caller of Gatehouse's or Ashigaru's reusable workflows, and the triggers
 # zizmor's dangerous-triggers audit flags in one. A trigger that already carries
 # a comment is left alone.
-CALLER_USES = re.compile(r"crunchtools/(gatehouse|ashigaru)/\.github/workflows/[\w-]+\.ya?ml@\S+")
+CALLER_USES = re.compile(r"crunchtools/(gatehouse|ashigaru)/\.github/workflows/([\w-]+)\.ya?ml@\S+")
+# Every reusable workflow a Gatehouse or Ashigaru caller has ever named, each
+# read for what it checks out under these triggers: Gatehouse's nothing, and
+# Ashigaru's only Ashigaru itself or this repository's app-written ashigaru/
+# branches. A call to any other file is left for a human.
+REVIEWED_CALLS = {
+    "gatehouse": {"review", "triage", "retriage"},
+    "ashigaru": {"router", "triage", "code", "fix", "release", "release-tag"},
+}
+# The step keys a reviewed guard uses; `shell:` or anything else that changes
+# how a reviewed script runs is left for a human, as is a `defaults:` block.
+GUARD_STEP_KEYS = {"name", "id", "env", "run"}
 ON_BLOCK = re.compile(
     r"^(?:on|\"on\"|'on'):[ \t]*(?:#.*)?\n(?:(?:[ \t]+.*|[ \t]*#.*|[ \t]*)\n)*", re.MULTILINE
 )
@@ -421,7 +432,7 @@ def caller_product(text: str) -> str | None:
     except yaml.YAMLError:
         return None
     jobs = workflow.get("jobs") if isinstance(workflow, dict) else None
-    if not isinstance(jobs, dict) or not jobs:
+    if not isinstance(jobs, dict) or not jobs or "defaults" in workflow:
         return None
     products = set()
     for job in jobs.values():
@@ -429,7 +440,11 @@ def caller_product(text: str) -> str | None:
             return None
         if "uses" in job:
             call = CALLER_USES.fullmatch(str(job["uses"]))
-            if call is None or not safe_expressions(job.get("with")):
+            if (
+                call is None
+                or call.group(2) not in REVIEWED_CALLS[call.group(1)]
+                or not safe_expressions(job.get("with"))
+            ):
                 return None
             products.add(call.group(1))
         elif not shell_only(job, workflow.get("env")):
@@ -440,7 +455,8 @@ def caller_product(text: str) -> str | None:
 def shell_only(job: dict, workflow_env: dict | None) -> bool:
     """Whether the job is a reviewed Gatehouse guard that sees no PR-chosen text.
 
-    Its steps run no action, their scripts together are one of REVIEWED_GUARDS,
+    Its steps carry only GUARD_STEP_KEYS (no action, no `shell:`), it sets no
+    `defaults:`, their scripts together are one of REVIEWED_GUARDS,
     and every expression an `env:` (the workflow's, the job's or a step's)
     feeds them is in SAFE_EXPRESSIONS. What a script does cannot be read off its shape,
     so only scripts already read are let through. `workflow_env` is the
@@ -449,7 +465,7 @@ def shell_only(job: dict, workflow_env: dict | None) -> bool:
     steps = job.get("steps")
     if not isinstance(steps, list) or not all(isinstance(s, dict) for s in steps):
         return False
-    if any("uses" in s for s in steps):
+    if "defaults" in job or any(set(s) - GUARD_STEP_KEYS for s in steps):
         return False
     script = "\n".join(str(s.get("run", "")) for s in steps)
     if hashlib.sha256(script.encode()).hexdigest() not in REVIEWED_GUARDS:
