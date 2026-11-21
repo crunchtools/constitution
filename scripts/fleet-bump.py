@@ -29,6 +29,7 @@ import re
 import subprocess
 import sys
 import tempfile
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -393,8 +394,19 @@ ZIZMOR_CALLERS = OneOff(
 )
 
 
-def one_off_repo(name: str, clone_root: Path, one_off: OneOff, change, dry_run: bool) -> None:
-    """Apply `change(root)` to one repo and open its PR; a repo it leaves alone is skipped."""
+def one_off_repo(
+    name: str,
+    clone_root: Path,
+    one_off: OneOff,
+    change: Callable[[Path], list[str]],
+    dry_run: bool,
+) -> None:
+    """Clone `name` under `clone_root`, apply `change`, and open the one-off's PR.
+
+    `change` edits the clone at the path it is given and returns what it
+    changed, one entry per file; an empty list means the repo needs nothing
+    and gets no PR. A dry run prints the changes and opens nothing.
+    """
     root = clone(name, clone_root)
     changes = change(root)
     if not changes:
