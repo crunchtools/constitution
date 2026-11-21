@@ -28,9 +28,11 @@ on:
 permissions:
   contents: read
 
-# Two real runs at once would race each other's branches in every repo.
+# Two real runs at once would race each other's branches in every repo. Dry
+# runs queue apart: a group keeps one pending run, so a shared group would let a
+# dry run replace a pending real one.
 concurrency:
-  group: fleet-bump
+  group: fleet-bump-${{ inputs.dry-run && 'dry' || 'write' }}
   cancel-in-progress: false
 
 jobs:
