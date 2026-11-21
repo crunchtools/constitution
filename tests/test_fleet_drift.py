@@ -1,6 +1,7 @@
 """fleet-drift.py: settings the workflow token can't see are unknown, not violations."""
 
 import importlib.util
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -20,9 +21,61 @@ def test_only_an_explicit_false_flags_auto_merge(monkeypatch, settings, flagged)
     monkeypatch.setattr(drift, "clone", lambda name, dest: dest)
     monkeypatch.setattr(drift, "audit_checkout", lambda *a: None)
     monkeypatch.setattr(drift, "gh_json", lambda *a: settings)
-    monkeypatch.setattr(drift, "stale_dependabot_prs", lambda name, days: 0)
+    monkeypatch.setattr(drift, "stale_bot_prs", lambda name, days, author: 0)
     row = drift.audit({"name": "example"}, None, (1, 18, 0), drift.STALE_DAYS)
     assert ("allow_auto_merge off" in row["problems"]) is flagged
+
+
+# ------------------------------------------------------ stale bot PRs
+#
+# Dependabot and Renovate are both audited, each on its own line, so a repo
+# mid-migration shows both.
+
+
+def _prs_by_bot(monkeypatch, ages_by_author):
+    """Fake `gh pr list`: PR ages in days, keyed by the --author value."""
+    now = datetime.now(UTC)
+
+    def gh_json(*args):
+        if "--author" not in args:
+            return {}  # the repo settings read
+        author = args[args.index("--author") + 1]
+        return [
+            {"createdAt": (now - timedelta(days=d)).isoformat()}
+            for d in ages_by_author.get(author, [])
+        ]
+
+    monkeypatch.setattr(drift, "gh_json", gh_json)
+
+
+def _stale_problems(monkeypatch):
+    monkeypatch.setattr(drift, "clone", lambda name, dest: dest)
+    monkeypatch.setattr(drift, "audit_checkout", lambda *a: None)
+    row = drift.audit({"name": "example"}, None, (1, 18, 0), 14)
+    return [p for p in row["problems"] if "PR(s)" in p]
+
+
+def test_a_stale_renovate_pr_is_reported(monkeypatch):
+    _prs_by_bot(monkeypatch, {"app/renovate": [30]})
+    assert _stale_problems(monkeypatch) == ["1 Renovate PR(s) older than 14d"]
+
+
+def test_a_fresh_renovate_pr_is_not_reported(monkeypatch):
+    _prs_by_bot(monkeypatch, {"app/renovate": [2]})
+    assert _stale_problems(monkeypatch) == []
+
+
+def test_a_stale_dependabot_pr_keeps_its_wording(monkeypatch):
+    _prs_by_bot(monkeypatch, {"app/dependabot": [20, 3]})
+    assert _stale_problems(monkeypatch) == ["1 Dependabot PR(s) older than 14d"]
+
+
+def test_both_bots_are_reported_separately(monkeypatch):
+    _prs_by_bot(monkeypatch, {"app/dependabot": [20, 21], "app/renovate": [30]})
+    assert _stale_problems(monkeypatch) == [
+        "2 Dependabot PR(s) older than 14d",
+        "1 Renovate PR(s) older than 14d",
+    ]
 
 
 # ------------------------------------------------- the `sdlc ci` gate audit

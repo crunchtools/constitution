@@ -933,6 +933,8 @@ GATEHOUSE_REUSABLE = re.compile(
 CONSTITUTION_REUSABLE = re.compile(
     r"^(?:crunchtools/constitution|\.)/\.github/workflows/(\w[\w-]*)\.yml(?:@(\S+))?$"
 )
+# The shared Renovate preset every repo extends (XV); requirements.toml may override it.
+RENOVATE_PRESET = "github>crunchtools/constitution//renovate/default"
 ROMAN_HEADING = re.compile(r"^##\s+[IVXLC]+\.\s+(.+?)\s*$", re.MULTILINE)
 LEGACY_VALIDATOR_CHECKOUT = re.compile(r"repository:\s*['\"]?crunchtools/constitution\b")
 SEMVER = re.compile(r"^v?(\d+)\.(\d+)\.(\d+)$")
@@ -1195,8 +1197,15 @@ def check_gate_workflows(repo_root: Path, inherits: str, requirements: dict) -> 
         (gatehouse, "triage", "pull_request_review_comment", "Gatehouse", "Gatehouse triage"),
         (gatehouse, "retriage", "workflow_run", None, "Gatehouse retriage on workflow_run"),
         (constitution, "validate", "pull_request", None, "Constitution validation on pull_request"),
-        (constitution, "dependabot-automerge", "pull_request", None, "Dependabot auto-merge"),
     ]
+    # Renovate merges through GitHub's own auto-merge (platformAutomerge); only a
+    # repo still on Dependabot needs the auto-merge workflow (XV, until v1.60.0).
+    if (repo_root / ".github" / "dependabot.yml").is_file() and not (
+        repo_root / "renovate.json"
+    ).is_file():
+        required.append(
+            (constitution, "dependabot-automerge", "pull_request", None, "Dependabot auto-merge")
+        )
     for calls, target, event, workflow_name, label in required:
         if not called(calls, target, event, workflow_name):
             where = f" in the workflow named '{workflow_name}'" if workflow_name else ""
@@ -1233,11 +1242,70 @@ def check_gate_workflows(repo_root: Path, inherits: str, requirements: dict) -> 
     return violations
 
 
+def renovate_violations(path: Path, preset: str) -> list[str]:
+    """renovate.json must extend the fleet preset at a constitution tag (XV).
+
+    The preset holds the whole policy, so a repo that extends it at `#v1`
+    follows every later change without a commit of its own. Settings added
+    after it are the repo's own.
+    """
+    try:
+        doc = json.loads(path.read_text())
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return ["FILES: renovate.json is not valid JSON"]
+    extends = doc.get("extends") if isinstance(doc, dict) else None
+    ref = re.compile(rf"{re.escape(preset)}#v\d+(?:\.\d+\.\d+)?")
+    if not any(isinstance(e, str) and ref.fullmatch(e) for e in extends or []):
+        return [
+            f"FILES: renovate.json does not extend `{preset}#v1` (XV); copy examples/renovate.json"
+        ]
+    return []
+
+
+def dependency_update_violations(repo_root: Path, fleet: dict, rules: list[dict]) -> list[str]:
+    """XV rule 2: the repo's dependencies have an automated update path.
+
+    `renovate.json` extending the fleet preset is the rule. A Dependabot config
+    is still accepted, judged as before (ecosystem coverage and the constitution
+    ignore), until v1.60.0 drops it; scripts/fleet-bump.py --renovate swaps it.
+    """
+    renovate = repo_root / "renovate.json"
+    if renovate.is_file():
+        return renovate_violations(renovate, fleet.get("renovate_preset", RENOVATE_PRESET))
+    dependabot = repo_root / ".github" / "dependabot.yml"
+    if not dependabot.is_file():
+        return ["FILES: no renovate.json; copy examples/renovate.json (XV)"]
+    violations = []
+    doc = load_yaml(dependabot)
+    covered = {
+        u.get("package-ecosystem") for u in (doc or {}).get("updates", []) if isinstance(u, dict)
+    }
+    for ecosystem in fleet.get("dependabot", []) + [
+        e for r in rules for e in r.get("dependabot", [])
+    ]:
+        if ecosystem not in covered:
+            violations.append(f"FILES: .github/dependabot.yml does not cover `{ecosystem}` (XV)")
+    ignored = {
+        i.get("dependency-name", "")
+        for u in (doc or {}).get("updates", [])
+        if isinstance(u, dict) and u.get("package-ecosystem") == "github-actions"
+        for i in u.get("ignore", []) or []
+    }
+    if "github-actions" in covered and not any(
+        i.startswith("crunchtools/constitution") for i in ignored
+    ):
+        violations.append(
+            "FILES: dependabot.yml must ignore crunchtools/constitution; it is called "
+            "at its major tag, and a new major moves through scripts/fleet-bump.py"
+        )
+    return violations
+
+
 def check_repo_files(repo_root: Path, profiles: list[str], requirements: dict) -> list[str]:
     """Files the fleet and each declared profile require, read from disk.
 
     Checks the `files` globs, the AGPL LICENSE unless a profile turns it off,
-    Dependabot ecosystem coverage and its constitution ignore, and a profile's
+    the dependency update config (XV), and a profile's
     required Containerfile base. Returns one FILES: violation per gap.
     """
     fleet = requirements.get("fleet", {})
@@ -1265,29 +1333,7 @@ def check_repo_files(repo_root: Path, profiles: list[str], requirements: dict) -
         ):
             violations.append("FILES: no AGPL-3.0 LICENSE file in the repo root (I)")
 
-    dependabot = repo_root / ".github" / "dependabot.yml"
-    doc = load_yaml(dependabot) if dependabot.is_file() else None
-    covered = {
-        u.get("package-ecosystem") for u in (doc or {}).get("updates", []) if isinstance(u, dict)
-    }
-    for ecosystem in fleet.get("dependabot", []) + [
-        e for r in rules for e in r.get("dependabot", [])
-    ]:
-        if ecosystem not in covered:
-            violations.append(f"FILES: .github/dependabot.yml does not cover `{ecosystem}` (XV)")
-    ignored = {
-        i.get("dependency-name", "")
-        for u in (doc or {}).get("updates", [])
-        if isinstance(u, dict) and u.get("package-ecosystem") == "github-actions"
-        for i in u.get("ignore", []) or []
-    }
-    if "github-actions" in covered and not any(
-        i.startswith("crunchtools/constitution") for i in ignored
-    ):
-        violations.append(
-            "FILES: dependabot.yml must ignore crunchtools/constitution; it is called "
-            "at its major tag, and a new major moves through scripts/fleet-bump.py"
-        )
+    violations += dependency_update_violations(repo_root, fleet, rules)
 
     for r in rules:
         if r.get("containerfile_from"):

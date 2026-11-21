@@ -186,3 +186,83 @@ def test_main_refuses_before_touching_a_repo(monkeypatch, capsys):
     monkeypatch.setattr(bump.sys, "argv", ["fleet-bump.py", "--version", "1.45.0"])
     assert bump.main() == 1
     assert "refused: v1 does not exist" in capsys.readouterr().err
+
+
+CALLER = "jobs:\n  merge:\n    uses: ./.github/workflows/dependabot-automerge.yml\n"
+DEFINITION = "on:\n  workflow_call:\njobs:\n  merge:\n    runs-on: ubuntu-latest\n"
+
+
+def dependabot_repo(tmp_path, workflows):
+    flows = tmp_path / ".github/workflows"
+    flows.mkdir(parents=True)
+    (tmp_path / ".github/dependabot.yml").write_text("version: 2\n")
+    for name, text in workflows.items():
+        (flows / name).write_text(text)
+    return flows
+
+
+def test_swap_drops_dependabot_and_adds_the_stub(tmp_path):
+    flows = dependabot_repo(
+        tmp_path,
+        {"dependabot-automerge.yml": CALLER, "other.yml": CALLER, "ci.yml": "on: push\n"},
+    )
+    changes = bump.swap(tmp_path)
+    assert changes == [
+        "-.github/dependabot.yml",
+        "-.github/workflows/dependabot-automerge.yml",
+        "-.github/workflows/other.yml",
+        "+renovate.json",
+    ]
+    assert not (tmp_path / ".github/dependabot.yml").exists()
+    assert [p.name for p in flows.iterdir()] == ["ci.yml"]
+    assert (tmp_path / "renovate.json").read_text() == bump.RENOVATE_STUB.read_text()
+
+
+def test_swap_keeps_the_reusable_definition_and_drops_its_caller(tmp_path):
+    flows = dependabot_repo(
+        tmp_path,
+        {"dependabot-automerge.yml": DEFINITION, "dependabot-automerge-caller.yml": CALLER},
+    )
+    bump.swap(tmp_path)
+    assert (flows / "dependabot-automerge.yml").is_file()
+    assert not (flows / "dependabot-automerge-caller.yml").exists()
+
+
+def test_an_already_swapped_repo_reports_no_change(tmp_path):
+    (tmp_path / "renovate.json").write_text(bump.RENOVATE_STUB.read_text())
+    assert bump.swap(tmp_path) == []
+
+
+def swap_main(monkeypatch, tmp_path, *argv):
+    dependabot_repo(tmp_path, {"dependabot-automerge.yml": CALLER})
+    calls = []
+    monkeypatch.setattr(bump, "select_repos", lambda only: [{"name": "example"}])
+    monkeypatch.setattr(bump, "clone", lambda name, dest: tmp_path)
+    monkeypatch.setattr(bump, "git", lambda *a: calls.append(a))
+    monkeypatch.setattr(bump, "gh", lambda *a, **k: calls.append(a) or "url\n")
+    monkeypatch.setattr(bump.subprocess, "run", lambda *a, **k: calls.append(a) or completed(0))
+    monkeypatch.setattr(bump.sys, "argv", ["fleet-bump.py", "--renovate", *argv])
+    monkeypatch.setattr(bump, "major_tag_refusal", lambda v: pytest.fail("not in swap mode"))
+    return calls
+
+
+def test_swap_dry_run_makes_no_git_or_gh_calls(monkeypatch, tmp_path, capsys):
+    calls = swap_main(monkeypatch, tmp_path, "--dry-run")
+    assert bump.main() == 0
+    assert calls == []
+    assert "example: renovate swap (-.github/dependabot.yml" in capsys.readouterr().out
+
+
+def test_swap_opens_a_pr_and_queues_auto_merge(monkeypatch, tmp_path):
+    calls = swap_main(monkeypatch, tmp_path)
+    assert bump.main() == 0
+    assert ("checkout", "-b", "chore/renovate") in [c[1:] for c in calls if c[0] == tmp_path]
+    assert any("create" in c for c in calls) and any(
+        "--auto" in c[0] for c in calls if isinstance(c[0], list)
+    )
+
+
+def test_renovate_and_version_are_exclusive(monkeypatch):
+    monkeypatch.setattr(bump.sys, "argv", ["fleet-bump.py", "--renovate", "--version", "1.2.3"])
+    with pytest.raises(SystemExit):
+        bump.main()

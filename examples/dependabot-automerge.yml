@@ -1,5 +1,8 @@
 # Drop in as .github/workflows/dependabot-automerge.yml. See constitution.md XV.
 #
+# DEPRECATED: only for a repo still on Dependabot (until v1.60.0). A repo on
+# examples/renovate.json needs no auto-merge workflow; delete this one.
+#
 # Queues green minor/patch bumps in every ecosystem for auto-merge. Needs the repo
 # setting `allow_auto_merge`; the required checks still decide the merge.
 

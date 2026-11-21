@@ -12,9 +12,12 @@ lists it.
 
 Usage:
     fleet-bump.py [--version 1.19.0] [--only repo,repo] [--dry-run]
+    fleet-bump.py --renovate [--only repo,repo] [--dry-run]
 
 Run after tagging a release. Needs GH_TOKEN with contents, pull-requests and
-workflows write across the org.
+workflows write across the org. `--renovate` is the one-off swap from Dependabot
+to the shared Renovate preset (XV): in every repo it drops dependabot.yml and the
+auto-merge caller workflows and adds the stub renovate.json.
 """
 
 import argparse
@@ -40,6 +43,10 @@ MAJOR_TAGGED = re.compile(
 MAJOR_TAGS_SINCE = (1, 24, 0)
 CONSTITUTION_MAJOR_SINCE = (1, 45, 0)
 PRE_COMMIT = ".pre-commit-config.yaml"
+RENOVATE = Path("renovate.json")
+RENOVATE_STUB = Path(__file__).resolve().parents[1] / "examples" / "renovate.json"
+AUTOMERGE_CALL = re.compile(r"^\s*(?:-\s*)?uses:\s*\S*dependabot-automerge\.yml", re.MULTILINE)
+WORKFLOW_CALL = re.compile(r"^\s*(?:on:\s*\[?.*)?\bworkflow_call\b", re.MULTILINE)
 
 
 def major_tag_refusal(version: str) -> str | None:
@@ -97,27 +104,14 @@ def bump(root: Path, version: str) -> list[Path]:
     return changed
 
 
-def open_bump_pr(root: Path, name: str, version: str, changed: list[Path]) -> str:
-    """Commit the bump on a branch, push it, open the PR, queue auto-merge."""
-    branch = f"chore/constitution-v{version}"
+def open_pr(root: Path, name: str, branch: str, title: str, body: str) -> str:
+    """Commit the clone's changes on a branch, push it, open the PR, queue auto-merge."""
     git(root, "checkout", "-b", branch)
-    git(root, "add", *[str(p.relative_to(root)) for p in changed])
-    git(root, "commit", "-m", f"chore: inherit constitution v{version}")
+    git(root, "add", "-A")
+    git(root, "commit", "-m", title)
     git(root, "push", "-u", "origin", branch)
     url = gh(
-        "pr",
-        "create",
-        "-R",
-        f"{ORG}/{name}",
-        "--head",
-        branch,
-        "--title",
-        f"chore: inherit constitution v{version}",
-        "--body",
-        f"Moves `Inherits:` to v{version} (opened by constitution/scripts/fleet-bump.py). "
-        f"An exact crunchtools workflow pin becomes its major tag (`@v1`, `@v0`, `@v2`), "
-        f"which each release moves (constitution XV rule 5). Auto-merges if the repo "
-        f"passes validation; otherwise it needs a fix here.",
+        "pr", "create", "-R", f"{ORG}/{name}", "--head", branch, "--title", title, "--body", body
     ).strip()
     queue = subprocess.run(
         ["gh", "pr", "merge", "--auto", "--squash", url], capture_output=True, text=True
@@ -126,6 +120,63 @@ def open_bump_pr(root: Path, name: str, version: str, changed: list[Path]) -> st
         # The PR stands; it just needs merging by hand once green.
         print(f"  warning: auto-merge not queued: {queue.stderr.strip()}", file=sys.stderr)
     return url
+
+
+def open_bump_pr(root: Path, name: str, version: str, changed: list[Path]) -> str:
+    """Commit the bump on a branch, push it, open the PR, queue auto-merge."""
+    return open_pr(
+        root,
+        name,
+        f"chore/constitution-v{version}",
+        f"chore: inherit constitution v{version}",
+        f"Moves `Inherits:` to v{version} (opened by constitution/scripts/fleet-bump.py). "
+        f"An exact crunchtools workflow pin becomes its major tag (`@v1`, `@v0`, `@v2`), "
+        f"which each release moves (constitution XV rule 5). Auto-merges if the repo "
+        f"passes validation; otherwise it needs a fix here.",
+    )
+
+
+def is_automerge_caller(path: Path) -> bool:
+    """True for a workflow that calls dependabot-automerge.yml, never for the reusable one."""
+    text = path.read_text()
+    if WORKFLOW_CALL.search(text):
+        return False
+    return path.name == "dependabot-automerge.yml" or bool(AUTOMERGE_CALL.search(text))
+
+
+def swap(root: Path) -> list[str]:
+    """Replace Dependabot with the Renovate stub; returns the changes as `-path` / `+path`."""
+    changes = []
+    doomed = [root / ".github" / "dependabot.yml"]
+    doomed += sorted((root / ".github" / "workflows").glob("*.y*ml"))
+    for path in doomed:
+        if (path.name == "dependabot.yml" or is_automerge_caller(path)) and path.is_file():
+            path.unlink()
+            changes.append(f"-{path.relative_to(root)}")
+    stub = RENOVATE_STUB.read_text()
+    target = root / RENOVATE
+    if not target.is_file() or target.read_text() != stub:
+        target.write_text(stub)
+        changes.append(f"+{RENOVATE}")
+    return changes
+
+
+def swap_repo(name: str, clone_root: Path, dry_run: bool) -> None:
+    """Swap one repo from Dependabot to the Renovate preset, if it is not already."""
+    root = clone(name, clone_root)
+    changes = swap(root)
+    if not changes:
+        return
+    print(f"{name}: renovate swap ({', '.join(changes)})")
+    if not dry_run:
+        body = (
+            "Replaces Dependabot with the shared Renovate preset (constitution XV): drops "
+            "`.github/dependabot.yml` and the Dependabot auto-merge caller, adds `renovate.json` "
+            "extending `crunchtools/constitution` `renovate/default.json`. Opened by "
+            "constitution/scripts/fleet-bump.py --renovate."
+        )
+        title = "chore: replace Dependabot with the shared Renovate preset"
+        print(f"  {open_pr(root, name, 'chore/renovate', title, body)}")
 
 
 def bump_repo(name: str, version: str, clone_root: Path, validator, dry_run: bool) -> None:
@@ -152,17 +203,41 @@ def release_version(value: str) -> str:
     return value
 
 
+def run(only: str | None, handle) -> int:
+    """Call `handle(name, clone_root)` on each selected repo; a failure does not stop the rest."""
+    failed = []
+    with tempfile.TemporaryDirectory() as clone_root:
+        for repo in select_repos(only):
+            # One repo's clone or push timing out must not leave the rest of the fleet behind.
+            try:
+                handle(repo["name"], Path(clone_root))
+            except RuntimeError as error:
+                print(f"{repo['name']}: FAILED: {error}", file=sys.stderr)
+                failed.append(repo["name"])
+    if failed:
+        print(f"rerun with --only {','.join(failed)}", file=sys.stderr)
+    return 1 if failed else 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument(
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument(
         "--version",
         type=release_version,
         help="target version, X.Y.Z (default: this checkout's)",
+    )
+    mode.add_argument(
+        "--renovate",
+        action="store_true",
+        help="one-off: replace Dependabot with the shared Renovate preset in every repo",
     )
     parser.add_argument("--only", help="comma-separated repo names")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
 
+    if args.renovate:
+        return run(args.only, lambda name, root: swap_repo(name, root, args.dry_run))
     validator = load_validator()
     version = args.version or validator.own_version()
     if tuple(int(part) for part in version.split(".")) >= CONSTITUTION_MAJOR_SINCE and (
@@ -170,18 +245,9 @@ def main() -> int:
     ):
         print(f"refused: {refusal}", file=sys.stderr)
         return 1
-    failed = []
-    with tempfile.TemporaryDirectory() as clone_root:
-        for repo in select_repos(args.only):
-            # One repo's clone or push timing out must not leave the rest of the fleet behind.
-            try:
-                bump_repo(repo["name"], version, Path(clone_root), validator, args.dry_run)
-            except RuntimeError as error:
-                print(f"{repo['name']}: FAILED: {error}", file=sys.stderr)
-                failed.append(repo["name"])
-    if failed:
-        print(f"rerun with --only {','.join(failed)}", file=sys.stderr)
-    return 1 if failed else 0
+    return run(
+        args.only, lambda name, root: bump_repo(name, version, root, validator, args.dry_run)
+    )
 
 
 if __name__ == "__main__":

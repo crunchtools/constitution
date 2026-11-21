@@ -118,6 +118,24 @@ def write(root: Path, rel: str, text: str) -> None:
     path.write_text(text)
 
 
+# A repo still on Dependabot (XV, accepted until v1.60.0): the fixture's default,
+# since most of the fleet has not been swapped to Renovate yet.
+DEPENDABOT_UV = """\
+version: 2
+updates:
+  - package-ecosystem: "uv"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    ignore:
+      - dependency-name: "crunchtools/constitution*"
+"""
+
+
 @pytest.fixture
 def repo(tmp_path: Path) -> Path:
     root = tmp_path / "example-server"
@@ -133,7 +151,7 @@ def repo(tmp_path: Path) -> Path:
     for name in ("constitution.yml", "dependabot-automerge.yml", "container.yml"):
         text = re.sub(r"@v\d+\.\d+\.\d+", f"@v{VERSION}", (ROOT / "examples" / name).read_text())
         write(root, f".github/workflows/{name}", text)
-    shutil.copy(ROOT / "examples" / "dependabot-uv.yml", root / ".github" / "dependabot.yml")
+    write(root, ".github/dependabot.yml", DEPENDABOT_UV)
     for rel in ("pyproject.toml", "uv.lock", "Containerfile"):
         write(root, rel, "")
     write(root, "tests/test_tools.py", "assert tool.annotations.readOnlyHint is True\n")
@@ -729,8 +747,67 @@ def test_dependabot_must_ignore_constitution(repo):
 
 
 def test_dependabot_must_cover_profile_ecosystem(repo):
-    shutil.copy(ROOT / "examples" / "dependabot.yml", repo / ".github" / "dependabot.yml")
+    dependabot = repo / ".github/dependabot.yml"
+    dependabot.write_text(dependabot.read_text().replace('"uv"', '"pip"'))
     assert violations(repo) == ["FILES: .github/dependabot.yml does not cover `uv` (XV)"]
+
+
+def renovate(root: Path) -> Path:
+    """Swap the fixture to Renovate the way fleet-bump.py --renovate does."""
+    (root / ".github/dependabot.yml").unlink()
+    (root / ".github/workflows/dependabot-automerge.yml").unlink()
+    shutil.copy(ROOT / "examples" / "renovate.json", root / "renovate.json")
+    return root / "renovate.json"
+
+
+def test_renovate_stub_replaces_dependabot_and_its_automerge(repo):
+    """The preset covers every ecosystem and merges through GitHub's auto-merge."""
+    renovate(repo)
+    assert violations(repo) == []
+
+
+@pytest.mark.parametrize(
+    "extends", ['"github>crunchtools/constitution//renovate/default#v1.57.0"', '"x", "{p}#v2"']
+)
+def test_renovate_may_extend_the_preset_at_any_release_tag(repo, extends):
+    preset = "github>crunchtools/constitution//renovate/default"
+    renovate(repo).write_text(f'{{"extends": [{extends.replace("{p}", preset)}]}}\n')
+    assert violations(repo) == []
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        '{"extends": ["config:recommended"]}',
+        '{"extends": ["github>crunchtools/constitution//renovate/default"]}',
+        '{"extends": ["github>crunchtools/constitution//renovate/default#main"]}',
+        '{"extends": "github>crunchtools/constitution//renovate/default#v1"}',
+        "[]",
+    ],
+)
+def test_renovate_must_extend_the_preset_at_a_tag(repo, text):
+    renovate(repo).write_text(text)
+    assert violations(repo) == [
+        "FILES: renovate.json does not extend "
+        "`github>crunchtools/constitution//renovate/default#v1` (XV); "
+        "copy examples/renovate.json"
+    ]
+
+
+def test_renovate_json_must_parse(repo):
+    renovate(repo).write_text("{,}")
+    assert violations(repo) == ["FILES: renovate.json is not valid JSON"]
+
+
+def test_a_repo_with_no_update_config_fails(repo):
+    renovate(repo).unlink()
+    assert violations(repo) == ["FILES: no renovate.json; copy examples/renovate.json (XV)"]
+
+
+def test_examples_renovate_is_the_three_line_stub():
+    text = (ROOT / "examples" / "renovate.json").read_text()
+    assert json.loads(text) == {"extends": ["github>crunchtools/constitution//renovate/default#v1"]}
+    assert text.count("\n") == len(("{", "extends", "}"))
 
 
 def test_forked_server_needs_its_sections_not_agpl(repo):

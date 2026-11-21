@@ -25,6 +25,25 @@ jobs:
           SDLC_IMAGE: ${{ vars.SDLC_IMAGE }}
         run: .sdlc/bin/sdlc ci
 
+  # The shared Renovate preset every repo extends (XV), and the stub they copy,
+  # checked by Renovate's own validator at a pinned release. --no-global judges
+  # them as repo config, which is how Renovate reads a preset.
+  renovate:
+    name: Renovate preset
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+      - name: renovate-config-validator
+        run: >-
+          npx --yes --package renovate@44.221.0 -- renovate-config-validator
+          --strict --no-global renovate/default.json examples/renovate.json
+
   # This repo's own checks: the validator run against fixture constitutions
   # that must pass and fixture constitutions that must fail. They are tests,
   # and they belong in tests/ where `sdlc ci` would run them -- written as

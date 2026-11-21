@@ -11,9 +11,10 @@ Out of policy:
   - no manifest constitution, or Inherits below the manifest era (v1.18.0)
   - any validator violation
   - inherits more than one minor release behind the latest
-  - allow_auto_merge off (Dependabot minor/patch bumps can't land), when the
-    token can see the setting
-  - Dependabot PRs open longer than --stale-days (nobody owns the bump)
+  - allow_auto_merge off (Dependabot minor/patch bumps and Renovate's platform
+    automerge can't land), when the token can see the setting
+  - Dependabot or Renovate PRs open longer than --stale-days (nobody owns the
+    bump); each bot is reported on its own, so a repo mid-migration shows both
 
 The org ruleset check needs a token that can read org rulesets; without one
 it is reported as a note and does not fail the run.
@@ -37,7 +38,9 @@ from pathlib import Path
 
 from fleet_common import MANIFEST, ORG, clone, gh_json, load_validator, select_repos
 
-STALE_DAYS = 14  # constitution.md VII: Dependabot PRs older than this are drift
+STALE_DAYS = 14  # constitution.md XV rule 4: bot PRs older than this are drift
+# (display name, `gh pr list --author` value); Renovate's login is renovate[bot]
+BOTS = (("Dependabot", "app/dependabot"), ("Renovate", "app/renovate"))
 AUDIT_WORKERS = 8  # concurrent clones; well under GitHub's secondary rate limits
 
 # XII (v1.31.0): the job name that must be a required check in every Python
@@ -52,7 +55,8 @@ REQUIRED_CHECKS = {
 }
 
 
-def stale_dependabot_prs(name: str, days: int) -> int:
+def stale_bot_prs(name: str, days: int, author: str) -> int:
+    """Open PRs by `author` (a gh --author value) older than `days`."""
     cutoff = datetime.now(UTC) - timedelta(days=days)
     prs = (
         gh_json(
@@ -61,7 +65,7 @@ def stale_dependabot_prs(name: str, days: int) -> int:
             "-R",
             f"{ORG}/{name}",
             "--author",
-            "app/dependabot",
+            author,
             "--json",
             "createdAt",
             "--limit",
@@ -200,8 +204,9 @@ def audit(repo: dict, validator, latest: tuple, stale_days: int) -> dict:
     # repo; the workflow's own token sees it as absent. Absent is unknown, not off.
     if settings.get("allow_auto_merge") is False:
         row["problems"].append("allow_auto_merge off")
-    if stale := stale_dependabot_prs(name, stale_days):
-        row["problems"].append(f"{stale} Dependabot PR(s) older than {stale_days}d")
+    for bot, author in BOTS:
+        if stale := stale_bot_prs(name, stale_days, author):
+            row["problems"].append(f"{stale} {bot} PR(s) older than {stale_days}d")
     return row
 
 

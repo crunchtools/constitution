@@ -21,7 +21,14 @@ floating_images = { gatehouse = "latest", python-sdlc = "latest", sdlc = "latest
 third_party_pins = "report"
 
 # Files every repo carries (globs relative to the repo root).
-files = ["CHANGELOG.md", ".pre-commit-config.yaml", ".github/dependabot.yml"]
+files = ["CHANGELOG.md", ".pre-commit-config.yaml"]
+
+# XV rule 2: dependency updates come from the shared Renovate preset. The repo's
+# whole config is a root renovate.json that extends this at a constitution tag
+# (`#v1`); copy examples/renovate.json. A .github/dependabot.yml in its place is
+# still accepted, judged by the `dependabot` keys below, but Dependabot support
+# ends at v1.60.0: scripts/fleet-bump.py --renovate swaps it before then.
+renovate_preset = "github>crunchtools/constitution//renovate/default"
 
 # XII since v1.30.0: a repo with a pyproject.toml runs its checks through
 # python-sdlc. These are the hooks repo it pins, the two hooks it must enable,
@@ -60,7 +67,8 @@ container_release_unpublished = ["claude-agent", "claude-supervisor"]
 # `language: system` pre-commit hook may start, besides scripts in the repo.
 host_tools = ["git", "podman", "pre-commit", "gh"]
 
-# Dependabot ecosystems every repo keeps current (XV).
+# Dependabot ecosystems a repo still on Dependabot must cover (XV, until v1.60.0).
+# The Renovate preset covers every ecosystem the profiles use.
 dependabot = ["github-actions"]
 
 # Since v1.38.0 (RT#1564): a Containerfile that resolves Python dependencies
@@ -112,7 +120,7 @@ pattern = '^  "version"\s*:\s*"([^"]+)"'
 # Each profile adds to the fleet rules. Keys:
 #   files            globs that must each match at least one path
 #   forbid_files     globs that must match no path
-#   dependabot       extra Dependabot ecosystems
+#   dependabot       extra Dependabot ecosystems (until v1.60.0)
 #   license_agpl     override the fleet license rule
 #   sections         headings the manifest MUST carry (repo-specific facts)
 #   private          the repo MUST be private (checked through the GitHub API)
