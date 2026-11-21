@@ -68,16 +68,11 @@ GUARD_STEP_KEYS = {"name", "id", "env", "run"}
 # how a job runs (`container:`, `services:`, `strategy:`, `defaults:`) is left
 # for a human.
 CALL_JOB_KEYS = {"name", "if", "needs", "permissions", "uses", "with", "secrets"}
-GUARD_JOB_KEYS = {
-    "name",
-    "if",
-    "needs",
-    "permissions",
-    "runs-on",
-    "timeout-minutes",
-    "env",
-    "steps",
-}
+GUARD_JOB_KEYS = {"name", "if", "needs", "permissions", "runs-on", "timeout-minutes", "steps"}
+# The variables a guard step has ever set. Any other, BASH_ENV say, can change
+# what the reviewed script does, so a workflow- or job-level `env:` (no
+# template has one) and any other step variable is left for a human.
+GUARD_ENV_KEYS = {"GH_TOKEN", "EVENT", "PR", "HEAD_REPO", "AUTHOR_ASSOC"}
 ON_BLOCK = re.compile(
     r"^(?:on|\"on\"|'on'):[ \t]*(?:#.*)?\n(?:(?:[ \t]+.*|[ \t]*#.*|[ \t]*)\n)*", re.MULTILINE
 )
@@ -449,7 +444,7 @@ def caller_product(text: str) -> str | None:
 
     That is a workflow whose every job either calls one product's reusable
     workflows (by the job's `uses:`, not by text anywhere in the file, and with
-    `with:` inputs no PR author chooses) or, like
+    `with:` inputs no PR author chooses and only secrets in `secrets:`) or, like
     Gatehouse's guard, is `reviewed_guard`. Anything else is left for a human,
     because the reason written next to the ignore would not be known to be true.
     """
@@ -460,7 +455,7 @@ def caller_product(text: str) -> str | None:
     except yaml.YAMLError:
         return None
     jobs = workflow.get("jobs") if isinstance(workflow, dict) else None
-    if not isinstance(jobs, dict) or not jobs or "defaults" in workflow:
+    if not isinstance(jobs, dict) or not jobs or {"defaults", "env"} & set(workflow):
         return None
     products = set()
     for job in jobs.values():
@@ -473,37 +468,45 @@ def caller_product(text: str) -> str | None:
                 or call is None
                 or call.group(2) not in REVIEWED_CALLS[call.group(1)]
                 or not safe_expressions(job.get("with"))
+                or not passes_only_secrets(job.get("secrets"))
             ):
                 return None
             products.add(call.group(1))
-        elif not reviewed_guard(job, workflow.get("env")):
+        elif not reviewed_guard(job):
             return None
     return products.pop() if len(products) == 1 else None
 
 
-def reviewed_guard(job: dict, workflow_env: dict | None) -> bool:
+def reviewed_guard(job: dict) -> bool:
     """Whether the job is a reviewed Gatehouse guard that sees no PR-chosen text.
 
     It carries only GUARD_JOB_KEYS and its steps only GUARD_STEP_KEYS (no
     container, no action, no `shell:`), its runner is chosen by no PR, its
-    scripts together are one of REVIEWED_GUARDS,
-    and every expression an `env:` (the workflow's, the job's or a step's)
-    feeds them is in SAFE_EXPRESSIONS. What a script does cannot be read off its shape,
-    so only scripts already read are let through. `workflow_env` is the
-    workflow's top-level `env:` mapping, or None when it has none.
+    scripts together are one of REVIEWED_GUARDS, and its steps set only
+    GUARD_ENV_KEYS, from SAFE_EXPRESSIONS. What a script does cannot be read
+    off its shape, so only scripts already read are let through.
     """
     steps = job.get("steps")
     if not isinstance(steps, list) or not all(isinstance(s, dict) for s in steps):
         return False
-    if set(job) - GUARD_JOB_KEYS or any(set(s) - GUARD_STEP_KEYS for s in steps):
-        return False
-    if not safe_expressions({"runs-on": job.get("runs-on")}):
-        return False
     script = "\n".join(str(s.get("run", "")) for s in steps)
-    if hashlib.sha256(script.encode()).hexdigest() not in REVIEWED_GUARDS:
-        return False
-    return all(
-        map(safe_expressions, [workflow_env, job.get("env"), *(s.get("env") for s in steps)])
+    envs = [s.get("env") or {} for s in steps]
+    return (
+        set(job) <= GUARD_JOB_KEYS
+        and all(set(s) <= GUARD_STEP_KEYS for s in steps)
+        and safe_expressions({"runs-on": job.get("runs-on")})
+        and hashlib.sha256(script.encode()).hexdigest() in REVIEWED_GUARDS
+        and all(isinstance(e, dict) and set(e) <= GUARD_ENV_KEYS for e in envs)
+        and all(map(safe_expressions, envs))
+    )
+
+
+def passes_only_secrets(secrets: dict | str | None) -> bool:
+    """Whether a call's `secrets:` is `inherit` or hands on only `${{ secrets.NAME }}` values."""
+    if secrets is None or secrets == "inherit":
+        return True
+    return isinstance(secrets, dict) and all(
+        re.fullmatch(r"\$\{\{\s*secrets\.\w+\s*\}\}", str(value)) for value in secrets.values()
     )
 
 

@@ -443,6 +443,8 @@ def test_an_ashigaru_caller_gets_each_flagged_trigger_justified():
         + '    steps:\n      - run: eval "$T"\n',
         # A reusable call handed PR-chosen text as an input.
         GATEHOUSE_CALLER + "    with:\n      title: ${{ github.event.pull_request.title }}\n",
+        # A reusable call handed PR-chosen text in place of a secret.
+        GATEHOUSE_CALLER + "    secrets:\n      KEY: ${{ github.event.pull_request.title }}\n",
         # A product workflow nobody reviewed for these triggers.
         GATEHOUSE_CALLER.replace("workflows/review.yml", "workflows/gourmand.yml"),
         # The shipped guard, run by another shell.
@@ -458,6 +460,14 @@ def test_an_ashigaru_caller_gets_each_flagged_trigger_justified():
         ),
         # A reusable call fanned out by a matrix.
         GATEHOUSE_CALLER + "    strategy:\n      matrix:\n        x: [1]\n",
+        # The shipped guard with a variable bash runs before the script.
+        OWN_CALLER.replace(
+            "          GH_TOKEN:", "          BASH_ENV: /tmp/x\n          GH_TOKEN:", 1
+        ),
+        # The shipped guard under a workflow-wide env carrying PR text.
+        OWN_CALLER.replace(
+            "\njobs:\n", "\nenv:\n  T: ${{ github.event.pull_request.title }}\njobs:\n", 1
+        ),
         # A same-named key outside `on:` is not a trigger.
         GATEHOUSE_CALLER.replace("  pull_request_target:\n", "  push:\n")
         + "env:\n  workflow_run:\n",
