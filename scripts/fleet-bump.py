@@ -24,6 +24,7 @@ Ashigaru callers as reviewed for zizmor's dangerous-triggers audit (a860).
 """
 
 import argparse
+import hashlib
 import re
 import subprocess
 import sys
@@ -89,6 +90,25 @@ SAFE_ENV = {
     "github.event.pull_request.number",
     "github.event.pull_request.head.repo.full_name",
     "github.event.pull_request.author_association",
+}
+# SHA-256 of each Gatehouse guard script ever shipped: a guard job's `run:`
+# texts joined by newlines, from every revision of gatehouse.yml in
+# crunchtools/gatehouse (examples/ and its own), crunchtools/ashigaru and this
+# repo. Each was read for a checkout, a fetch, an eval and a read of the event
+# payload, and has none. A shell job matching none of them is left for a human.
+REVIEWED_GUARDS = {
+    "0a89f0cdc0e82e469c2c3c478eb948310b87784ae87eebde92d7829e574a086c",
+    "29e1939e73aaf3ec6cf6deeb9c44de63d60c900f7c01e7bb90f7a9dda5c619a7",
+    "2b5923194ff1d0b427e3aafe47fb23a5406d14d9629f410fddfecf85b84996ee",
+    "4cc09ed71d9d347eca5b24a9ed0788c7d9209ebd4910eeb4fad3920bf3e81542",
+    "64a3eb2c04ae13e796177a06b87e1fc4bbebc6af2583775744a5c593168d66c6",
+    "7921d7109241cfa32d7be537335be247506a375dedad3b163c0c0c1d302517ca",
+    "8100d68227be371beda228802cbf5445365e36e3669456cb6666fd98a6dd3112",
+    "8f5a7a79b88ac9def8e9ab6fb0fb10387454e239edf8ed9b9ad79933c5b65453",
+    "945a65a82ea4caf3235365197c4c1356b5a19757dc3eb34d65b25ad0b8d3e6a6",
+    "a6c2ddc57a742ff60c6d93f5b1ee1de60b5f8d95b50c5ff24720307230db3fe3",
+    "adb434830b8cf3e7aee212ba15da475cafbbe1b4ddfbe8766e4a0c3207d9d9a3",
+    "f42245d70470ae8e6cbf53c79874c2e92f65148ba9275cfd68164e644a678cf9",
 }
 EXPRESSION = re.compile(r"\$\{\{\s*(.*?)\s*\}\}")
 ZIZMOR_IGNORE = "  # zizmor: ignore[dangerous-triggers]"
@@ -396,16 +416,20 @@ def caller_product(text: str) -> str | None:
 
 
 def shell_only(job: dict, workflow_env) -> bool:
-    """Whether the job runs only shell steps that see no PR-chosen text.
+    """Whether the job is a reviewed Gatehouse guard that sees no PR-chosen text.
 
-    No step runs an action, no script holds an expression, and every
-    expression an `env:` (the workflow's, the job's or a step's) feeds them is
-    in SAFE_ENV, so `eval "$VAR"` has nothing a PR author wrote to run.
+    Its steps run no action, their scripts together are one of REVIEWED_GUARDS,
+    and every expression an `env:` (the workflow's, the job's or a step's)
+    feeds them is in SAFE_ENV. What a script does cannot be read off its shape,
+    so only scripts already read are let through.
     """
     steps = job.get("steps")
     if not isinstance(steps, list) or not all(isinstance(s, dict) for s in steps):
         return False
-    if any("uses" in s or "${{" in str(s.get("run", "")) for s in steps):
+    if any("uses" in s for s in steps):
+        return False
+    script = "\n".join(str(s.get("run", "")) for s in steps)
+    if hashlib.sha256(script.encode()).hexdigest() not in REVIEWED_GUARDS:
         return False
     envs = [workflow_env, job.get("env"), *(s.get("env") for s in steps)]
     return all(
@@ -414,19 +438,44 @@ def shell_only(job: dict, workflow_env) -> bool:
 
 
 def ignore_callers(root: Path) -> list[str]:
-    """Justify the flagged triggers in every Gatehouse and Ashigaru caller; returns the paths."""
-    changed = []
+    """Justify the flagged triggers in every Gatehouse and Ashigaru caller; returns the changes.
+
+    A caller whose triggers are still bare but whose shape is not the reviewed
+    one is listed as `?path`, for a human.
+    """
+    changes = []
     for path in sorted((root / ".github" / "workflows").glob("*.y*ml")):
-        after = ignore_caller_triggers(path.read_text())
+        text = path.read_text()
+        after = ignore_caller_triggers(text)
+        where = str(path.relative_to(root))
         if after is not None:
             path.write_text(after)
-            changed.append(str(path.relative_to(root)))
-    return changed
+            changes.append(where)
+        elif CALLER_USES.search(text) and caller_product(text) is None and bare_triggers(text):
+            changes.append(f"?{where}")
+    return changes
+
+
+def bare_triggers(text: str) -> bool:
+    """Whether the `on:` block still has a flagged trigger with no comment."""
+    on = ON_BLOCK.search(text)
+    return on is not None and FLAGGED_TRIGGER.search(on[0]) is not None
 
 
 def callers_repo(name: str, clone_root: Path, dry_run: bool) -> None:
-    """Justify one repo's caller triggers; a repo with nothing to change is skipped."""
-    one_off_repo(name, clone_root, ZIZMOR_CALLERS, ignore_callers, dry_run)
+    """Justify one repo's caller triggers; a repo with nothing to change is skipped.
+
+    A repo whose only callers need a human is reported, with no PR.
+    """
+
+    def change(root: Path) -> list[str]:
+        changes = ignore_callers(root)
+        if changes and all(c.startswith("?") for c in changes):
+            print(f"{name}: callers for a human ({', '.join(c[1:] for c in changes)})")
+            return []
+        return changes
+
+    one_off_repo(name, clone_root, ZIZMOR_CALLERS, change, dry_run)
 
 
 def bump_repo(name: str, version: str, clone_root: Path, validator, dry_run: bool) -> None:

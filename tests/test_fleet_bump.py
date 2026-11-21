@@ -400,15 +400,6 @@ def test_an_ashigaru_caller_gets_each_flagged_trigger_justified():
         assert f"  {event}:  # zizmor: ignore[dangerous-triggers]\n" in after
 
 
-GUARD_JOB = """  guard:
-    runs-on: ubuntu-latest
-    steps:
-      - env:
-          PR: ${{ github.event.pull_request.number }}
-        run: echo "$PR"
-"""
-
-
 @pytest.mark.parametrize(
     "text",
     [
@@ -467,9 +458,42 @@ def test_zizmor_callers_dry_run_makes_no_git_or_gh_calls(monkeypatch, tmp_path, 
     assert "r: justify caller triggers (.github/workflows/gatehouse.yml)" in capsys.readouterr().out
 
 
-def test_a_guard_job_of_shell_steps_with_env_data_still_qualifies():
-    after = bump.ignore_caller_triggers(GATEHOUSE_CALLER + GUARD_JOB)
-    assert after is not None and after.endswith(GUARD_JOB)
+# This repo's own Gatehouse caller as it stood before its triggers were justified:
+# the shipped guard job and two calls into Gatehouse.
+OWN_CALLER = (
+    (Path(__file__).resolve().parents[1] / ".github" / "workflows" / "gatehouse.yml")
+    .read_text()
+    .replace(
+        "  pull_request_target:  # zizmor: ignore[dangerous-triggers]\n", "  pull_request_target:\n"
+    )
+)
+
+
+def test_the_shipped_guard_job_qualifies_its_caller():
+    after = bump.ignore_caller_triggers(OWN_CALLER)
+    assert after is not None and "Reject workflow changes from untrusted PRs" in after
+
+
+def test_a_guard_whose_script_was_never_reviewed_is_left_for_a_human(tmp_path):
+    edited = OWN_CALLER.replace(
+        "set -euo pipefail", 'set -euo pipefail\n          cat "$GITHUB_EVENT_PATH"'
+    )
+    assert edited != OWN_CALLER
+    assert bump.ignore_caller_triggers(edited) is None
+    workflows = tmp_path / ".github" / "workflows"
+    workflows.mkdir(parents=True)
+    (workflows / "gatehouse.yml").write_text(edited)
+    assert bump.ignore_callers(tmp_path) == ["?.github/workflows/gatehouse.yml"]
+
+
+def test_a_repo_with_only_hand_work_gets_no_pr(monkeypatch, tmp_path, capsys):
+    workflows = tmp_path / "r" / ".github" / "workflows"
+    workflows.mkdir(parents=True)
+    (workflows / "gatehouse.yml").write_text(OWN_CALLER.replace("set -euo pipefail", "set -eu"))
+    monkeypatch.setattr(bump, "clone", lambda name, dest: dest / name)
+    monkeypatch.setattr(bump, "open_pr", lambda *a: pytest.fail("opened a PR for hand work"))
+    bump.callers_repo("r", tmp_path, dry_run=False)
+    assert "r: callers for a human (.github/workflows/gatehouse.yml)" in capsys.readouterr().out
 
 
 def test_zizmor_callers_opens_its_pr_with_the_one_off_metadata(monkeypatch, tmp_path):
