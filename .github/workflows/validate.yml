@@ -118,11 +118,22 @@ jobs:
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
+        # One run, so the online audits ask GitHub once; the log is read back
+        # from the SARIF.
         run: |
-          zizmor=("$RUNNER_TEMP/venv/bin/zizmor" --config .constitution/zizmor.yml --no-exit-codes)
-          "${zizmor[@]}" .
-          "${zizmor[@]}" --format sarif . > "$RUNNER_TEMP/zizmor.sarif"
-          echo "sarif=$RUNNER_TEMP/zizmor.sarif" >> "$GITHUB_OUTPUT"
+          sarif="$RUNNER_TEMP/zizmor.sarif"
+          "$RUNNER_TEMP/venv/bin/zizmor" --config .constitution/zizmor.yml --no-exit-codes \
+            --format sarif . > "$sarif"
+          echo "sarif=$sarif" >> "$GITHUB_OUTPUT"
+          "$RUNNER_TEMP/venv/bin/python" - "$sarif" <<'PY'
+          import json, sys
+          results = json.load(open(sys.argv[1]))["runs"][0]["results"]
+          for r in results:
+              where = r["locations"][0]["physicalLocation"]
+              line = where.get("region", {}).get("startLine", "?")
+              print(f"{r['level']}[{r['ruleId']}] {where['artifactLocation']['uri']}:{line}: {r['message']['text']}")
+          print(f"zizmor: {len(results)} finding(s)")
+          PY
       # A private repo without code scanning (GitHub Advanced Security), a
       # caller that does not grant `security-events: write`, or a fork's pull
       # request refuses the upload; the log above still has every finding.
