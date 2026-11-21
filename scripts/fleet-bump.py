@@ -170,14 +170,18 @@ def cut_job(text: str, job_id: str) -> str:
     return "".join(lines[:start] + lines[keep:])
 
 
-def drop_automerge(path: Path, validator) -> str | None:
+def drop_automerge(root: Path, path: Path, validator) -> str | None:
     """Remove the auto-merge caller from one workflow; returns the change, or None.
 
     A file whose every job is the caller is deleted. In a file with other jobs
     only the caller's job is cut, and only if the rest parses back to exactly
-    the same jobs and none of them `needs` it; otherwise this raises, and the
-    repo is listed for hand work rather than losing its other jobs.
+    the same jobs and none of them `needs` it; otherwise this raises before
+    writing anything, and the repo is listed for hand work rather than losing
+    its other jobs.
     """
+    import yaml  # deferred, like the validator's load_yaml
+
+    where = path.relative_to(root)
     workflow = validator.load_yaml(path)
     if workflow is None or "workflow_call" in validator.triggers(workflow):
         return None  # the reusable definition itself, or nothing we can read
@@ -187,7 +191,7 @@ def drop_automerge(path: Path, validator) -> str | None:
     jobs = workflow.get("jobs") or {}
     if callers == set(jobs):
         path.unlink()
-        return f"-{path.name}"
+        return f"-{where}"
     text = path.read_text()
     for job_id in callers:
         text = cut_job(text, job_id)
@@ -198,26 +202,34 @@ def drop_automerge(path: Path, validator) -> str | None:
         if isinstance(job, dict)
         for n in ([job["needs"]] if isinstance(job.get("needs"), str) else job.get("needs") or [])
     }
-    path.write_text(text)
-    after = validator.load_yaml(path)
-    if after is None or (after.get("jobs") or {}) != kept or needs & callers:
+    try:
+        after = yaml.safe_load(text)
+    except yaml.YAMLError:
+        after = None
+    if not isinstance(after, dict) or (after.get("jobs") or {}) != kept or needs & callers:
         raise RuntimeError(
             f"{path.name} mixes the Dependabot auto-merge job with others and cannot be "
             f"cut cleanly; remove job(s) {', '.join(sorted(callers))} by hand"
         )
-    return f"~{path.name} (-job {', '.join(sorted(callers))})"
+    path.write_text(text)
+    return f"~{where} (-job {', '.join(sorted(callers))})"
 
 
 def drop_dependabot(root: Path, validator) -> list[str]:
-    """Delete dependabot.yml and the auto-merge callers; returns the changes."""
-    changes = []
+    """Delete the auto-merge callers, then dependabot.yml; returns the changes.
+
+    The workflows go first: one that must be left for hand work raises before
+    dependabot.yml is touched.
+    """
+    changes = [
+        change
+        for path in sorted((root / ".github" / "workflows").glob("*.y*ml"))
+        if (change := drop_automerge(root, path, validator))
+    ]
     dependabot = root / ".github" / "dependabot.yml"
     if dependabot.is_file():
         dependabot.unlink()
-        changes.append("-.github/dependabot.yml")
-    for path in sorted((root / ".github" / "workflows").glob("*.y*ml")):
-        if change := drop_automerge(path, validator):
-            changes.append(change[0] + ".github/workflows/" + change[1:])
+        changes.insert(0, "-.github/dependabot.yml")
     return changes
 
 
