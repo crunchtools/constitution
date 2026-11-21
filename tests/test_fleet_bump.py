@@ -430,6 +430,15 @@ GUARD_JOB = """  guard:
         # A shell step that splices event data into the script.
         GATEHOUSE_CALLER
         + "  other:\n    steps:\n      - run: echo ${{ github.event.pull_request.title }}\n",
+        # PR-chosen text reaches a shell step through env, where `eval` could run it.
+        GATEHOUSE_CALLER
+        + "  other:\n    steps:\n      - env:\n"
+        + "          T: ${{ github.event.pull_request.title }}\n"
+        + '        run: eval "$T"\n',
+        # The same through the job's env.
+        GATEHOUSE_CALLER
+        + "  other:\n    env:\n      T: ${{ github.head_ref }}\n"
+        + '    steps:\n      - run: eval "$T"\n',
         # A same-named key outside `on:` is not a trigger.
         GATEHOUSE_CALLER.replace("  pull_request_target:\n", "  push:\n")
         + "env:\n  workflow_run:\n",

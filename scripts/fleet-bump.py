@@ -80,6 +80,17 @@ TRIGGER_REASONS = {
         "event it does not act on ends in a job that reads no secret.",
     ),
 }
+# The only expressions a caller's shell-only job may read, through `env:`: none
+# is text a pull request's author can choose (a number, an enum, a token and an
+# owner/repo name). They are every expression the Gatehouse guard has ever used.
+SAFE_ENV = {
+    "github.token",
+    "github.event_name",
+    "github.event.pull_request.number",
+    "github.event.pull_request.head.repo.full_name",
+    "github.event.pull_request.author_association",
+}
+EXPRESSION = re.compile(r"\$\{\{\s*(.*?)\s*\}\}")
 ZIZMOR_IGNORE = "  # zizmor: ignore[dangerous-triggers]"
 AUTOMERGE_USES = re.compile(r"(?:^|/)\.github/workflows/dependabot-automerge\.ya?ml(?:@|$)")
 
@@ -358,10 +369,8 @@ def caller_product(text: str) -> str | None:
 
     That is a workflow whose every job either calls one product's reusable
     workflows (by the job's `uses:`, not by text anywhere in the file) or, like
-    Gatehouse's guard, runs only shell steps with no `${{ }}` in them: no
-    action, so no checkout, and no event data spliced into a script. Anything
-    else is left for a human, because the reason written next to the ignore
-    would not be known to be true.
+    Gatehouse's guard, is `shell_only`. Anything else is left for a human,
+    because the reason written next to the ignore would not be known to be true.
     """
     import yaml  # deferred, like drop_automerge's
 
@@ -381,14 +390,27 @@ def caller_product(text: str) -> str | None:
             if call is None:
                 return None
             products.add(call.group(1))
-            continue
-        steps = job.get("steps")
-        if not isinstance(steps, list) or not all(
-            isinstance(s, dict) and "uses" not in s and "${{" not in str(s.get("run", ""))
-            for s in steps
-        ):
+        elif not shell_only(job, workflow.get("env")):
             return None
     return products.pop() if len(products) == 1 else None
+
+
+def shell_only(job: dict, workflow_env) -> bool:
+    """Whether the job runs only shell steps that see no PR-chosen text.
+
+    No step runs an action, no script holds an expression, and every
+    expression an `env:` (the workflow's, the job's or a step's) feeds them is
+    in SAFE_ENV, so `eval "$VAR"` has nothing a PR author wrote to run.
+    """
+    steps = job.get("steps")
+    if not isinstance(steps, list) or not all(isinstance(s, dict) for s in steps):
+        return False
+    if any("uses" in s or "${{" in str(s.get("run", "")) for s in steps):
+        return False
+    envs = [workflow_env, job.get("env"), *(s.get("env") for s in steps)]
+    return all(
+        expression in SAFE_ENV for env in envs if env for expression in EXPRESSION.findall(str(env))
+    )
 
 
 def ignore_callers(root: Path) -> list[str]:
