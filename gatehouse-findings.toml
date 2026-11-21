@@ -21,3 +21,11 @@ file = ".github/workflows/validate.yml"
 evidence = "ref: v1.55.0"
 status = "not-a-bug"
 reason = "This repo's own check calls validate.yml@v1.46.0 (constitution.yml), which this release leaves alone; the ref inside validate.yml is the scripts checkout shipped with the tag, which test_reusable_workflow_checks_out_this_release requires to equal the release version, as every release has moved it."
+
+[[findings]]
+agent = "security"
+category = "security"
+file = "scripts/fleet-bump.py"
+evidence = "    steps = job.get(\"steps\")\n    if not isinstance(steps, list) or not all(isinstance(s, dict) for s in steps):\n        return False\n    if any(\"uses\" in s for s in steps):\n        return False\n    script = \"\\n\".join(str(s.get(\"run\", \"\")) for s in steps)\n    if hashlib.sha256(script.encode()).hexdigest() not in REVIEWED_GUARDS:\n        return False\n    envs = [workflow_env, job.get(\"env\"), *(s.get(\"env\") for s in steps)]"
+status = "not-a-bug"
+reason = "The ignore claims only that nothing from the PR is checked out or run, which a guard switched off by if: false makes no less true: a job that does not run executes nothing. Whether the guard blocks merges is branch protection's job (it is a required check), not zizmor's dangerous-triggers audit."

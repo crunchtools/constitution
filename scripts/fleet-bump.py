@@ -415,13 +415,14 @@ def caller_product(text: str) -> str | None:
     return products.pop() if len(products) == 1 else None
 
 
-def shell_only(job: dict, workflow_env) -> bool:
+def shell_only(job: dict, workflow_env: dict | None) -> bool:
     """Whether the job is a reviewed Gatehouse guard that sees no PR-chosen text.
 
     Its steps run no action, their scripts together are one of REVIEWED_GUARDS,
     and every expression an `env:` (the workflow's, the job's or a step's)
     feeds them is in SAFE_ENV. What a script does cannot be read off its shape,
-    so only scripts already read are let through.
+    so only scripts already read are let through. `workflow_env` is the
+    workflow's top-level `env:` mapping, or None when it has none.
     """
     steps = job.get("steps")
     if not isinstance(steps, list) or not all(isinstance(s, dict) for s in steps):
