@@ -38,7 +38,10 @@ name: Ashigaru
 on:
   issues:
     types: [opened, labeled]
-  workflow_run:
+  # Only fix.yml acts on it, and only for ashigaru/ branches in this repo
+  # opened by the Ashigaru app. It checks out that branch, which the app wrote;
+  # it never checks out a fork's code.
+  workflow_run:  # zizmor: ignore[dangerous-triggers]
     workflows: [Gatehouse]
     types: [completed]
 

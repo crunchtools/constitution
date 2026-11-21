@@ -3,7 +3,9 @@
 # `@v1` is the major tag each constitution release moves (XV rule 5). The rules
 # this repo is judged by are the ones `Inherits:` names in
 # .specify/memory/constitution.md, which scripts/fleet-bump.py moves.
-# Required check: `Constitution / Validate constitution`.
+# Required check: `Constitution / Validate constitution`. The `zizmor` job beside
+# it is advisory; `security-events: write` lets it upload to code scanning
+# (XV rule 8), and `actions: read` is what that upload needs on a private repo.
 
 name: Constitution
 
@@ -18,4 +20,8 @@ permissions:
 jobs:
   constitution:
     name: Constitution
+    permissions:
+      contents: read
+      actions: read
+      security-events: write
     uses: crunchtools/constitution/.github/workflows/validate.yml@v1

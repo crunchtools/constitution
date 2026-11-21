@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
 jobs:
   sdlc:
     name: sdlc ci
@@ -13,7 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -33,14 +36,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "24"
       - name: Install Renovate
-        run: npm install --prefix "$RUNNER_TEMP/renovate" --no-save --no-audit renovate@44.221.0
+        # An exact version, checked by Renovate itself; there is no lockfile to install from.
+        run: npm install --prefix "$RUNNER_TEMP/renovate" --no-save --no-audit renovate@44.221.0  # zizmor: ignore[adhoc-packages]
       - name: Validate the preset
         run: >-
           "$RUNNER_TEMP/renovate/node_modules/.bin/renovate-config-validator"
@@ -88,7 +92,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       # This repo, judged by the validator in this pull request rather than by
       # the last release. `sdlc ci` skips its `constitution` check here because

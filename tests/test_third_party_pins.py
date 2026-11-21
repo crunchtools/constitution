@@ -1,5 +1,7 @@
 """check_third_party_pins: XV rule 2, report mode until the fleet is migrated."""
 
+import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -29,6 +31,7 @@ def repo_with(tmp_path: Path, *uses: str, reusable: str = "") -> Path:
         f"actions/checkout@{SHA}",
         f"docker://alpine@{DIGEST}",
         "./.github/actions/local",
+        "$/.github/workflows/local.yml",
         "crunchtools/gatehouse/.github/workflows/review.yml@v0",
         "CrunchTools/constitution/.github/workflows/validate.yml@v1",
     ],
@@ -65,12 +68,27 @@ def test_the_fleet_is_in_report_mode():
     assert V.load_requirements()["fleet"]["third_party_pins"] == "report"
 
 
-def test_report_mode_warns_and_still_passes():
+def unpinned_copy(tmp_path: Path) -> Path:
+    """This repo with one action moved back to a tag: its own workflows are pinned."""
+    root = tmp_path / "constitution"
+    shutil.copytree(ROOT, root, ignore=shutil.ignore_patterns(".git", ".venv", "__pycache__"))
+    (root / ".git").mkdir()
+    ci = root / ".github/workflows/ci.yml"
+    ci.write_text(
+        re.sub(
+            r"actions/checkout@[0-9a-f]{40}[^\n]*", "actions/checkout@v7", ci.read_text(), count=1
+        )
+    )
+    return root
+
+
+def test_report_mode_warns_and_still_passes(tmp_path):
+    root = unpinned_copy(tmp_path)
     done = subprocess.run(
         [
             sys.executable,
-            str(ROOT / "validate-constitution.py"),
-            str(ROOT / ".specify/memory/constitution.md"),
+            str(root / "validate-constitution.py"),
+            str(root / ".specify/memory/constitution.md"),
         ],
         capture_output=True,
         text=True,
@@ -95,13 +113,14 @@ def test_enforce_mode_fails(tmp_path, monkeypatch):
     assert "PINS: ci.yml uses actions/checkout@v7, not a full commit SHA (XV rule 2)" in found
 
 
-def test_report_mode_annotates_in_ci():
+def test_report_mode_annotates_in_ci(tmp_path):
+    root = unpinned_copy(tmp_path)
     env = {"GITHUB_ACTIONS": "true", "PATH": "/usr/bin:/bin"}
     done = subprocess.run(
         [
             sys.executable,
-            str(ROOT / "validate-constitution.py"),
-            str(ROOT / ".specify/memory/constitution.md"),
+            str(root / "validate-constitution.py"),
+            str(root / ".specify/memory/constitution.md"),
         ],
         capture_output=True,
         text=True,

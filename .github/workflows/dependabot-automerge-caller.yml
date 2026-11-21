@@ -10,4 +10,6 @@ permissions:
 jobs:
   automerge:
     name: Dependabot
-    uses: ./.github/workflows/dependabot-automerge.yml
+    # `./`, not `$/`: validators before 1.58.0 judge this repo's PRs and read
+    # `$/` as a third-party ref.
+    uses: ./.github/workflows/dependabot-automerge.yml  # zizmor: ignore[self-repository]

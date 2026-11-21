@@ -929,10 +929,10 @@ MANIFEST_HEADER = ("Version", "Ratified", "Status")  # beside Inherits and Profi
 VALID_PROFILES |= PROFILES_ADDED_IN_MANIFEST
 
 GATEHOUSE_REUSABLE = re.compile(
-    r"^(?:crunchtools/gatehouse|\.)/\.github/workflows/(\w[\w-]*)\.yml(?:@(\S+))?$"
+    r"^(?:crunchtools/gatehouse|[.$])/\.github/workflows/(\w[\w-]*)\.yml(?:@(\S+))?$"
 )
 CONSTITUTION_REUSABLE = re.compile(
-    r"^(?:crunchtools/constitution|\.)/\.github/workflows/(\w[\w-]*)\.yml(?:@(\S+))?$"
+    r"^(?:crunchtools/constitution|[.$])/\.github/workflows/(\w[\w-]*)\.yml(?:@(\S+))?$"
 )
 # Every file Renovate reads a repo's own config from (renovate@44 config/app-strings).
 RENOVATE_CONFIG_FILES = [
@@ -2460,7 +2460,8 @@ def check_third_party_pins(repo_root: Path) -> list[str]:
     """XV rule 2: a third-party `uses:` names a full commit SHA, or an image digest.
 
     Our own `crunchtools/*` workflows float at their major tag (XV rule 5) and
-    a local `./` path is this repo's own code; neither is third-party.
+    a local path (`./`, or GitHub's self-repository `$/`) is this repo's own
+    code; neither is third-party.
     """
     found = []
     for path in workflow_files(repo_root):
@@ -2471,7 +2472,11 @@ def check_third_party_pins(repo_root: Path) -> list[str]:
             steps = [s for s in job.get("steps") or [] if isinstance(s, dict)]
             for uses in [job.get("uses"), *(step.get("uses") for step in steps)]:
                 uses = str(uses or "")
-                if not uses or uses.startswith("./") or uses.lower().startswith("crunchtools/"):
+                if (
+                    not uses
+                    or uses.startswith(("./", "$/"))
+                    or uses.lower().startswith("crunchtools/")
+                ):
                     continue
                 if uses.startswith("docker://"):
                     if not _IMAGE_DIGEST.search(uses):

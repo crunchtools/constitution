@@ -21,10 +21,12 @@ jobs:
       contents: read
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up Python
-        uses: actions/setup-python@v7
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: '3.12'
 
@@ -32,12 +34,13 @@ jobs:
       # limit, so a busy day on someone's account can't turn this check red.
       - name: Mint CI token
         id: ci-token
-        uses: actions/create-github-app-token@v3
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         with:
           client-id: ${{ vars.CRUNCHTOOLS_CI_CLIENT_ID }}
           private-key: ${{ secrets.CRUNCHTOOLS_CI_APP_KEY }}
-          owner: crunchtools
-          # The check only reads workflows across the org.
+          # The check reads workflows across the whole org, so the token is
+          # org-wide by design; it is read-only.
+          owner: crunchtools  # zizmor: ignore[github-app]
           permission-contents: read
 
       - name: Run cascade determinism check

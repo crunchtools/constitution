@@ -766,3 +766,42 @@ def test_a_floating_major_tag_ends_resolve_and_check_green_with_skip(w, monkeypa
     assert CR.main(["resolve", "--image", IMAGE, *common]) == 0
     assert out.read_text() == "skip=true\n"
     assert not w.copies
+
+
+def downstream_steps() -> tuple[dict, dict]:
+    import yaml
+
+    flow = yaml.safe_load((ROOT / ".github/workflows/container-release.yml").read_text())
+    steps = [s for job in flow["jobs"].values() for s in job.get("steps", [])]
+    listing = next(s for s in steps if s.get("id") == "downstream")
+    token = next(s for s in steps if s.get("id") == "app")
+    return listing, token
+
+
+@pytest.mark.parametrize(
+    ("downstream", "output"),
+    [
+        ("ubi10-core ubi10-httpd", "repos=ubi10-core,ubi10-httpd\n"),
+        ("  ubi10-core\n  ubi10-httpd  ", "repos=ubi10-core,ubi10-httpd\n"),
+        ("solo", "repos=solo\n"),
+        ("   ", ""),
+        ("", ""),
+    ],
+)
+def test_the_dispatch_token_names_only_the_downstream_repos(tmp_path, downstream, output):
+    """An empty `repositories` would mint an org-wide token, so blank names none."""
+    listing, _ = downstream_steps()
+    out = tmp_path / "output"
+    out.write_text("")
+    subprocess.run(
+        ["bash", "-e", "-c", listing["run"]],
+        env={"DOWNSTREAM": downstream, "GITHUB_OUTPUT": str(out), "PATH": "/usr/bin:/bin"},
+        check=True,
+    )
+    assert out.read_text() == output
+
+
+def test_the_dispatch_token_is_minted_only_for_named_repos():
+    _, token = downstream_steps()
+    assert token["if"] == "steps.downstream.outputs.repos != ''"
+    assert token["with"]["repositories"] == "${{ steps.downstream.outputs.repos }}"

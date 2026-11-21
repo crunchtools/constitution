@@ -30,7 +30,9 @@
 name: Gatehouse
 
 on:
-  pull_request_target:
+  # Nothing from the PR is checked out or run (see above), which is what makes
+  # this trigger safe here.
+  pull_request_target:  # zizmor: ignore[dangerous-triggers]
     types: [opened, synchronize, reopened]
   # A reply rings the doorbell: this run's own checks do not count toward
   # branch rules, so gatehouse-retriage.yml answers it by re-running

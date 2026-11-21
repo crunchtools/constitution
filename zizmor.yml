@@ -1,0 +1,10 @@
+# zizmor policy for the fleet (XV). validate.yml runs zizmor with this file as
+# its only config, so a repo's own zizmor.yml is not read.
+rules:
+  unpinned-uses:
+    config:
+      policies:
+        # Our own reusable workflows float at their major tag (XV rule 5).
+        "crunchtools/*": ref-pin
+        # Everything else names a full commit SHA (XV rule 2).
+        "*": hash-pin
