@@ -430,6 +430,8 @@ def test_an_ashigaru_caller_gets_each_flagged_trigger_justified():
         GATEHOUSE_CALLER
         + "  other:\n    env:\n      T: ${{ github.head_ref }}\n"
         + '    steps:\n      - run: eval "$T"\n',
+        # A reusable call handed PR-chosen text as an input.
+        GATEHOUSE_CALLER + "    with:\n      title: ${{ github.event.pull_request.title }}\n",
         # A same-named key outside `on:` is not a trigger.
         GATEHOUSE_CALLER.replace("  pull_request_target:\n", "  push:\n")
         + "env:\n  workflow_run:\n",

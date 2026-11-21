@@ -81,10 +81,12 @@ TRIGGER_REASONS = {
         "event it does not act on ends in a job that reads no secret.",
     ),
 }
-# The only expressions a caller's shell-only job may read, through `env:`: none
-# is text a pull request's author can choose (a number, an enum, a token and an
-# owner/repo name). They are every expression the Gatehouse guard has ever used.
-SAFE_ENV = {
+# The only expressions a caller may hand its jobs, through a shell job's `env:`
+# or a reusable call's `with:`: none is text a pull request's author can choose
+# (a number, an enum, a token, an owner/repo name and a job result). They are
+# every such expression the Gatehouse templates have ever used.
+SAFE_EXPRESSIONS = {
+    "needs.review.result",
     "github.token",
     "github.event_name",
     "github.event.pull_request.number",
@@ -96,19 +98,33 @@ SAFE_ENV = {
 # crunchtools/gatehouse (examples/ and its own), crunchtools/ashigaru and this
 # repo. Each was read for a checkout, a fetch, an eval and a read of the event
 # payload, and has none. A shell job matching none of them is left for a human.
+# Each hash is noted with the first revision that shipped it; hashing that
+# revision's guard `run:` texts reproduces it.
 REVIEWED_GUARDS = {
-    "0a89f0cdc0e82e469c2c3c478eb948310b87784ae87eebde92d7829e574a086c",
-    "29e1939e73aaf3ec6cf6deeb9c44de63d60c900f7c01e7bb90f7a9dda5c619a7",
-    "2b5923194ff1d0b427e3aafe47fb23a5406d14d9629f410fddfecf85b84996ee",
-    "4cc09ed71d9d347eca5b24a9ed0788c7d9209ebd4910eeb4fad3920bf3e81542",
-    "64a3eb2c04ae13e796177a06b87e1fc4bbebc6af2583775744a5c593168d66c6",
-    "7921d7109241cfa32d7be537335be247506a375dedad3b163c0c0c1d302517ca",
-    "8100d68227be371beda228802cbf5445365e36e3669456cb6666fd98a6dd3112",
-    "8f5a7a79b88ac9def8e9ab6fb0fb10387454e239edf8ed9b9ad79933c5b65453",
-    "945a65a82ea4caf3235365197c4c1356b5a19757dc3eb34d65b25ad0b8d3e6a6",
-    "a6c2ddc57a742ff60c6d93f5b1ee1de60b5f8d95b50c5ff24720307230db3fe3",
+    # ashigaru .github/workflows/gatehouse.yml@550ed7a
     "adb434830b8cf3e7aee212ba15da475cafbbe1b4ddfbe8766e4a0c3207d9d9a3",
+    # ashigaru .github/workflows/gatehouse.yml@6a7329d
+    "64a3eb2c04ae13e796177a06b87e1fc4bbebc6af2583775744a5c593168d66c6",
+    # gatehouse .github/workflows/gatehouse.yml@173ba07
+    "4cc09ed71d9d347eca5b24a9ed0788c7d9209ebd4910eeb4fad3920bf3e81542",
+    # gatehouse .github/workflows/gatehouse.yml@4ae89d0
+    "8f5a7a79b88ac9def8e9ab6fb0fb10387454e239edf8ed9b9ad79933c5b65453",
+    # gatehouse .github/workflows/gatehouse.yml@8235062
+    "a6c2ddc57a742ff60c6d93f5b1ee1de60b5f8d95b50c5ff24720307230db3fe3",
+    # gatehouse .github/workflows/gatehouse.yml@a9b67b6
+    "7921d7109241cfa32d7be537335be247506a375dedad3b163c0c0c1d302517ca",
+    # gatehouse .github/workflows/gatehouse.yml@bb5f91f
+    "2b5923194ff1d0b427e3aafe47fb23a5406d14d9629f410fddfecf85b84996ee",
+    # gatehouse examples/gatehouse.yml@173ba07
     "f42245d70470ae8e6cbf53c79874c2e92f65148ba9275cfd68164e644a678cf9",
+    # gatehouse examples/gatehouse.yml@4ae89d0
+    "945a65a82ea4caf3235365197c4c1356b5a19757dc3eb34d65b25ad0b8d3e6a6",
+    # gatehouse examples/gatehouse.yml@a9b67b6
+    "29e1939e73aaf3ec6cf6deeb9c44de63d60c900f7c01e7bb90f7a9dda5c619a7",
+    # gatehouse examples/gatehouse.yml@bb5f91f
+    "8100d68227be371beda228802cbf5445365e36e3669456cb6666fd98a6dd3112",
+    # gatehouse examples/gatehouse.yml@cad0611
+    "0a89f0cdc0e82e469c2c3c478eb948310b87784ae87eebde92d7829e574a086c",
 }
 EXPRESSION = re.compile(r"\$\{\{\s*(.*?)\s*\}\}")
 ZIZMOR_IGNORE = "  # zizmor: ignore[dangerous-triggers]"
@@ -388,7 +404,8 @@ def caller_product(text: str) -> str | None:
     """`gatehouse` or `ashigaru` when the workflow is a caller the trigger reasons hold for.
 
     That is a workflow whose every job either calls one product's reusable
-    workflows (by the job's `uses:`, not by text anywhere in the file) or, like
+    workflows (by the job's `uses:`, not by text anywhere in the file, and with
+    `with:` inputs no PR author chooses) or, like
     Gatehouse's guard, is `shell_only`. Anything else is left for a human,
     because the reason written next to the ignore would not be known to be true.
     """
@@ -407,7 +424,7 @@ def caller_product(text: str) -> str | None:
             return None
         if "uses" in job:
             call = CALLER_USES.fullmatch(str(job["uses"]))
-            if call is None:
+            if call is None or not safe_expressions(job.get("with")):
                 return None
             products.add(call.group(1))
         elif not shell_only(job, workflow.get("env")):
@@ -420,7 +437,7 @@ def shell_only(job: dict, workflow_env: dict | None) -> bool:
 
     Its steps run no action, their scripts together are one of REVIEWED_GUARDS,
     and every expression an `env:` (the workflow's, the job's or a step's)
-    feeds them is in SAFE_ENV. What a script does cannot be read off its shape,
+    feeds them is in SAFE_EXPRESSIONS. What a script does cannot be read off its shape,
     so only scripts already read are let through. `workflow_env` is the
     workflow's top-level `env:` mapping, or None when it has none.
     """
@@ -432,10 +449,14 @@ def shell_only(job: dict, workflow_env: dict | None) -> bool:
     script = "\n".join(str(s.get("run", "")) for s in steps)
     if hashlib.sha256(script.encode()).hexdigest() not in REVIEWED_GUARDS:
         return False
-    envs = [workflow_env, job.get("env"), *(s.get("env") for s in steps)]
     return all(
-        expression in SAFE_ENV for env in envs if env for expression in EXPRESSION.findall(str(env))
+        map(safe_expressions, [workflow_env, job.get("env"), *(s.get("env") for s in steps)])
     )
+
+
+def safe_expressions(mapping: dict | None) -> bool:
+    """Whether every `${{ }}` in an `env:` or `with:` mapping is in SAFE_EXPRESSIONS."""
+    return all(e in SAFE_EXPRESSIONS for e in EXPRESSION.findall(str(mapping or "")))
 
 
 def ignore_callers(root: Path) -> list[str]:
