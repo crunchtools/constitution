@@ -285,7 +285,9 @@ def test_cutting_a_job_keeps_the_comment_that_introduces_the_next_one(tmp_path):
 def test_a_mixed_workflow_that_needs_the_automerge_job_is_left_for_a_human(tmp_path):
     mixed = MIXED + "  after:\n    needs: [automerge]\n    runs-on: ubuntu-latest\n"
     flows = dependabot_repo(tmp_path, {"ci.yml": mixed})
-    with pytest.raises(RuntimeError, match=r"ci.yml mixes .* remove job\(s\) automerge by hand"):
+    with pytest.raises(
+        RuntimeError, match=r"\.github/workflows/ci\.yml mixes .* remove job\(s\) automerge by hand"
+    ):
         bump.drop_automerge(tmp_path, flows / "ci.yml", VALIDATOR)
     assert (flows / "ci.yml").read_text() == mixed  # refused before writing anything
     with pytest.raises(RuntimeError):

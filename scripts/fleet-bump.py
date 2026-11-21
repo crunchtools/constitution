@@ -208,7 +208,7 @@ def drop_automerge(root: Path, path: Path, validator) -> str | None:
         after = None
     if not isinstance(after, dict) or (after.get("jobs") or {}) != kept or needs & callers:
         raise RuntimeError(
-            f"{path.name} mixes the Dependabot auto-merge job with others and cannot be "
+            f"{where} mixes the Dependabot auto-merge job with others and cannot be "
             f"cut cleanly; remove job(s) {', '.join(sorted(callers))} by hand"
         )
     path.write_text(text)
