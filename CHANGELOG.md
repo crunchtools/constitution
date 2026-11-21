@@ -9,15 +9,18 @@ Entries through 1.14.0 are derived from the Ratification History table in
 
 ## [Unreleased]
 
+## [1.58.0] - 2026-11-21
+
 ### Added
 - zizmor audits every repo's GitHub Actions workflows (XV rule 8, a854). A
   `zizmor` job in `validate.yml` runs zizmor 1.32.0 under the fleet policy
   `zizmor.yml` (third-party actions pinned by SHA, `crunchtools/*` at their
-  major tag) and uploads SARIF to code scanning, category `zizmor`. Every repo
-  calling `validate.yml@v1` gets it with no edit. Advisory: it never fails and
-  is not a required check. The job inherits the caller's token, so a caller
-  that grants `security-events: write` (now in `examples/constitution.yml`)
-  gets code scanning; one that does not, or a private repo without Advanced
+  major tag), installed by hash from `requirements/zizmor.txt`, and uploads
+  SARIF to code scanning, category `zizmor`. Every repo calling
+  `validate.yml@v1` gets it with no edit. Advisory: it never fails and is not
+  a required check. The job inherits the caller's token, so a caller that
+  grants `security-events: write` (now in `examples/constitution.yml`) gets
+  code scanning; one that does not, or a private repo without Advanced
   Security, keeps the findings in the log. `validate.yml` drops its
   workflow-level `permissions: {}`, which would have zeroed that token.
 
@@ -25,9 +28,12 @@ Entries through 1.14.0 are derived from the Ratification History table in
 - The constitution's own workflows pass zizmor: every third-party action is
   pinned by commit SHA, checkouts drop their credentials, `ci.yml` declares
   `contents: read`, the downstream dispatch token in `container-release.yml`
-  reaches only the repos it dispatches to instead of the whole org, and the
+  reaches only the repos it dispatches to instead of the whole org (and is not
+  minted at all when `downstream` names none), and the
   `pull_request_target` and `workflow_run` triggers (Gatehouse, Ashigaru) are
-  justified inline: none checks out or runs a pull request's code.
+  justified inline. Gatehouse never checks out a pull request; Ashigaru's
+  `fix.yml` checks out only an `ashigaru/` branch in the same repository that
+  the Ashigaru app opened, never a fork's.
 - The validator treats GitHub's `$/` self-repository `uses:` as local, like
   `./`, in the third-party pin check (XV rule 2) and when finding the
   reusable workflows a repo calls. This repo keeps `./` until its pin passes

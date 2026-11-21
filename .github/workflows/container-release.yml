@@ -691,12 +691,16 @@ jobs:
         if: inputs.downstream != '' && (contains(steps.p.outputs.tags, 'main') || contains(steps.p.outputs.tags, 'latest'))
         env:
           DOWNSTREAM: ${{ inputs.downstream }}
+        # Whitespace alone names no repo; an empty `repositories` would mint an
+        # org-wide token, so no output, and no token.
         run: |
           read -ra repos <<< "$DOWNSTREAM"
-          (IFS=,; echo "repos=${repos[*]}") >> "$GITHUB_OUTPUT"
+          if [ "${#repos[@]}" -gt 0 ]; then
+            (IFS=,; echo "repos=${repos[*]}") >> "$GITHUB_OUTPUT"
+          fi
       - name: Token for the downstream dispatch
         id: app
-        if: steps.downstream.outcome == 'success'
+        if: steps.downstream.outputs.repos != ''
         uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         with:
           client-id: ${{ vars.CRUNCHTOOLS_CI_CLIENT_ID }}

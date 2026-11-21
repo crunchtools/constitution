@@ -95,13 +95,16 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      # Only the policy file: a full checkout here would be audited as well.
+      # Only what the job runs: a full checkout here would be audited as well.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: crunchtools/constitution
           ref: v1.58.0
           path: .constitution
-          sparse-checkout: zizmor.yml
+          sparse-checkout: |
+            zizmor.yml
+            requirements/zizmor.txt
+            scripts/zizmor_log.py
           sparse-checkout-cone-mode: false
           persist-credentials: false
       - if: runner.environment == 'github-hosted'
@@ -110,7 +113,8 @@ jobs:
           python-version: "3.12"
       - run: |
           python3 -m venv "$RUNNER_TEMP/venv"
-          "$RUNNER_TEMP/venv/bin/pip" install --quiet zizmor==1.32.0
+          "$RUNNER_TEMP/venv/bin/pip" install --quiet --require-hashes --only-binary :all: \
+            -r .constitution/requirements/zizmor.txt
       # The log is the record; the SARIF is for code scanning. Advisory until the
       # fleet is clean: findings never fail the job, and nor does zizmor itself.
       - name: Audit workflows
@@ -125,15 +129,7 @@ jobs:
           "$RUNNER_TEMP/venv/bin/zizmor" --config .constitution/zizmor.yml --no-exit-codes \
             --format sarif . > "$sarif"
           echo "sarif=$sarif" >> "$GITHUB_OUTPUT"
-          "$RUNNER_TEMP/venv/bin/python" - "$sarif" <<'PY'
-          import json, sys
-          results = json.load(open(sys.argv[1]))["runs"][0]["results"]
-          for r in results:
-              where = r["locations"][0]["physicalLocation"]
-              line = where.get("region", {}).get("startLine", "?")
-              print(f"{r['level']}[{r['ruleId']}] {where['artifactLocation']['uri']}:{line}: {r['message']['text']}")
-          print(f"zizmor: {len(results)} finding(s)")
-          PY
+          "$RUNNER_TEMP/venv/bin/python" .constitution/scripts/zizmor_log.py "$sarif"
       # A private repo without code scanning (GitHub Advanced Security), a
       # caller that does not grant `security-events: write`, or a fork's pull
       # request refuses the upload; the log above still has every finding.
