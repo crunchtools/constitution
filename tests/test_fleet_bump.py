@@ -573,3 +573,19 @@ def test_a_trigger_left_without_the_ignore_is_listed_for_a_human(tmp_path, calle
     workflows.mkdir(parents=True)
     (workflows / "gatehouse.yml").write_text(caller)
     assert bump.ignore_callers(tmp_path) == listed
+
+
+def test_a_repo_with_both_kinds_gets_a_pr_and_lists_the_hand_work(monkeypatch, tmp_path, capsys):
+    workflows = tmp_path / "r" / ".github" / "workflows"
+    workflows.mkdir(parents=True)
+    hand = OWN_CALLER.replace("set -euo pipefail", "set -eu")
+    (workflows / "gatehouse.yml").write_text(GATEHOUSE_CALLER)
+    (workflows / "hand.yml").write_text(hand)
+    opened = []
+    monkeypatch.setattr(bump, "clone", lambda name, dest: dest / name)
+    monkeypatch.setattr(bump, "open_pr", lambda *a: opened.append(a) or "https://pr")
+    bump.callers_repo("r", tmp_path, dry_run=False)
+    assert len(opened) == 1
+    assert (workflows / "hand.yml").read_text() == hand
+    out = capsys.readouterr().out
+    assert "(.github/workflows/gatehouse.yml, ?.github/workflows/hand.yml)" in out
