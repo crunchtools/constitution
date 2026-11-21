@@ -50,7 +50,10 @@ PRE_COMMIT = ".pre-commit-config.yaml"
 # A caller of Gatehouse's or Ashigaru's reusable workflows, and the triggers
 # zizmor's dangerous-triggers audit flags in one. A trigger that already carries
 # a comment is left alone.
-CALLER_USES = re.compile(r"crunchtools/(gatehouse|ashigaru)/\.github/workflows/[\w-]+\.ya?ml@")
+CALLER_USES = re.compile(r"crunchtools/(gatehouse|ashigaru)/\.github/workflows/[\w-]+\.ya?ml@\S+")
+ON_BLOCK = re.compile(
+    r"^(?:on|\"on\"|'on'):[ \t]*(?:#.*)?\n(?:(?:[ \t]+.*|[ \t]*#.*|[ \t]*)\n)*", re.MULTILINE
+)
 FLAGGED_TRIGGER = re.compile(
     r"^(?P<indent>[ \t]+)(?P<event>pull_request_target|workflow_run|issue_comment):[ \t]*$",
     re.MULTILINE,
@@ -330,14 +333,14 @@ def drop_repo(name: str, clone_root: Path, validator, dry_run: bool) -> None:
 def ignore_caller_triggers(text: str) -> str | None:
     """The caller with each flagged trigger justified and ignored, or None if nothing changes.
 
-    Only a file that calls Gatehouse or Ashigaru and checks nothing out is
-    rewritten, and only its trigger lines: the rest of a repo's copy stays as
-    the repo has it, whichever template version it came from.
+    Only the reviewed caller shape is rewritten (see `caller_product`), and only
+    the trigger lines under `on:`: the rest of a repo's copy stays as the repo
+    has it, whichever template version it came from.
     """
-    calls = {m.group(1) for m in CALLER_USES.finditer(text)}
-    if len(calls) != 1 or "actions/checkout" in text:
+    product = caller_product(text)
+    on = ON_BLOCK.search(text)
+    if product is None or on is None:
         return None
-    product = calls.pop()
 
     def justify(match: re.Match) -> str:
         reason = TRIGGER_REASONS.get((product, match["event"]))
@@ -346,8 +349,46 @@ def ignore_caller_triggers(text: str) -> str | None:
         comments = "".join(f"{match['indent']}# {line}\n" for line in reason)
         return f"{comments}{match[0].rstrip()}{ZIZMOR_IGNORE}"
 
-    after = FLAGGED_TRIGGER.sub(justify, text)
-    return after if after != text else None
+    block = FLAGGED_TRIGGER.sub(justify, on[0])
+    return text[: on.start()] + block + text[on.end() :] if block != on[0] else None
+
+
+def caller_product(text: str) -> str | None:
+    """`gatehouse` or `ashigaru` when the workflow is a caller the trigger reasons hold for.
+
+    That is a workflow whose every job either calls one product's reusable
+    workflows (by the job's `uses:`, not by text anywhere in the file) or, like
+    Gatehouse's guard, runs only shell steps with no `${{ }}` in them: no
+    action, so no checkout, and no event data spliced into a script. Anything
+    else is left for a human, because the reason written next to the ignore
+    would not be known to be true.
+    """
+    import yaml  # deferred, like drop_automerge's
+
+    try:
+        workflow = yaml.safe_load(text)
+    except yaml.YAMLError:
+        return None
+    jobs = workflow.get("jobs") if isinstance(workflow, dict) else None
+    if not isinstance(jobs, dict) or not jobs:
+        return None
+    products = set()
+    for job in jobs.values():
+        if not isinstance(job, dict):
+            return None
+        if "uses" in job:
+            call = CALLER_USES.fullmatch(str(job["uses"]))
+            if call is None:
+                return None
+            products.add(call.group(1))
+            continue
+        steps = job.get("steps")
+        if not isinstance(steps, list) or not all(
+            isinstance(s, dict) and "uses" not in s and "${{" not in str(s.get("run", ""))
+            for s in steps
+        ):
+            return None
+    return products.pop() if len(products) == 1 else None
 
 
 def ignore_callers(root: Path) -> list[str]:

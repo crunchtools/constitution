@@ -400,6 +400,15 @@ def test_an_ashigaru_caller_gets_each_flagged_trigger_justified():
         assert f"  {event}:  # zizmor: ignore[dangerous-triggers]\n" in after
 
 
+GUARD_JOB = """  guard:
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          PR: ${{ github.event.pull_request.number }}
+        run: echo "$PR"
+"""
+
+
 @pytest.mark.parametrize(
     "text",
     [
@@ -409,9 +418,21 @@ def test_an_ashigaru_caller_gets_each_flagged_trigger_justified():
         ),
         # Calls neither product.
         GATEHOUSE_CALLER.replace("crunchtools/gatehouse", "crunchtools/constitution"),
-        # Checks code out, so the reason would not hold; left for a human.
+        # Names a product only in a comment; no job calls it.
+        GATEHOUSE_CALLER.replace(
+            "    uses: crunchtools/gatehouse/.github/workflows/review.yml@v0\n",
+            "    # crunchtools/gatehouse/.github/workflows/review.yml@v0\n    runs-on: x\n",
+        ),
+        # Calls both products, so neither product's reasons cover the file.
+        GATEHOUSE_CALLER + "  fix:\n    uses: crunchtools/ashigaru/.github/workflows/fix.yml@v5\n",
+        # A job that runs an action: it could be a checkout by another name.
+        GATEHOUSE_CALLER + "  other:\n    steps:\n      - uses: some/action@v1\n",
+        # A shell step that splices event data into the script.
         GATEHOUSE_CALLER
-        + "      - uses: actions/checkout@0000000000000000000000000000000000000000\n",
+        + "  other:\n    steps:\n      - run: echo ${{ github.event.pull_request.title }}\n",
+        # A same-named key outside `on:` is not a trigger.
+        GATEHOUSE_CALLER.replace("  pull_request_target:\n", "  push:\n")
+        + "env:\n  workflow_run:\n",
     ],
 )
 def test_a_caller_the_reason_does_not_cover_is_left_alone(text):
@@ -435,3 +456,21 @@ def test_zizmor_callers_dry_run_makes_no_git_or_gh_calls(monkeypatch, tmp_path, 
     monkeypatch.setattr(bump, "open_pr", lambda *a: pytest.fail("dry run opened a PR"))
     bump.callers_repo("r", tmp_path, dry_run=True)
     assert "r: justify caller triggers (.github/workflows/gatehouse.yml)" in capsys.readouterr().out
+
+
+def test_a_guard_job_of_shell_steps_with_env_data_still_qualifies():
+    after = bump.ignore_caller_triggers(GATEHOUSE_CALLER + GUARD_JOB)
+    assert after is not None and after.endswith(GUARD_JOB)
+
+
+def test_zizmor_callers_opens_its_pr_with_the_one_off_metadata(monkeypatch, tmp_path):
+    workflows = tmp_path / "r" / ".github" / "workflows"
+    workflows.mkdir(parents=True)
+    (workflows / "gatehouse.yml").write_text(GATEHOUSE_CALLER)
+    calls = []
+    monkeypatch.setattr(bump, "clone", lambda name, dest: dest / name)
+    monkeypatch.setattr(bump, "open_pr", lambda *a: calls.append(a) or "https://pr")
+    bump.callers_repo("r", tmp_path, dry_run=False)
+    one_off = bump.ZIZMOR_CALLERS
+    assert calls == [(tmp_path / "r", "r", one_off.branch, one_off.title, one_off.body)]
+    assert "zizmor: ignore[dangerous-triggers]" in (workflows / "gatehouse.yml").read_text()
