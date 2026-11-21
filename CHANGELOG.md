@@ -18,6 +18,13 @@ Entries through 1.14.0 are derived from the Ratification History table in
   run takes its App key (`FLEET_BUMP_CLIENT_ID`, `FLEET_BUMP_APP_KEY`) only from
   the `fleet-bump` environment, which deploys from main only, and queues apart
   from dry runs.
+
+## [1.59.0] - 2026-11-21
+
+### Added
+- One change, one pull request per repo (Git Workflow, a872): a change
+  ships as one PR in each repo it touches, one commit per step, never a PR
+  per part. It splits only where it truly lives in another repo.
 - `fleet-bump.py --zizmor-callers [--only ...] [--dry-run]` (a860): the
   one-off that clears zizmor's dangerous-triggers highs from each repo's
   Gatehouse and Ashigaru callers, nearly all of the fleet's 206. A workflow
