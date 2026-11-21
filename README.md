@@ -82,6 +82,7 @@ Then turn on `allow_auto_merge` for the repo.
 - `scripts/fleet-drift.py` audits every non-archived repo in the org and exits `1` if any is out of policy. It runs as the `Fleet Drift` workflow, triggered weekly by Hermes.
 - `.github/workflows/major-tag.yml` (`scripts/major_tag.py`) moves `v1` to each published release, which is what delivers it to the fleet.
 - `scripts/fleet-bump.py` runs after a release is tagged. It opens a PR in each manifest repo that moves `Inherits` and turns any exact crunchtools workflow pin into its major tag, and queues it for auto-merge.
+- `scripts/fleet-bump.py --zizmor-callers` is the one-off that justifies the dangerous triggers in each repo's Gatehouse and Ashigaru callers.
 - `validate-cascade.py` checks that image rebuilds cascade along the `FROM` graph.
 
 ## License

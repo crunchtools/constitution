@@ -363,3 +363,229 @@ def test_run_keeps_going_past_a_failed_repo_and_reports_it(monkeypatch, capsys):
     err = capsys.readouterr().err
     assert "b: FAILED: push timed out" in err
     assert "rerun with --only b" in err
+
+
+GATEHOUSE_CALLER = """on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+  pull_request_review_comment:
+    types: [created]
+jobs:
+  review:
+    uses: crunchtools/gatehouse/.github/workflows/review.yml@v0
+"""
+
+
+# This repo's own Gatehouse caller as it stood before its triggers were justified:
+# the shipped guard job and two calls into Gatehouse.
+OWN_CALLER = (
+    (Path(__file__).resolve().parents[1] / ".github" / "workflows" / "gatehouse.yml")
+    .read_text()
+    .replace(
+        "  pull_request_target:  # zizmor: ignore[dangerous-triggers]\n", "  pull_request_target:\n"
+    )
+)
+
+
+def test_a_gatehouse_callers_trigger_is_justified_and_ignored():
+    after = bump.ignore_caller_triggers(GATEHOUSE_CALLER)
+    assert after is not None
+    lines = after.splitlines()
+    trigger = lines.index("  pull_request_target:  # zizmor: ignore[dangerous-triggers]")
+    assert lines[trigger - 1].startswith("  # ") and "checked out" in lines[trigger - 2]
+    # Only the flagged trigger moves; the rest is the repo's own copy, byte for byte.
+    assert "  pull_request_review_comment:\n" in after
+    assert after.endswith(GATEHOUSE_CALLER.split("jobs:")[1])
+
+
+def test_an_ashigaru_caller_gets_each_flagged_trigger_justified():
+    caller = (
+        "on:\n  issue_comment:\n    types: [created]\n  workflow_run:\n"
+        "    workflows: [Gatehouse]\n  pull_request_target:\n    types: [closed]\n"
+        "jobs:\n  a:\n    uses: crunchtools/ashigaru/.github/workflows/router.yml@v5\n"
+    )
+    after = bump.ignore_caller_triggers(caller)
+    flagged = ("issue_comment", "workflow_run", "pull_request_target")
+    assert after is not None
+    for event in flagged:
+        assert f"  {event}:  # zizmor: ignore[dangerous-triggers]\n" in after
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        # Already justified: running the mode twice changes nothing.
+        GATEHOUSE_CALLER.replace(
+            "pull_request_target:\n", "pull_request_target:  # zizmor: ignore[dangerous-triggers]\n"
+        ),
+        # Calls neither product.
+        GATEHOUSE_CALLER.replace("crunchtools/gatehouse", "crunchtools/constitution"),
+        # Names a product only in a comment; no job calls it.
+        GATEHOUSE_CALLER.replace(
+            "    uses: crunchtools/gatehouse/.github/workflows/review.yml@v0\n",
+            "    # crunchtools/gatehouse/.github/workflows/review.yml@v0\n    runs-on: x\n",
+        ),
+        # Calls both products, so neither product's reasons cover the file.
+        GATEHOUSE_CALLER + "  fix:\n    uses: crunchtools/ashigaru/.github/workflows/fix.yml@v5\n",
+        # A job that runs an action: it could be a checkout by another name.
+        GATEHOUSE_CALLER + "  other:\n    steps:\n      - uses: some/action@v1\n",
+        # A shell step that splices event data into the script.
+        GATEHOUSE_CALLER
+        + "  other:\n    steps:\n      - run: echo ${{ github.event.pull_request.title }}\n",
+        # PR-chosen text reaches a shell step through env, where `eval` could run it.
+        GATEHOUSE_CALLER
+        + "  other:\n    steps:\n      - env:\n"
+        + "          T: ${{ github.event.pull_request.title }}\n"
+        + '        run: eval "$T"\n',
+        # The same through the job's env.
+        GATEHOUSE_CALLER
+        + "  other:\n    env:\n      T: ${{ github.head_ref }}\n"
+        + '    steps:\n      - run: eval "$T"\n',
+        # A reusable call handed PR-chosen text as an input.
+        GATEHOUSE_CALLER + "    with:\n      title: ${{ github.event.pull_request.title }}\n",
+        # A reusable call handed PR-chosen text in place of a secret.
+        GATEHOUSE_CALLER + "    secrets:\n      KEY: ${{ github.event.pull_request.title }}\n",
+        # A product workflow nobody reviewed for these triggers.
+        GATEHOUSE_CALLER.replace("workflows/review.yml", "workflows/gourmand.yml"),
+        # The shipped guard, run by another shell.
+        OWN_CALLER.replace("        run: |\n", "        shell: python {0}\n        run: |\n", 1),
+        # The shipped guard under a workflow-wide default shell.
+        OWN_CALLER.replace("\njobs:\n", "\ndefaults:\n  run:\n    shell: python {0}\njobs:\n", 1),
+        # The shipped guard, run inside an image a PR names.
+        OWN_CALLER.replace(
+            "    permissions:\n      contents: read\n      pull-requests: write\n    steps:",
+            "    container: ${{ github.event.pull_request.head.repo.full_name }}\n"
+            "    permissions:\n      contents: read\n      pull-requests: write\n    steps:",
+            1,
+        ),
+        # A reusable call fanned out by a matrix.
+        GATEHOUSE_CALLER + "    strategy:\n      matrix:\n        x: [1]\n",
+        # The shipped guard with a variable bash runs before the script.
+        OWN_CALLER.replace(
+            "          GH_TOKEN:", "          BASH_ENV: /tmp/x\n          GH_TOKEN:", 1
+        ),
+        # The shipped guard under a workflow-wide env carrying PR text.
+        OWN_CALLER.replace(
+            "\njobs:\n", "\nenv:\n  T: ${{ github.event.pull_request.title }}\njobs:\n", 1
+        ),
+        # A same-named key outside `on:` is not a trigger.
+        GATEHOUSE_CALLER.replace("  pull_request_target:\n", "  push:\n")
+        + "env:\n  workflow_run:\n",
+    ],
+)
+def test_a_caller_the_reason_does_not_cover_is_left_alone(text):
+    assert bump.ignore_caller_triggers(text) is None
+
+
+def test_ignore_callers_rewrites_only_the_files_that_change(tmp_path):
+    workflows = tmp_path / ".github" / "workflows"
+    workflows.mkdir(parents=True)
+    (workflows / "gatehouse.yml").write_text(GATEHOUSE_CALLER)
+    (workflows / "ci.yml").write_text("on: push\njobs: {}\n")
+    assert bump.ignore_callers(tmp_path) == [".github/workflows/gatehouse.yml"]
+    assert bump.ignore_callers(tmp_path) == []
+
+
+def test_zizmor_callers_dry_run_makes_no_git_or_gh_calls(monkeypatch, tmp_path, capsys):
+    workflows = tmp_path / "r" / ".github" / "workflows"
+    workflows.mkdir(parents=True)
+    (workflows / "gatehouse.yml").write_text(GATEHOUSE_CALLER)
+    monkeypatch.setattr(bump, "clone", lambda name, dest: dest / name)
+    monkeypatch.setattr(bump, "open_pr", lambda *a: pytest.fail("dry run opened a PR"))
+    bump.callers_repo("r", tmp_path, dry_run=True)
+    assert "r: justify caller triggers (.github/workflows/gatehouse.yml)" in capsys.readouterr().out
+
+
+def test_the_shipped_guard_job_qualifies_its_caller():
+    after = bump.ignore_caller_triggers(OWN_CALLER)
+    assert after is not None and "Reject workflow changes from untrusted PRs" in after
+
+
+def test_a_guard_whose_script_was_never_reviewed_is_left_for_a_human(tmp_path):
+    edited = OWN_CALLER.replace(
+        "set -euo pipefail", 'set -euo pipefail\n          cat "$GITHUB_EVENT_PATH"'
+    )
+    assert edited != OWN_CALLER
+    assert bump.ignore_caller_triggers(edited) is None
+    workflows = tmp_path / ".github" / "workflows"
+    workflows.mkdir(parents=True)
+    (workflows / "gatehouse.yml").write_text(edited)
+    assert bump.ignore_callers(tmp_path) == ["?.github/workflows/gatehouse.yml"]
+
+
+def test_a_repo_with_only_hand_work_gets_no_pr(monkeypatch, tmp_path, capsys):
+    workflows = tmp_path / "r" / ".github" / "workflows"
+    workflows.mkdir(parents=True)
+    (workflows / "gatehouse.yml").write_text(OWN_CALLER.replace("set -euo pipefail", "set -eu"))
+    monkeypatch.setattr(bump, "clone", lambda name, dest: dest / name)
+    monkeypatch.setattr(bump, "open_pr", lambda *a: pytest.fail("opened a PR for hand work"))
+    bump.callers_repo("r", tmp_path, dry_run=False)
+    assert "r: callers for a human (.github/workflows/gatehouse.yml)" in capsys.readouterr().out
+
+
+def test_zizmor_callers_opens_its_pr_with_the_one_off_metadata(monkeypatch, tmp_path):
+    workflows = tmp_path / "r" / ".github" / "workflows"
+    workflows.mkdir(parents=True)
+    (workflows / "gatehouse.yml").write_text(GATEHOUSE_CALLER)
+    calls = []
+    monkeypatch.setattr(bump, "clone", lambda name, dest: dest / name)
+    monkeypatch.setattr(bump, "open_pr", lambda *a: calls.append(a) or "https://pr")
+    bump.callers_repo("r", tmp_path, dry_run=False)
+    one_off = bump.ZIZMOR_CALLERS
+    assert calls == [(tmp_path / "r", "r", one_off.branch, one_off.title, one_off.body)]
+    assert "zizmor: ignore[dangerous-triggers]" in (workflows / "gatehouse.yml").read_text()
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "on: [push\n",  # not YAML
+        "- a list\n",  # not a mapping
+        "on: push\n",  # no jobs
+        "on: push\njobs: {}\n",
+        "on: push\njobs:\n  a: just-a-string\n",
+        "on: push\njobs:\n  a:\n    runs-on: x\n",  # no steps
+        "on: push\njobs:\n  a:\n    steps: not-a-list\n",
+        "on: push\njobs:\n  a:\n    steps:\n      - just-a-string\n",
+    ],
+)
+def test_an_unreadable_workflow_shape_is_no_caller(text):
+    assert bump.caller_product(text) is None
+
+
+@pytest.mark.parametrize(
+    ("caller", "listed"),
+    [
+        # A trigger Gatehouse has no reason on file for.
+        (
+            GATEHOUSE_CALLER.replace("  pull_request_review_comment:\n", "  issue_comment:\n"),
+            [".github/workflows/gatehouse.yml", "?.github/workflows/gatehouse.yml"],
+        ),
+        # A trigger that already carries some other comment.
+        (
+            GATEHOUSE_CALLER.replace("pull_request_target:\n", "pull_request_target:  # forks\n"),
+            ["?.github/workflows/gatehouse.yml"],
+        ),
+    ],
+)
+def test_a_trigger_left_without_the_ignore_is_listed_for_a_human(tmp_path, caller, listed):
+    workflows = tmp_path / ".github" / "workflows"
+    workflows.mkdir(parents=True)
+    (workflows / "gatehouse.yml").write_text(caller)
+    assert bump.ignore_callers(tmp_path) == listed
+
+
+def test_a_repo_with_both_kinds_gets_a_pr_and_lists_the_hand_work(monkeypatch, tmp_path, capsys):
+    workflows = tmp_path / "r" / ".github" / "workflows"
+    workflows.mkdir(parents=True)
+    hand = OWN_CALLER.replace("set -euo pipefail", "set -eu")
+    (workflows / "gatehouse.yml").write_text(GATEHOUSE_CALLER)
+    (workflows / "hand.yml").write_text(hand)
+    opened = []
+    monkeypatch.setattr(bump, "clone", lambda name, dest: dest / name)
+    monkeypatch.setattr(bump, "open_pr", lambda *a: opened.append(a) or "https://pr")
+    bump.callers_repo("r", tmp_path, dry_run=False)
+    assert len(opened) == 1
+    assert (workflows / "hand.yml").read_text() == hand
+    out = capsys.readouterr().out
+    assert "(.github/workflows/gatehouse.yml, ?.github/workflows/hand.yml)" in out
