@@ -465,6 +465,7 @@ def test_an_image_built_without_the_subscription_is_never_pushed(tmp_path):
         "SHA": "0" * 40,
         "PR": "7",
         "UNSUBSCRIBED": "true",
+        "FORMAT": "docker",
     }
     result = subprocess.run(
         ["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", push["run"]],
@@ -476,7 +477,8 @@ def test_an_image_built_without_the_subscription_is_never_pushed(tmp_path):
     assert result.returncode == 0, result.stderr
     assert out.read_text().strip() == "pushed=false"
     calls = log.read_text()
-    assert "podman save" in calls
+    # a1025: an oci-archive drops HEALTHCHECK, so the healthcheck gate refused it.
+    assert "podman save --format docker-archive" in calls
     assert not any(c in calls for c in ("login", "podman push", "skopeo"))
 
 
