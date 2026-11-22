@@ -16,6 +16,10 @@ on:
 
 jobs:
   validate-cascade:
+    # Dependabot's pull requests get no Actions secrets, so the App token
+    # below can't be minted. The check reads the org's repos over the API, which
+    # a version bump doesn't change, and the push to main after merge runs it.
+    if: github.event.pull_request.user.login != 'dependabot[bot]'
     runs-on: ubuntu-latest
     permissions:
       contents: read

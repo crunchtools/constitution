@@ -9,6 +9,11 @@ Entries through 1.14.0 are derived from the Ratification History table in
 
 ## [Unreleased]
 
+### Fixed
+- `validate-cascade` skips Dependabot's pull requests, which get no Actions
+  secrets to mint the crunchtools-ci App token with, instead of failing them
+  red (#199).
+
 ## [1.60.0] - 2026-11-22
 
 ### Added
