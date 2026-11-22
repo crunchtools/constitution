@@ -13,6 +13,7 @@ REQ = {
     "fleet": {
         "container_release_custom": ["custom-repo"],
         "container_release_unpublished": ["reference-repo"],
+        "cosign_signers": ["x", "custom-repo"],
     }
 }
 
@@ -424,3 +425,51 @@ def test_an_action_that_may_push_is_read_or_refused(tmp_path, rider):
     )
     found = artifact_flow(tmp_path, job_text)
     assert any("cannot read in full" in v for v in found), found
+
+
+# IX since 1.60.0 (sdlc#88): every published image is signed.
+SIGNED_CALL = CALL + "      sign: true\n"
+
+
+def test_a_signed_call_from_a_listed_signer_passes(tmp_path):
+    assert check(make(tmp_path, container=workflow(SIGNED_CALL)), "1.60.0") == []
+
+
+def test_an_unsigned_call_fails_from_1_60_0(tmp_path):
+    root = make(tmp_path, container=workflow(CALL))
+    assert check(root, "1.59.0") == []
+    [found] = check(root, "1.60.0")
+    assert "without `sign: true`" in found
+
+
+@pytest.mark.parametrize("value", ["false", '"true"'])
+def test_sign_must_be_the_boolean_true(tmp_path, value):
+    root = make(tmp_path, container=workflow(CALL + f"      sign: {value}\n"))
+    [found] = check(root, "1.60.0")
+    assert "without `sign: true`" in found
+
+
+def test_a_publisher_missing_from_cosign_signers_fails(tmp_path):
+    root = make(tmp_path, "unlisted", container=workflow(SIGNED_CALL))
+    [found] = check(root, "1.60.0")
+    assert "`unlisted` publishes an image but is not in `cosign_signers`" in found
+
+
+def test_a_custom_publisher_must_be_a_signer_too(tmp_path):
+    copy = job("promote", "skopeo copy --all --preserve-digests docker://a docker://b")
+    assert check(make(tmp_path, "custom-repo", release=workflow(copy)), "1.60.0") == []
+    unlisted = {"fleet": {**REQ["fleet"], "cosign_signers": []}}
+    root = tmp_path / "custom-repo"
+    [found] = V.check_container_release(root, "1.60.0", unlisted)
+    assert "not in `cosign_signers`" in found
+
+
+def test_an_unpublished_repo_needs_no_signing(tmp_path):
+    assert check(make(tmp_path, "reference-repo"), "1.60.0") == []
+
+
+def test_every_publisher_in_the_table_is_a_signer():
+    """The live list: a repo that publishes is listed before it bumps to 1.60.0."""
+    signers = V.load_requirements()["fleet"]["cosign_signers"]
+    assert len(signers) == len(set(signers))
+    assert "python-sdlc" not in signers and "sdlc" in signers

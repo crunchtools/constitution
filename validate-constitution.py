@@ -1806,6 +1806,10 @@ def check_locked_install(repo_root: Path, requirements: dict) -> list[str]:
 CONTAINER_RELEASE_SINCE = (1, 39, 0)
 """First constitution version whose container-image VII is machine-checked (RT#1550)."""
 
+SIGN_SINCE = (1, 60, 0)
+"""First constitution version whose IX signs every published image (sdlc#88):
+each container-release.yml call passes `sign: true`, and the repo is in
+`cosign_signers`, so provision-cosign-env.py gates its environment."""
 _RELEASE_CALL = re.compile(
     r"^crunchtools/constitution/\.github/workflows/container-release\.yml@v\d+(?:\.\d+\.\d+)?$"
 )
@@ -2142,6 +2146,27 @@ def check_container_release(repo_root: Path, inherits: str, requirements: dict) 
         violations.append(
             "CONTAINER: a Containerfile is present but no workflow job calls "
             "crunchtools/constitution/.github/workflows/container-release.yml@v1 (VII, RT#1550)"
+        )
+    if _version_tuple(inherits) >= SIGN_SINCE and (custom or calls):
+        violations += _signing_refusals(repo_root, name, fleet)
+    return violations
+
+
+def _signing_refusals(repo_root: Path, name: str, fleet: dict) -> list[str]:
+    """IX since SIGN_SINCE, for a repo that publishes: signed, and gated."""
+    violations = [
+        f"CONTAINER: {path.name} job `{job_id}` calls container-release.yml "
+        f"without `sign: true`; every published image is signed (IX, sdlc#88)"
+        for path in workflow_files(repo_root)
+        for job_id, job in ((load_yaml(path) or {}).get("jobs") or {}).items()
+        if isinstance(job, dict)
+        and _RELEASE_CALL.match(str(job.get("uses", "")))
+        and (job.get("with") or {}).get("sign") is not True
+    ]
+    if name not in fleet.get("cosign_signers", []):
+        violations.append(
+            f"CONTAINER: `{name}` publishes an image but is not in `cosign_signers` "
+            f"(profiles/requirements.toml), so nothing gates its signing environment (IX)"
         )
     return violations
 

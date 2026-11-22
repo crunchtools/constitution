@@ -66,6 +66,12 @@ Entries through 1.14.0 are derived from the Ratification History table in
   the `fleet-bump` environment, which deploys from main only, and queues apart
   from dry runs.
 
+- IX: every published image signs, for repos inheriting 1.60.0 (sdlc#88,
+  a978). The validator fails a `container-release.yml` call without
+  `sign: true`, and a repo that publishes (custom release workflows
+  included) but is missing from `cosign_signers`. Unpublished repos are
+  exempt. Container Image profile 1.16.0 (IX).
+
 ### Changed
 - `scripts/provision-cosign-env.py` (a938): the `cosign release tags` ruleset
   is bypassed by the release App (`ashigaru-crunchtools`) alone, no longer by
