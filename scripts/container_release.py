@@ -522,6 +522,15 @@ def provenance(reg: Registry, repo: str, digest: str) -> dict | None:
     promote run. A digest built before build wrote the record, or whose record
     is not this repo's build of this image's revision (inherited FROM a base
     image), gets no provenance rather than a wrong one.
+
+    `reg` is the image's repository, read for the config labels at `digest`;
+    `repo` is the GitHub `owner/name` the record must name. Returns the
+    `slsaprovenance1` predicate: `buildDefinition` (the GitHub Actions
+    workflow buildType, the caller's workflow as `externalParameters`, the
+    commit as the one resolved dependency) and `runDetails` (`builder.id` the
+    constitution's container-release.yml at its ref, `metadata.invocationId`
+    the build run). None, with a warning, when the record is missing or not
+    this repo's. Raises Refused when `digest` is not a sha256 digest.
     """
     if not DIGEST.match(digest):
         raise Refused(f"'{digest}' is not a sha256 digest")
