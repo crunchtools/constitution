@@ -93,7 +93,9 @@ class FakeGitHub:
             POLICIES: lambda: self.branch_policies(method, body),
             RULESETS: lambda: self.ruleset_list(method, body),
             f"repos/{REPO}/rules/branches/main": lambda: [{"type": t} for t in self.branch_rules],
-            f"{ENV_PATH}/secrets": lambda: self.named(self.env_secrets),
+            f"{ENV_PATH}/secrets": lambda: (
+                None if self.env is None else self.named(self.env_secrets)
+            ),
             f"repos/{REPO}/actions/secrets": lambda: self.named(self.repo_secrets),
             f"repos/{REPO}/actions/organization-secrets": lambda: self.named(self.org_secrets),
             "orgs/crunchtools/actions/secrets": lambda: {"secrets": self.all_org_secrets},

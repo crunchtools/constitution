@@ -275,8 +275,10 @@ def org_stale(gh: Gh) -> list[str]:
 def check(gh: Gh, repo: str, actors: list[dict]) -> list[str]:
     default = gh.must(f"repos/{repo}")["default_branch"]
     problems = gate_problems(gh, repo, default, actors)
-    missing = set(SECRETS) - names(gh, f"repos/{repo}/environments/{ENV}/secrets")
-    problems += [f"{ENV} lacks {name}" for name in sorted(missing)]
+    # A missing environment has no secrets to list (GitHub answers 404).
+    if f"no {ENV} environment" not in problems:
+        missing = set(SECRETS) - names(gh, f"repos/{repo}/environments/{ENV}/secrets")
+        problems += [f"{ENV} lacks {name}" for name in sorted(missing)]
     return problems + stale(gh, repo)
 
 
