@@ -371,6 +371,7 @@ jobs:
           SHA: ${{ steps.src.outputs.sha }}
           PR: ${{ github.event.pull_request.number }}
           UNSUBSCRIBED: ${{ steps.build.outputs.unsubscribed }}
+          FORMAT: ${{ inputs.format }}
         run: |
           set -eu
           if [ -z "$QUAY_USERNAME" ] || [ "$UNSUBSCRIBED" = true ]; then
@@ -378,7 +379,9 @@ jobs:
             # without the subscription must never reach a gated- or sha- tag:
             # gate from an archive, push nothing. The merge rebuilds and gates.
             echo "::notice::no registry credentials or no subscription; gating a local archive, nothing is pushed"
-            podman save --format oci-archive -o "$RUNNER_TEMP/image.tar" localhost/release:candidate
+            # The archive keeps the build's format: an oci-archive drops the
+            # HEALTHCHECK a docker build carries, and the healthcheck gate refuses it.
+            podman save --format "$FORMAT-archive" -o "$RUNNER_TEMP/image.tar" localhost/release:candidate
             echo "pushed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi

@@ -9,6 +9,14 @@ Entries through 1.14.0 are derived from the Ratification History table in
 
 ## [Unreleased]
 
+### Fixed
+- `container-release.yml` gates a secretless (Dependabot or fork) pull
+  request's image from an archive in the build's own format
+  (`docker-archive` by default), not `oci-archive`, which dropped the
+  HEALTHCHECK so the healthcheck boot gate refused every such run (a1025).
+- `validate-cascade.yml` skips on Dependabot pull requests, which cannot mint
+  the crunchtools-ci App token; the merge to main still runs it (a1025).
+
 ## [1.60.0] - 2026-11-22
 
 ### Added
