@@ -79,6 +79,10 @@ container_release_custom = ["python-sdlc"]
 # before it happens: claude-agent becomes claude-supervisor (claude-agent#35),
 # and both stay until claude-supervisor 3.0.0 retires the old one.
 container_release_unpublished = ["claude-agent", "claude-supervisor"]
+# Container Image IX: repos that set `sign: true`. scripts/provision-cosign-env.py
+# puts the fleet key in each one's cosign-signing environment, and rotates it,
+# from one operator-held copy. A repo is added here before it signs.
+cosign_signers = ["rhel10-bootc-server", "rhel10-bootc-workstation", "ashigaru", "developer"]
 
 # What a developer machine has (XII host contract): the only programs a
 # `language: system` pre-commit hook may start, besides scripts in the repo.

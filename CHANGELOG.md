@@ -32,6 +32,20 @@ Entries through 1.14.0 are derived from the Ratification History table in
   none, with a warning. Verify with
   `cosign verify-attestation --insecure-ignore-tlog --type slsaprovenance1 --key keys/crunchtools-bootc.pub IMAGE@DIGEST`.
   Container Image profile 1.16.0 (IX).
+- `scripts/provision-cosign-env.py` (a925): the one way the fleet cosign key
+  reaches a signing repo. For each repo in `cosign_signers`
+  (profiles/requirements.toml) it creates or updates the `cosign-signing`
+  environment with exactly the default branch and `v*` tag as deployment
+  rules, re-reads them, and only then sets `COSIGN_PRIVATE_KEY` and
+  `COSIGN_PASSWORD`, read from stdin (PEM key, then a password line) and never
+  echoed or passed in argv. Idempotent, so rotation is one run over every
+  signer. `--check` reads only names and lists repos not provisioned and stale
+  COSIGN_* repository or organization secrets. Needs a token with admin on
+  each repo. Container Image profile 1.16.0 (IX) records why the key stays an
+  environment secret and is never an organization secret: org and repo
+  secrets reach every branch's jobs, so only the environment's branch rules
+  keep the key from pull requests, and environment > repository >
+  organization precedence hides a stale outer copy that any branch can read.
 - `.github/workflows/fleet-bump.yml` (a867): runs `fleet-bump.py` in the pipeline
   on `workflow_dispatch` (`mode` bump, zizmor-callers or renovate; `version`;
   `only`; `dry-run`, on by default), so a fleet rollout needs no `gh` or
