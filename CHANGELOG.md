@@ -13,8 +13,10 @@ Entries through 1.14.0 are derived from the Ratification History table in
 - `container-release.yml` with `sign: true` attests an SBOM to the digest it
   signs (#203, a918): syft 1.57.0, installed by sha256, writes SPDX JSON for
   the gated digest and `cosign attest --type spdxjson --tlog-upload=false`
-  signs it with the fleet key, before any tag moves. cosign v2 stores it as a
-  separate `.att` object, so the image manifest is unchanged. A release of a
+  signs it with the fleet key, before any tag moves. syft scans in a step of
+  its own that never holds the key (a978); only the attest step does. cosign
+  v2 stores it as a separate `.att` object, so the image manifest is
+  unchanged. A release of a
   digest main already attested reuses it. Verify with
   `cosign verify-attestation --insecure-ignore-tlog --type spdxjson --key keys/crunchtools-bootc.pub IMAGE@DIGEST`.
   Container Image profile 1.16.0 (IX).
@@ -75,8 +77,19 @@ Entries through 1.14.0 are derived from the Ratification History table in
   enforcing it is bypassed by the App alone or by no one. A signer's release
   tags come only from Ashigaru's `release-tag.yml`; `create_release` can no
   longer tag one. Container Image profile 1.16.0 (IX).
-- `crunchtools/python-sdlc` joins `cosign_signers` (a938), so its
-  `cosign-signing` environment can be provisioned before python-sdlc#82 merges.
+- `cosign_signers` lists every repo that publishes an image, 64 of them
+  (sdlc#88, a978), since every image is now signed. 59 were added; most
+  already key-signed without the gate `provision-cosign-env.py` gives a
+  listed repo. The list is what that script provisions, so listing comes
+  before a repo turns on `sign: true` or is provisioned.
+- `crunchtools/python-sdlc` is now `crunchtools/sdlc` (a978):
+  `cosign_signers` (a938 added it under the old name), `sdlc_exempt` and
+  `container_release_custom` name the new repo, and `sdlc_hooks_repo` is
+  `https://github.com/crunchtools/sdlc`. A rev-pinned hook block from the old
+  URL still passes XII (`sdlc_hooks_repo_renamed_from`), since GitHub
+  redirects it. `floating_images` keeps both image names, because
+  `quay.io/crunchtools/python-sdlc` stays a mirror of `sdlc` until the fleet
+  has moved. XII's text names sdlc.
 - Container Image IX's case for environment secrets drops the GitHub Free
   reason (a938): the organization is on Team, and the other two reasons stand.
 

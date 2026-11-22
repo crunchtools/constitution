@@ -33,7 +33,7 @@ This profile covers those tools. vpn-relay is the first.
 - Prefer the standard library. A runtime dependency has to be in the host's
   distribution packages, because nothing installs it from an index on the host.
 - Dev dependencies (pytest, ruff, mypy) are locked in `uv.lock` and kept current
-  by Dependabot, like any Python repo (XV). The checks run through python-sdlc (XII).
+  by Dependabot, like any Python repo (XV). The checks run through sdlc (XII).
 
 ## IV. Units and Secrets
 

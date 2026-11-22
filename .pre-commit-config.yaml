@@ -5,7 +5,7 @@
 # There is no `rev:` to bump, ever.
 #
 #   SDLC_IMAGE=main git push   judges this push with what has merged to
-#                              python-sdlc and not been released. A repo opts
+#                              sdlc and not been released. A repo opts
 #                              its CI in with the repository variable SDLC_IMAGE.
 #
 # What each hook runs is configured in pyproject.toml ([tool.sdlc.commit],

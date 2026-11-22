@@ -323,7 +323,7 @@ def _version_tuple(version: str | None) -> tuple[int, ...]:
 
 
 SDLC_SINCE = (1, 30, 0)
-"""First constitution version whose XII requires python-sdlc in a Python repo.
+"""First constitution version whose XII requires sdlc in a Python repo.
 
 Gated like GATES_SINCE: a repo becomes subject to it by moving `Inherits`, so a
 Python repo takes v1.30.0 in the same pull request that converts it, and
@@ -337,7 +337,7 @@ ORIGIN_NAME_RE = re.compile(r"^\s*url\s*=\s*\S*?([^/:\s]+?)(?:\.git)?/?\s*$", re
 def repo_name(repo_root: Path) -> str:
     """The repo's GitHub name, which its checkout directory need not carry.
 
-    python-sdlc mounts every repo at /repo, so matching the fleet lists on the
+    sdlc mounts every repo at /repo, so matching the fleet lists on the
     directory name missed every exemption in the push hook (claude-agent#23).
     The origin remote names the repo wherever it is checked out; a checkout
     without one (a test fixture, a worktree) falls back to the directory.
@@ -399,7 +399,7 @@ def check_floating_wiring(repo_root: Path, config: dict, requirements: dict) -> 
     Nothing pins a release: the launcher asks the image for its own runner, so
     hooks and CI float with the image (python-sdlc#62). What floats is the
     image, not the launcher: a committed file the gate trusts must be one
-    python-sdlc shipped, or a repo grades itself.
+    sdlc shipped, or a repo grades itself.
     """
     fleet = requirements.get("fleet", {})
     launcher = fleet.get("sdlc_launcher", ".sdlc/bin/sdlc")
@@ -413,7 +413,7 @@ def check_floating_wiring(repo_root: Path, config: dict, requirements: dict) -> 
         "sdlc_bootstrap_sha256", []
     ):
         violations.append(
-            f"XII: `{launcher}` is not a python-sdlc bootstrap release "
+            f"XII: `{launcher}` is not an sdlc bootstrap release "
             f"(copy bin/sdlc-bootstrap unchanged, or run its scripts/convert_repo.py)"
         )
     hooks = floating_sdlc_hooks(config, launcher)
@@ -496,28 +496,34 @@ def check_floating_ci(repo_root: Path, launcher: str) -> list[str]:
 
 
 def check_sdlc_wiring(repo_root: Path, hooks: str, requirements: dict) -> list[str]:
-    """XII since v1.30.0: python-sdlc at one exact release, both hooks, the CI job.
+    """XII since v1.30.0: sdlc at one exact release, both hooks, the CI job.
 
     Superseded by check_floating_wiring; accepted until the fleet has converted.
     """
     fleet = requirements.get("fleet", {})
-    url = fleet.get("sdlc_hooks_repo", "https://github.com/crunchtools/python-sdlc")
+    url = fleet.get("sdlc_hooks_repo", "https://github.com/crunchtools/sdlc")
+    # The name before the rename still resolves (GitHub redirects it), so a pin
+    # of it passes until convert_repo.py rewrites it.
+    urls = "|".join(re.escape(u) for u in [url, *fleet.get("sdlc_hooks_repo_renamed_from", [])])
     block = re.search(
-        rf"-\s*repo:\s*{re.escape(url)}(?:\.git)?[ \t]*$(.*?)(?=^\s*-\s*repo:|\Z)",
+        rf"-\s*repo:\s*({urls})(?:\.git)?[ \t]*$(.*?)(?=^\s*-\s*repo:|\Z)",
         hooks,
         re.S | re.M,
     )
     if block is None:
         return [f"XII: a Python repo's .pre-commit-config.yaml must pin {url}"]
+    pinned, body = block.group(1), block.group(2)
     violations = []
-    found = re.search(r"^\s*rev:\s*(\S+)", block.group(1), re.M)
+    found = re.search(r"^\s*rev:\s*(\S+)", body, re.M)
     rev = found.group(1).strip("\"'") if found else ""
     if not re.fullmatch(r"v\d+\.\d+\.\d+", rev):
-        violations.append(f"XII: {url} is pinned at `{rev or '<nothing>'}`, not a release `vX.Y.Z`")
+        violations.append(
+            f"XII: {pinned} is pinned at `{rev or '<nothing>'}`, not a release `vX.Y.Z`"
+        )
     violations += [
         f"XII: .pre-commit-config.yaml does not enable the `{hook}` hook"
         for hook in fleet.get("sdlc_hooks", ["sdlc-commit", "sdlc-push"])
-        if not re.search(rf"-\s*id:\s*{re.escape(hook)}[ \t]*$", block.group(1), re.M)
+        if not re.search(rf"-\s*id:\s*{re.escape(hook)}[ \t]*$", body, re.M)
     ]
     violations += check_install_hook_types(load_yaml(repo_root / ".pre-commit-config.yaml") or {})
     if not any(_runs_sdlc_ci(load_yaml(f) or {}) for f in workflow_files(repo_root)):
@@ -576,7 +582,7 @@ def check_quality_gate_wiring(
     Reads the real files, like check_gourmand_ci_gate: prose saying a gate
     exists is exactly what let the gates rot before. Since v1.46.0 any repo
     whose hooks run the committed launcher is judged by that form alone. Until
-    the fleet has converted, a Python repo may still pin python-sdlc (v1.30.0)
+    the fleet has converted, a Python repo may still pin sdlc (v1.30.0)
     and every other repo carry the standalone hooks.
     """
     if repo_root is None or _version_tuple(inherits) < GATES_SINCE:
@@ -1612,7 +1618,7 @@ def check_http_client(
 
 # A pip/uv install INVOCATION. `uv tool install` is deliberately not matched: it
 # installs a standalone tool (ruff, semgrep), not the project's dependency set,
-# so python-sdlc's image -- which only ever runs `uv tool install` and a named
+# so sdlc's image -- which only ever runs `uv tool install` and a named
 # `uv pip install "pyyaml=="` -- is not judged here.
 _PIP_INSTALL = re.compile(r"\b(?:pip[0-9.]*|uv\s+pip|python[0-9.]*\s+-m\s+pip)\s+install\b")
 _NO_DEPS = re.compile(r"(?<![\w-])--no-deps(?![\w-])")
