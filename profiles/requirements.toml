@@ -82,7 +82,7 @@ container_release_unpublished = ["claude-agent", "claude-supervisor"]
 # Container Image IX: repos that set `sign: true`. scripts/provision-cosign-env.py
 # puts the fleet key in each one's cosign-signing environment, and rotates it,
 # from one operator-held copy. A repo is added here before it signs.
-cosign_signers = ["rhel10-bootc-server", "rhel10-bootc-workstation", "ashigaru", "developer"]
+cosign_signers = ["rhel10-bootc-server", "rhel10-bootc-workstation", "ashigaru", "developer", "python-sdlc"]
 # The App that tags merged release pull requests (ashigaru release-tag.yml mints
 # its token from ASHIGARU_CLIENT_ID). The only actor that may create, move or
 # delete a signer's v*.*.* tags; organization admins may not.
