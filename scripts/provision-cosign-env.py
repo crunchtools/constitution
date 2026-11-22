@@ -196,14 +196,17 @@ def find_ruleset(gh: Gh, repo: str) -> dict | None:
     return gh.must(f"repos/{repo}/rulesets/{ours[0]['id']}") if ours else None
 
 
-def environment_problems(gh: Gh, repo: str, default: str) -> list[str]:
+def environment(gh: Gh, repo: str) -> dict | None:
+    """The environment, or None when it does not exist; any other refusal is an error."""
     env = gh.api(f"repos/{repo}/environments/{ENV}")
-    if env is None and "HTTP 404" in gh.error:
-        return [f"no {ENV} environment"]
-    if env is None:
+    if env is None and "HTTP 404" not in gh.error:
         raise Refused(
             f"GET repos/{repo}/environments/{ENV} failed: {gh.error or 'no reason given'}"
         )
+    return env
+
+
+def environment_problems(gh: Gh, repo: str, default: str, env: dict) -> list[str]:
     rule = env.get("deployment_branch_policy") or {}
     if (
         rule.get("protected_branches") is not False
@@ -239,9 +242,12 @@ def branch_problems(gh: Gh, repo: str, default: str) -> list[str]:
     return [f"{default} has no '{rule}' rule" for rule in BRANCH_RULES if rule not in have]
 
 
-def gate_problems(gh: Gh, repo: str, default: str, actors: list[dict]) -> list[str]:
+def gate_problems(
+    gh: Gh, repo: str, default: str, actors: list[dict], env: dict | None
+) -> list[str]:
+    missing = [f"no {ENV} environment"]
     return (
-        environment_problems(gh, repo, default)
+        (missing if env is None else environment_problems(gh, repo, default, env))
         + tag_problems(find_ruleset(gh, repo), actors)
         + branch_problems(gh, repo, default)
     )
@@ -274,9 +280,10 @@ def org_stale(gh: Gh) -> list[str]:
 
 def check(gh: Gh, repo: str, actors: list[dict]) -> list[str]:
     default = gh.must(f"repos/{repo}")["default_branch"]
-    problems = gate_problems(gh, repo, default, actors)
+    env = environment(gh, repo)
+    problems = gate_problems(gh, repo, default, actors, env)
     # A missing environment has no secrets to list (GitHub answers 404).
-    if f"no {ENV} environment" not in problems:
+    if env is not None:
         missing = set(SECRETS) - names(gh, f"repos/{repo}/environments/{ENV}/secrets")
         problems += [f"{ENV} lacks {name}" for name in sorted(missing)]
     return problems + stale(gh, repo)
@@ -302,7 +309,7 @@ def provision(gh: Gh, repo: str, key: str, password: str, actors: list[dict]) ->
     """Gate first, read back, then the secrets. Returns stale copies to delete."""
     default = gh.must(f"repos/{repo}")["default_branch"]
     provision_gate(gh, repo, default, actors)
-    problems = gate_problems(gh, repo, default, actors)
+    problems = gate_problems(gh, repo, default, actors, environment(gh, repo))
     if problems:
         raise Refused(f"gate not in place, no secret set: {'; '.join(problems)}")
     gh.set_secret(repo, "COSIGN_PRIVATE_KEY", key)
