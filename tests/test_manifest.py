@@ -553,6 +553,102 @@ def test_sign_on_signs_with_cosign_v2_before_any_tag_moves():
     assert pub.endswith("-----END PUBLIC KEY-----\n")
 
 
+def test_sign_on_attests_an_sbom_of_the_signed_digest_before_any_tag_moves():
+    """A signed digest carries a syft SPDX SBOM attested with the same key (#203)."""
+    steps = _promote_steps(sign=True)
+    ids = [s.get("name") or s.get("id") for s in steps]
+    install = next(s for s in steps if str(s.get("name", "")).startswith("Install syft"))
+    attest = next(
+        s for s in steps if s.get("name") == "Attest the SBOM of the digest being promoted"
+    )
+    sign = ids.index("Sign the digest being promoted")
+    assert sign < ids.index(install["name"]) < ids.index(attest["name"]) < ids.index("p")
+    unskipped = f"{SIGN_IF} && {SKIP_IF}"
+    assert install["if"] == attest["if"] == unskipped
+    for step in (install, attest):
+        assert "continue-on-error" not in step
+    assert "/anchore/syft/releases/download/v1." in install["run"]
+    assert "sha256sum -c" in install["run"]
+    p = next(s for s in steps if s.get("id") == "p")
+    assert attest["env"]["DIGEST"] == p["env"]["DIGEST"]  # attests exactly what promote copies
+    assert attest["env"]["PUB"] == ".constitution/keys/crunchtools-bootc.pub"
+    run = attest["run"]
+    assert 'syft scan "registry:$IMAGE@$DIGEST" -o "spdx-json=' in run
+    assert "cosign attest --yes --tlog-upload=false --type spdxjson" in run
+    assert "--key env://COSIGN_PRIVATE_KEY" in run
+    # Once to skip an already attested release digest, once to prove the attestation landed.
+    verify = "cosign verify-attestation --insecure-ignore-tlog --type spdxjson --key"
+    assert run.count(verify) == len(("skip", "prove"))
+
+
+def _run_attest_step(tmp_path: Path, *, attested: bool, fail: str = "") -> tuple:
+    """Run the attest step with stub cosign and syft. `attested` is what the
+    first verify-attestation finds; `fail` names one stub command that exits 1."""
+    attest = next(
+        s
+        for s in _promote_steps(sign=True)
+        if s.get("name") == "Attest the SBOM of the digest being promoted"
+    )
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    log = tmp_path / "calls"
+    marker = tmp_path / "attested"
+    if attested:
+        marker.touch()
+    stub = (
+        "#!/bin/sh\n"
+        f'echo "$(basename "$0") $1" >> {log}\n'
+        f'[ "$(basename "$0") $1" = "{fail}" ] && exit 1\n'
+        f'case "$1" in attest) touch {marker} ;;\n'
+        f"  verify-attestation) [ -e {marker} ] || exit 1 ;; esac\n"
+        "exit 0\n"
+    )
+    for name in ("cosign", "syft"):
+        (bin_dir / name).write_text(stub)
+        (bin_dir / name).chmod(0o755)
+    env = {
+        "PATH": f"{bin_dir}:/usr/bin:/bin",
+        "RUNNER_TEMP": str(tmp_path),
+        "IMAGE": "quay.io/crunchtools/canary",
+        "DIGEST": "sha256:" + "a" * 64,
+        "PUB": "crunchtools-bootc.pub",
+    }
+    result = subprocess.run(
+        ["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", attest["run"]],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return result, log.read_text().split("\n")[:-1]
+
+
+def test_an_attested_digest_is_reused_not_attested_again(tmp_path):
+    result, calls = _run_attest_step(tmp_path, attested=True)
+    assert result.returncode == 0, result.stderr
+    assert calls == ["cosign verify-attestation"]
+    assert "already carries an SBOM" in result.stdout
+
+
+def test_an_unattested_digest_is_scanned_attested_and_proven(tmp_path):
+    result, calls = _run_attest_step(tmp_path, attested=False)
+    assert result.returncode == 0, result.stderr
+    assert calls == [
+        "cosign verify-attestation",
+        "syft scan",
+        "cosign attest",
+        "cosign verify-attestation",
+    ]
+
+
+@pytest.mark.parametrize("fail", ["syft scan", "cosign attest", "cosign verify-attestation"])
+def test_a_failed_scan_attestation_or_proof_stops_promote(tmp_path, fail):
+    result, calls = _run_attest_step(tmp_path, attested=False, fail=fail)
+    assert result.returncode != 0
+    assert calls[-1] == fail
+    assert "attested the SBOM" not in result.stdout
+
+
 @pytest.mark.parametrize(
     ("name", "call"),
     [

@@ -38,7 +38,8 @@
 # `sign: true` signs the digest inside promote, before any tag moves, with the
 # fleet cosign key; it verifies against keys/crunchtools-bootc.pub here
 # (rhel10-bootc-server#47). Only promote holds the key, so a pull request's
-# candidate is never signed.
+# candidate is never signed. Promote then attests a syft SPDX SBOM to the
+# digest with that key (#203).
 
 name: Container release
 
@@ -650,6 +651,38 @@ jobs:
           fi
           cosign verify --insecure-ignore-tlog --key "$PUB" "$IMAGE@$DIGEST" >/dev/null
           echo "::notice::signed $IMAGE@$DIGEST"
+      # The SBOM is attested to the same digest with the same key, before any
+      # tag moves (#203). cosign v2 stores it as a separate .att object, so the
+      # manifest bootc and podman pull is unchanged. syft reads the digest from
+      # the registry with the login the sign step wrote to DOCKER_CONFIG.
+      - name: Install syft v1.57.0
+        if: inputs.sign && steps.check.outputs.skip != 'true'
+        run: |
+          set -eu
+          curl -fsSLo "$RUNNER_TEMP/syft.tar.gz" https://github.com/anchore/syft/releases/download/v1.57.0/syft_1.57.0_linux_amd64.tar.gz
+          echo "9c077a7d43029b3b13e98a8db720661e700c4d58db6352153a06395ae4a2a704  $RUNNER_TEMP/syft.tar.gz" | sha256sum -c
+          tar -xzf "$RUNNER_TEMP/syft.tar.gz" -C "$RUNNER_TEMP" syft
+          install -D -m 0755 "$RUNNER_TEMP/syft" "$RUNNER_TEMP/bin/syft"
+      - name: Attest the SBOM of the digest being promoted
+        if: inputs.sign && steps.check.outputs.skip != 'true'
+        env:
+          COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
+          COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
+          IMAGE: ${{ inputs.image }}
+          DIGEST: ${{ needs.resolve.outputs.digest || needs.build.outputs.digest }}
+          PUB: .constitution/keys/crunchtools-bootc.pub
+          SYFT_CHECK_FOR_APP_UPDATE: "false"
+        run: |
+          set -euo pipefail
+          if cosign verify-attestation --insecure-ignore-tlog --type spdxjson --key "$PUB" "$IMAGE@$DIGEST" >/dev/null 2>&1; then
+            echo "::notice::$IMAGE@$DIGEST already carries an SBOM (a release of a digest main promoted)"
+          else
+            syft scan "registry:$IMAGE@$DIGEST" -o "spdx-json=$RUNNER_TEMP/sbom.spdx.json"
+            cosign attest --yes --tlog-upload=false --type spdxjson \
+              --predicate "$RUNNER_TEMP/sbom.spdx.json" --key env://COSIGN_PRIVATE_KEY "$IMAGE@$DIGEST"
+            cosign verify-attestation --insecure-ignore-tlog --type spdxjson --key "$PUB" "$IMAGE@$DIGEST" >/dev/null
+            echo "::notice::attested the SBOM of $IMAGE@$DIGEST"
+          fi
       - id: p
         if: steps.check.outputs.skip != 'true'
         env:
@@ -681,6 +714,8 @@ jobs:
             echo
             if [ "$SIGN" = true ]; then
               echo "Signed: \`cosign verify --insecure-ignore-tlog --key crunchtools-bootc.pub $IMAGE@$DIGEST\`"
+              echo
+              echo "SBOM: \`cosign verify-attestation --insecure-ignore-tlog --type spdxjson --key crunchtools-bootc.pub $IMAGE@$DIGEST\`"
               echo
             fi
             echo "Rollback: \`skopeo copy --all --preserve-digests docker://$IMAGE:rollback-main docker://$IMAGE:main\` (or \`rollback-latest\` / \`latest\`)."

@@ -10,6 +10,14 @@ Entries through 1.14.0 are derived from the Ratification History table in
 ## [Unreleased]
 
 ### Added
+- `container-release.yml` with `sign: true` attests an SBOM to the digest it
+  signs (#203, a918): syft 1.57.0, installed by sha256, writes SPDX JSON for
+  the gated digest and `cosign attest --type spdxjson --tlog-upload=false`
+  signs it with the fleet key, before any tag moves. cosign v2 stores it as a
+  separate `.att` object, so the image manifest is unchanged. A release of a
+  digest main already attested reuses it. Verify with
+  `cosign verify-attestation --insecure-ignore-tlog --type spdxjson --key keys/crunchtools-bootc.pub IMAGE@DIGEST`.
+  Container Image profile 1.16.0 (IX).
 - `.github/workflows/fleet-bump.yml` (a867): runs `fleet-bump.py` in the pipeline
   on `workflow_dispatch` (`mode` bump, zizmor-callers or renovate; `version`;
   `only`; `dry-run`, on by default), so a fleet rollout needs no `gh` or
