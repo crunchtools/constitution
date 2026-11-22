@@ -76,9 +76,9 @@ jobs:
 """
 
 # The example repo has a pyproject.toml, so since v1.30.0 it is a Python repo
-# and its gates come from python-sdlc. STANDALONE is the shape every other repo
+# and its gates come from sdlc. STANDALONE is the shape every other repo
 # keeps. A `repo: local` block follows so a test can append a hook to it.
-SDLC_BLOCK = """  - repo: https://github.com/crunchtools/python-sdlc
+SDLC_BLOCK = """  - repo: https://github.com/crunchtools/sdlc
     rev: v0.2.0
     hooks:
       - id: sdlc-commit
@@ -559,46 +559,56 @@ def test_sign_on_signs_with_cosign_v2_before_any_tag_moves():
     assert pub.endswith("-----END PUBLIC KEY-----\n")
 
 
+SBOM_WRITE = "Write the SBOM of the digest being promoted"
+SBOM_ATTEST = "Attest the SBOM of the digest being promoted"
+
+
 def test_sign_on_attests_an_sbom_of_the_signed_digest_before_any_tag_moves():
-    """A signed digest carries a syft SPDX SBOM attested with the same key (#203)."""
+    """A signed digest carries a syft SPDX SBOM attested with the same key (#203),
+    scanned by a step that does not hold the key."""
     steps = _promote_steps(sign=True)
     ids = [s.get("name") or s.get("id") for s in steps]
     install = next(s for s in steps if str(s.get("name", "")).startswith("Install syft"))
-    attest = next(
-        s for s in steps if s.get("name") == "Attest the SBOM of the digest being promoted"
-    )
+    write = next(s for s in steps if s.get("name") == SBOM_WRITE)
+    attest = next(s for s in steps if s.get("name") == SBOM_ATTEST)
+    assert write["id"] == "sbom"
     sign = ids.index("Sign the digest being promoted")
-    assert sign < ids.index(install["name"]) < ids.index(attest["name"]) < ids.index("p")
+    order = [ids.index(n) for n in (install["name"], SBOM_WRITE, SBOM_ATTEST, "p")]
+    assert sign < order[0] < order[1] < order[2] < order[3]
     unskipped = f"{SIGN_IF} && {SKIP_IF}"
-    assert install["if"] == attest["if"] == unskipped
-    for step in (install, attest):
+    assert install["if"] == write["if"] == unskipped
+    assert attest["if"] == f"{unskipped} && steps.sbom.outputs.attest == 'true'"
+    for step in (install, write, attest):
         assert "continue-on-error" not in step
     assert "/anchore/syft/releases/download/v1." in install["run"]
     assert "sha256sum -c" in install["run"]
+    # Only the step that attests holds the key; syft never sees it.
+    assert not [k for k in write["env"] if k.startswith("COSIGN_")]
+    assert all(k in attest["env"] for k in ("COSIGN_PRIVATE_KEY", "COSIGN_PASSWORD"))
     p = next(s for s in steps if s.get("id") == "p")
-    assert attest["env"]["DIGEST"] == p["env"]["DIGEST"]  # attests exactly what promote copies
-    assert attest["env"]["PUB"] == ".constitution/keys/crunchtools-bootc.pub"
-    run = attest["run"]
-    assert 'syft scan "registry:$IMAGE@$DIGEST" -o "spdx-json=' in run
-    assert "cosign attest --yes --tlog-upload=false --type spdxjson" in run
-    assert "--key env://COSIGN_PRIVATE_KEY" in run
+    for step in (write, attest):
+        assert step["env"]["DIGEST"] == p["env"]["DIGEST"]  # exactly what promote copies
+        assert step["env"]["PUB"] == ".constitution/keys/crunchtools-bootc.pub"
+    assert 'syft scan "registry:$IMAGE@$DIGEST" -o "spdx-json=' in write["run"]
+    assert "cosign attest" not in write["run"] and "syft" not in attest["run"]
+    assert "cosign attest --yes --tlog-upload=false --type spdxjson" in attest["run"]
+    assert "--key env://COSIGN_PRIVATE_KEY" in attest["run"]
     # Once to skip an already attested release digest, once to prove the attestation landed.
     verify = "cosign verify-attestation --insecure-ignore-tlog --type spdxjson --key"
-    assert run.count(verify) == len(("skip", "prove"))
+    assert write["run"].count(verify) == attest["run"].count(verify) == 1
 
 
-def _run_attest_step(tmp_path: Path, *, attested: bool, fail: str = "") -> tuple:
-    """Run the attest step with stub cosign and syft. `attested` is what the
-    first verify-attestation finds; `fail` names one stub command that exits 1."""
-    attest = next(
-        s
-        for s in _promote_steps(sign=True)
-        if s.get("name") == "Attest the SBOM of the digest being promoted"
-    )
+def _run_sbom_steps(tmp_path: Path, *, attested: bool, fail: str = "") -> tuple:
+    """Run the SBOM write step, then the attest step when the write step's
+    output asks for it, as the `if:` would, with stub cosign and syft.
+    `attested` is what the first verify-attestation finds; `fail` names one
+    stub command that exits 1."""
+    steps = {s.get("name"): s for s in _promote_steps(sign=True)}
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     log = tmp_path / "calls"
     marker = tmp_path / "attested"
+    output = tmp_path / "output"
     if attested:
         marker.touch()
     stub = (
@@ -615,29 +625,36 @@ def _run_attest_step(tmp_path: Path, *, attested: bool, fail: str = "") -> tuple
     env = {
         "PATH": f"{bin_dir}:/usr/bin:/bin",
         "RUNNER_TEMP": str(tmp_path),
+        "GITHUB_OUTPUT": str(output),
         "IMAGE": "quay.io/crunchtools/canary",
         "DIGEST": "sha256:" + "a" * 64,
         "PUB": "crunchtools-bootc.pub",
     }
-    result = subprocess.run(
-        ["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", attest["run"]],
-        env=env,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+
+    def run(step: str) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            ["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", steps[step]["run"]],
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+    result = run(SBOM_WRITE)
+    if result.returncode == 0 and "attest=true" in output.read_text().split("\n"):
+        result = run(SBOM_ATTEST)
     return result, log.read_text().split("\n")[:-1]
 
 
 def test_an_attested_digest_is_reused_not_attested_again(tmp_path):
-    result, calls = _run_attest_step(tmp_path, attested=True)
+    result, calls = _run_sbom_steps(tmp_path, attested=True)
     assert result.returncode == 0, result.stderr
     assert calls == ["cosign verify-attestation"]
     assert "already carries an SBOM" in result.stdout
 
 
 def test_an_unattested_digest_is_scanned_attested_and_proven(tmp_path):
-    result, calls = _run_attest_step(tmp_path, attested=False)
+    result, calls = _run_sbom_steps(tmp_path, attested=False)
     assert result.returncode == 0, result.stderr
     assert calls == [
         "cosign verify-attestation",
@@ -645,11 +662,12 @@ def test_an_unattested_digest_is_scanned_attested_and_proven(tmp_path):
         "cosign attest",
         "cosign verify-attestation",
     ]
+    assert "attested the SBOM" in result.stdout
 
 
 @pytest.mark.parametrize("fail", ["syft scan", "cosign attest", "cosign verify-attestation"])
 def test_a_failed_scan_attestation_or_proof_stops_promote(tmp_path, fail):
-    result, calls = _run_attest_step(tmp_path, attested=False, fail=fail)
+    result, calls = _run_sbom_steps(tmp_path, attested=False, fail=fail)
     assert result.returncode != 0
     assert calls[-1] == fail
     assert "attested the SBOM" not in result.stdout
@@ -665,14 +683,14 @@ def test_sign_on_attests_the_provenance_after_the_sbom_before_any_tag_moves():
     attested with the same key as the SBOM by a step of its own (#204)."""
     steps = _promote_steps(sign=True)
     ids = [s.get("name") or s.get("id") for s in steps]
-    sbom = next(s for s in steps if s.get("name") == "Attest the SBOM of the digest being promoted")
+    sbom = next(s for s in steps if s.get("name") == SBOM_ATTEST)
     write = next(s for s in steps if s.get("name") == WRITE)
     prov = next(s for s in steps if s.get("name") == PROVENANCE)
     assert write["id"] == "provenance"
     sign = ids.index("Sign the digest being promoted")
     order = [ids.index(n) for n in (sbom["name"], WRITE, PROVENANCE, "p")]
     assert sign < order[0] < order[1] < order[2] < order[3]
-    assert write["if"] == sbom["if"] == f"{SIGN_IF} && {SKIP_IF}"
+    assert write["if"] == f"{SIGN_IF} && {SKIP_IF}"
     assert prov["if"] == f"{SIGN_IF} && {SKIP_IF} && steps.provenance.outputs.attest == 'true'"
     for step in (write, prov):
         assert "continue-on-error" not in step
@@ -1428,17 +1446,37 @@ def test_web_application_tags_are_deploy_markers(repo):
     assert not any(v.startswith("VERSION:") for v in violations(repo))
 
 
-# XII since v1.30.0: a Python repo's checks come from python-sdlc.
+# XII since v1.30.0: a Python repo's checks come from sdlc.
 
 
-def test_python_repo_on_python_sdlc_passes(repo):
+def test_python_repo_on_sdlc_passes(repo):
     assert violations(repo) == []
+
+
+@pytest.mark.parametrize("suffix", ["", ".git"])
+def test_a_pin_of_the_name_before_the_rename_passes(repo, suffix):
+    """crunchtools/python-sdlc became crunchtools/sdlc; GitHub redirects the old URL."""
+    old = "https://github.com/crunchtools/python-sdlc" + suffix
+    write(
+        repo,
+        ".pre-commit-config.yaml",
+        PRE_COMMIT.replace("https://github.com/crunchtools/sdlc", old),
+    )
+    assert violations(repo) == []
+
+
+def test_a_pin_of_the_old_name_is_still_judged(repo):
+    old = "https://github.com/crunchtools/python-sdlc"
+    pre_commit = PRE_COMMIT.replace("https://github.com/crunchtools/sdlc", old)
+    write(repo, ".pre-commit-config.yaml", pre_commit.replace("v0.2.0", "main"))
+    [found] = violations(repo)
+    assert found.startswith(f"XII: {old} is pinned at `main`")
 
 
 def test_python_repo_on_the_standalone_hooks_fails(repo):
     """Required, not optional: the old shape is no longer enough for a Python repo."""
     write(repo, ".pre-commit-config.yaml", "repos:\n" + STANDALONE_BLOCK)
-    assert any("must pin https://github.com/crunchtools/python-sdlc" in v for v in violations(repo))
+    assert any("must pin https://github.com/crunchtools/sdlc" in v for v in violations(repo))
 
 
 def test_non_python_repo_keeps_the_standalone_hooks(repo):
@@ -1448,9 +1486,9 @@ def test_non_python_repo_keeps_the_standalone_hooks(repo):
     assert not [v for v in violations(repo) if v.startswith("XII")]
 
 
-@pytest.mark.parametrize("name", ["gourmand", "python-sdlc"])
+@pytest.mark.parametrize("name", ["gourmand", "sdlc", "python-sdlc"])
 def test_a_repo_that_builds_the_image_is_exempt(repo, name):
-    """gourmand and python-sdlc build what the image contains."""
+    """gourmand and sdlc build what the image contains."""
     exempt = repo.parent / name
     repo.rename(exempt)
     write(exempt, ".pre-commit-config.yaml", "repos:\n" + STANDALONE_BLOCK)
@@ -1458,17 +1496,15 @@ def test_a_repo_that_builds_the_image_is_exempt(repo, name):
 
 
 def test_gatehouse_is_not_exempt(repo):
-    """python-sdlc runs Gatehouse's last release, so gatehouse wires it (#137)."""
+    """sdlc runs Gatehouse's last release, so gatehouse wires it (#137)."""
     gatehouse = repo.parent / "gatehouse"
     repo.rename(gatehouse)
     write(gatehouse, ".pre-commit-config.yaml", "repos:\n" + STANDALONE_BLOCK)
-    assert any(
-        "must pin https://github.com/crunchtools/python-sdlc" in v for v in violations(gatehouse)
-    )
+    assert any("must pin https://github.com/crunchtools/sdlc" in v for v in violations(gatehouse))
 
 
 @pytest.mark.parametrize("rev", ["main", "0.2.0", "a1b2c3d4"])
-def test_python_sdlc_must_be_pinned_at_a_release(repo, rev):
+def test_sdlc_must_be_pinned_at_a_release(repo, rev):
     write(repo, ".pre-commit-config.yaml", PRE_COMMIT.replace("v0.2.0", rev))
     [found] = violations(repo)
     assert f"pinned at `{rev}`" in found
@@ -1633,7 +1669,7 @@ def test_a_launcher_that_is_not_a_bootstrap_release_fails(repo, launcher):
     float_repo(repo)
     write(repo, ".sdlc/bin/sdlc", launcher)
     [found] = violations(repo)
-    assert "is not a python-sdlc bootstrap release" in found
+    assert "is not an sdlc bootstrap release" in found
 
 
 @pytest.mark.parametrize(

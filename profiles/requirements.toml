@@ -13,7 +13,8 @@ gatehouse_min = "0.15.0"
 
 # XV rule 5 since v1.45.0: a crunchtools tool image in a hook or a CI job names
 # the tag its releases move. Gourmand cuts no releases, so it floats on `main`.
-# python-sdlc#62 renamed the image to `sdlc`; both names float until the old one is gone.
+# python-sdlc#62 renamed the image to `sdlc`. The repo is crunchtools/sdlc, but
+# the python-sdlc image stays a mirror of it, and both float, until the fleet has moved.
 floating_images = { gatehouse = "latest", python-sdlc = "latest", sdlc = "latest", gourmand = "main" }
 
 # XV rule 2: a third-party `uses:` names a full commit SHA (an image, a digest).
@@ -47,16 +48,28 @@ renovate_locked_presets = ["config:best-practices", "security:minimumReleaseAge*
 # deletes them.
 dependabot_until = "1.60.0"
 
-# XII since v1.30.0: a repo with a pyproject.toml runs its checks through
-# python-sdlc. These are the hooks repo it pins, the two hooks it must enable,
-# and the repos exempt because they build what the image contains. Gatehouse
-# is not among them: python-sdlc runs its last release, as the standalone hook
-# always did, so it can review its own changes (gatehouse#134).
-sdlc_hooks_repo = "https://github.com/crunchtools/python-sdlc"
+# XII since v1.30.0: a repo with a pyproject.toml runs its checks through sdlc
+# (crunchtools/python-sdlc until its rename). These are the hooks repo it pins,
+# the two hooks it must enable, and the repos exempt because they build what
+# the image contains. Gatehouse is not among them: sdlc runs its last release,
+# as the standalone hook always did, so it can review its own changes
+# (gatehouse#134).
+sdlc_hooks_repo = "https://github.com/crunchtools/sdlc"
+# The repo's name before the rename (GitHub redirects it). A pin of this URL is
+# still accepted, so no repo fails XII for naming the old one; convert_repo.py
+# rewrites it.
+sdlc_hooks_repo_renamed_from = ["https://github.com/crunchtools/python-sdlc"]
+# Repos renamed in place, old name -> new. GitHub redirects the old name, so a
+# reference to it still works; validate-cascade.py resolves it and warns. A
+# clone whose origin still names the old repo is judged as the new one for
+# `cosign_signers`, which keeps only the new name so provisioning runs once.
+# The lists above carry both names until the cutover (a clone's origin
+# remote decides which one repo_name() reads).
+renamed_repos = { python-sdlc = "sdlc" }
 sdlc_hooks = ["sdlc-commit", "sdlc-push"]
-sdlc_exempt = ["gourmand", "python-sdlc"]
+sdlc_exempt = ["gourmand", "sdlc", "python-sdlc"]
 # Since v1.46.0 the preferred wiring for every repo, Python or not: `repo: local`
-# hooks whose entry is this committed launcher (python-sdlc's bin/sdlc-bootstrap),
+# hooks whose entry is this committed launcher (sdlc's bin/sdlc-bootstrap),
 # with no `rev:`. It asks the image for its own runner, so nothing pins a release.
 # The rev-pinned and standalone forms above are accepted until the fleet converts.
 sdlc_launcher = ".sdlc/bin/sdlc"
@@ -66,12 +79,13 @@ sdlc_launcher = ".sdlc/bin/sdlc"
 # fleet has moved off them.
 sdlc_bootstrap_sha256 = [
   "6c4691c4aea0be66d6a6acd2efdf191a5038a1b3b8396b2fc60d14cd419eca72",  # python-sdlc#62 at a483867
+  "fb2d76cfeed00f7df2e0bc992b62240c98a647ecf85a5377581c293612fdfbe4",  # sdlc#82 at 6a59496 (self-verify)
 ]
 
 # Container release (container-image VII, since 1.39.0, RT#1550): repos that
 # keep their own promote workflow instead of calling container-release.yml.
 # Still checked: skopeo --preserve-digests, no `imagetools create`, no GHCR.
-container_release_custom = ["python-sdlc"]
+container_release_custom = ["sdlc", "python-sdlc"]
 # Repos whose Containerfile is a reference or local build that crunchtools
 # never publishes (claude-agent: "build your own"). No release workflow is
 # required; publishing anyway is still checked (GHCR, imagetools, pushes).
@@ -79,10 +93,76 @@ container_release_custom = ["python-sdlc"]
 # before it happens: claude-agent becomes claude-supervisor (claude-agent#35),
 # and both stay until claude-supervisor 3.0.0 retires the old one.
 container_release_unpublished = ["claude-agent", "claude-supervisor"]
-# Container Image IX: repos that set `sign: true`. scripts/provision-cosign-env.py
-# puts the fleet key in each one's cosign-signing environment, and rotates it,
-# from one operator-held copy. A repo is added here before it signs.
-cosign_signers = ["rhel10-bootc-server", "rhel10-bootc-workstation", "ashigaru", "developer", "python-sdlc"]
+# Container Image IX: every repo that publishes an image, since every image is
+# signed (sdlc#88). scripts/provision-cosign-env.py puts the fleet key in each
+# one's cosign-signing environment, and rotates it, from one operator-held copy.
+# A repo is added here before it signs; a new image repo is added when created.
+cosign_signers = [
+  "acquacotta",
+  "ashigaru",
+  "constitution",
+  "data-collector",
+  "deployer",
+  "developer",
+  "expressvpn",
+  "fhl.dc2.crunchtools.com",
+  "gatehouse",
+  "gha-runner",
+  "google-workspace-mcp",
+  "gourmand",
+  "grype",
+  "hermes",
+  "immich",
+  "mcp-atlassian",
+  "mcp-cloudflare",
+  "mcp-feed-reader",
+  "mcp-gemini",
+  "mcp-github",
+  "mcp-gitlab",
+  "mcp-google-search-console",
+  "mcp-mediawiki",
+  "mcp-metsuke",
+  "mcp-nagios",
+  "mcp-notebooklm",
+  "mcp-pcloud",
+  "mcp-podman",
+  "mcp-request-tracker",
+  "mcp-rhhi",
+  "mcp-slack",
+  "mcp-syslog",
+  "mcp-systemd",
+  "mcp-trove",
+  "mcp-wordpress",
+  "mcp-workboard",
+  "memory",
+  "nagios",
+  "nagios-agent",
+  "newsletter",
+  "openbao",
+  "openclaw",
+  "pbs",
+  "petit",
+  "postfix",
+  "postiz",
+  "proxy",
+  "rhel10-bootc-server",
+  "rhel10-bootc-workstation",
+  "rotv",
+  "rt",
+  "sdlc",
+  "shiva",
+  "spanish",
+  "syslog",
+  "tig",
+  "trentina",
+  "ubi10-core",
+  "ubi10-httpd",
+  "ubi10-httpd-perl",
+  "ubi10-httpd-perl-mariadb",
+  "ubi10-httpd-php",
+  "ubi10-httpd-php-mariadb",
+  "ubi10-httpd-php-postgres",
+]
 # The App that tags merged release pull requests (ashigaru release-tag.yml mints
 # its token from ASHIGARU_CLIENT_ID). The only actor that may create, move or
 # delete a signer's v*.*.* tags; organization admins may not.

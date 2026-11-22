@@ -63,6 +63,27 @@ def test_a_repo_naming_itself_is_not_an_edge():
     assert C.build_dispatch_graph(["parent"], cache)["parent"] == set()
 
 
+def test_a_dispatch_of_a_renamed_repo_counts_for_its_new_name():
+    graph = {"gatehouse": {"python-sdlc", "other"}}
+    stale = C.resolve_renames(graph, {"python-sdlc": "sdlc"})
+    assert graph == {"gatehouse": {"sdlc", "other"}}
+    assert stale == [("gatehouse", "python-sdlc", "sdlc")]
+    missing, _ = C.compare_graphs({"gatehouse": {"sdlc"}}, graph, {"gatehouse", "sdlc"})
+    assert missing == []
+
+
+def test_a_stale_name_is_a_warning_naming_both(capsys):
+    C.report("crunchtools", [], [], [], [("gatehouse", "python-sdlc", "sdlc")])
+    out = capsys.readouterr().out
+    assert "WARN: dispatches naming a repo by its old name" in out
+    assert "gatehouse dispatches python-sdlc, now sdlc" in out
+    assert "FAIL" not in out
+
+
+def test_the_renamed_repos_come_from_requirements():
+    assert C.renamed_repos()["python-sdlc"] == "sdlc"
+
+
 def test_fetch_text_says_so_when_the_path_is_a_directory(monkeypatch):
     """The Contents API returns a list for a directory, a dict for a file.
 

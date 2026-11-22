@@ -45,9 +45,11 @@ import json
 import os
 import re
 import sys
+import tomllib
 import urllib.error
 import urllib.request
 from collections import defaultdict
+from pathlib import Path
 
 API = "https://api.github.com"
 HTTP_TIMEOUT_SECONDS = 30
@@ -253,6 +255,31 @@ def build_dispatch_graph(
     return dispatch_graph
 
 
+def renamed_repos() -> dict[str, str]:
+    """Old name -> new, from `renamed_repos` in profiles/requirements.toml."""
+    path = Path(__file__).resolve().parent / "profiles" / "requirements.toml"
+    with path.open("rb") as f:
+        return tomllib.load(f).get("fleet", {}).get("renamed_repos", {})
+
+
+def resolve_renames(
+    dispatch_graph: dict[str, set[str]], renamed: dict[str, str]
+) -> list[tuple[str, str, str]]:
+    """Point each dispatch of a renamed repo at its new name, in place.
+
+    GitHub redirects the old name, so the dispatch still lands: a FAIL for it
+    would be the gate's fault, not the parent's. The (parent, old, new) list
+    it returns is reported as a WARN, so the stale name is still fixed.
+    """
+    stale = []
+    for parent, children in dispatch_graph.items():
+        for old in sorted(children & renamed.keys()):
+            children.discard(old)
+            children.add(renamed[old])
+            stale.append((parent, old, renamed[old]))
+    return stale
+
+
 def compare_graphs(
     from_graph: dict[str, set[str]], dispatch_graph: dict[str, set[str]], repo_set: set[str]
 ) -> tuple[list[tuple[str, str]], list[tuple[str, str]]]:
@@ -286,6 +313,7 @@ def report(
     broken_froms: list[tuple[str, str]],
     missing: list[tuple[str, str]],
     extra: list[tuple[str, str]],
+    stale: list[tuple[str, str, str]],
 ) -> None:
     """Print the findings. Only `missing` is a failure; the caller decides the exit code."""
     # Broken FROMs break ONE specific repo's build but do not impair cascade
@@ -302,6 +330,11 @@ def report(
         )
         for parent, child in sorted(missing):
             print(f"  {parent} should dispatch {child}")
+
+    if stale:
+        print("\nWARN: dispatches naming a repo by its old name (GitHub redirects it):")
+        for parent, old, new in sorted(stale):
+            print(f"  {parent} dispatches {old}, now {new}")
 
     if extra:
         print("\nWARN: dispatch edges with no matching FROM (over-dispatch, usually intentional):")
@@ -338,12 +371,13 @@ def main() -> int:
 
     from_graph, broken_froms = build_from_graph(args.org, repos, repo_set | published_images, token)
     dispatch_graph = build_dispatch_graph(repos, workflows_cache)
+    stale = resolve_renames(dispatch_graph, renamed_repos())
 
     if args.verbose:
         print_graphs(from_graph, dispatch_graph)
 
     missing, extra = compare_graphs(from_graph, dispatch_graph, repo_set)
-    report(args.org, broken_froms, missing, extra)
+    report(args.org, broken_froms, missing, extra, stale)
 
     if missing:
         return 1

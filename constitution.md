@@ -350,11 +350,11 @@ Requiring two gates to run from containers said nothing about the rest. On a fre
 A CI gate that only fires after the push finds problems once they are already someone else's review burden. Both gates therefore also run locally, before the commit exists.
 
 **Rules:**
-- Every repo SHOULD wire both gates through the floating sdlc launcher (below), Python or not. Until the fleet has converted, a Python repo MAY instead pin python-sdlc, and any other repo's `.pre-commit-config.yaml` MUST otherwise carry a hook with `id: gourmand` running `quay.io/crunchtools/gourmand` and a hook with `id: gatehouse` running `quay.io/crunchtools/gatehouse` with `--stdin` over `git diff --cached`, both from their container images. Copy them from `examples/pre-commit.yaml`.
+- Every repo SHOULD wire both gates through the floating sdlc launcher (below), Python or not. Until the fleet has converted, a Python repo MAY instead pin sdlc, and any other repo's `.pre-commit-config.yaml` MUST otherwise carry a hook with `id: gourmand` running `quay.io/crunchtools/gourmand` and a hook with `id: gatehouse` running `quay.io/crunchtools/gatehouse` with `--stdin` over `git diff --cached`, both from their container images. Copy them from `examples/pre-commit.yaml`.
 - Both hooks block the commit: Gourmand on any violation, Gatehouse on critical/high findings (exit `1`). The Gatehouse hook mounts the repo read-only so its Constitution agent reads the repo's own constitution. Its key comes from `~/.config/mcp-env/gatehouse.env`.
 - `SKIP=gatehouse` (in a Python repo, `SDLC_SKIP=gatehouse`) is the escape hatch for a false positive. It does not make the finding go away: the same finding reappears on the PR and MUST be answered there (see Triage).
 
-### Python repos: python-sdlc
+### Python repos: sdlc
 
 Every Python repo needs the same checks, and each one used to install and pin
 them itself. Across 35 Python repos that produced nine ruff versions, 15 repos
@@ -363,14 +363,16 @@ And a laptop and CI that install their tools separately disagree: trentina's
 laptop ran a two-week-old Gatehouse while CI ran a fresh one.
 
 So a Python repo runs its checks from one image,
-[`quay.io/crunchtools/python-sdlc`](https://github.com/crunchtools/python-sdlc),
-on the laptop and in CI alike.
+[`quay.io/crunchtools/sdlc`](https://github.com/crunchtools/sdlc),
+on the laptop and in CI alike. The repo was `crunchtools/python-sdlc` and the
+image `quay.io/crunchtools/python-sdlc`; GitHub redirects the old repo, and the
+old image stays a signed mirror of the new one until the fleet has moved.
 
 **Rules:**
 - A repo with a `pyproject.toml` is a Python repo. It MUST run its checks
-  through python-sdlc. Any repo MAY, and every repo SHOULD.
+  through sdlc. Any repo MAY, and every repo SHOULD.
 - **The floating form is preferred, for every repo kind.** The repo commits
-  python-sdlc's `bin/sdlc-bootstrap` as `.sdlc/bin/sdlc`, unchanged:
+  sdlc's `bin/sdlc-bootstrap` as `.sdlc/bin/sdlc`, unchanged:
   executable, not a symlink, and with a sha256 listed in
   `sdlc_bootstrap_sha256`. The image floats; the file the gate trusts does
   not, or a repo could commit a script that passes itself. Both hooks are `repo: local`, `language: system`, with
@@ -385,12 +387,12 @@ on the laptop and in CI alike.
   pull request must not choose the image that judges it. The `Protect
   workflows` guard rejects fork changes under `.sdlc/` as well as
   `.github/workflows/`. Copy both from
-  python-sdlc's `examples/`; `scripts/convert_repo.py` does the conversion.
+  sdlc's `examples/`; `scripts/convert_repo.py` does the conversion.
   A repo in this form is judged by it alone, whatever its kind or `Inherits`.
 - Until the fleet has converted, the rev-pinned form is still accepted: a
-  hook block from `https://github.com/crunchtools/python-sdlc` whose `rev:`
-  names one exact release (`vX.Y.Z`), because pre-commit never refetches a
-  moved tag:
+  hook block from `https://github.com/crunchtools/sdlc` (or its old name,
+  `sdlc_hooks_repo_renamed_from`) whose `rev:` names one exact release
+  (`vX.Y.Z`), because pre-commit never refetches a moved tag:
 
   | Command | Runs | Config block in `pyproject.toml` |
   |---|---|---|
@@ -409,7 +411,7 @@ on the laptop and in CI alike.
   `2` is never treated as a pass and is never worked around.
 - `3` means could not run, deferred to CI. Not a pass, not a refusal: it
   prints loudly, names `sdlc ci` as the judge of that commit, and is recorded
-  in `last-push.json`. python-sdlc grants it per check — never a tool's own
+  in `last-push.json`. sdlc grants it per check — never a tool's own
   status, and today only CodeQL has it — and only when every one of these
   holds: the tier is `push`, the run is outside CI, that check is also in
   `[tool.sdlc.ci]`, the repo's CI actually runs `sdlc ci` (a workflow line
@@ -424,7 +426,7 @@ on the laptop and in CI alike.
   `pre-commit install` wires both hooks.
 - **`sdlc ci` MUST be a required status check on the default branch**, through
   an org ruleset rather than per-repo. A check that reports and cannot block is
-  not a gate: auto-merge — both Dependabot's and python-sdlc's own
+  not a gate: auto-merge — both Dependabot's and sdlc's own
   version-bump pull requests — merges on required checks alone, so an advisory
   `sdlc ci` lets every future bump land whatever its verdict. The ruleset names
   its repos, so the list is something that can drift: `scripts/fleet-drift.py`
@@ -432,15 +434,15 @@ on the laptop and in CI alike.
   Python repo missing from it has a gate that cannot block; a repo in it that
   is not a Python repo has a required check that will never report, which
   blocks every merge there instead.
-- A release of Gourmand or Gatehouse triggers a python-sdlc release, which
+- A release of Gourmand or Gatehouse triggers an sdlc release, which
   moves `latest`, and every Python repo runs it on its next push and CI run,
   with no pull request there. The laptop runs the reviewer CI runs. In the
   rev-pinned form only, a change to the launcher, `bin/sdlc`, needs a `rev:`
   bump; the floating form never does.
-- Exempt from requiring it: `gourmand` and `python-sdlc`, which build what
+- Exempt from requiring it: `gourmand` and `sdlc`, which build what
   the image contains.
   The list is `sdlc_exempt` in `requirements.toml`. Gatehouse is not exempt:
-  python-sdlc runs its last release, so it reviews its own changes the way the
+  sdlc runs its last release, so it reviews its own changes the way the
   standalone hook did.
 - What stays in workflow YAML, because it is not a check: publishing,
   uploading results to GitHub's security tab, Gatehouse's PR review and
@@ -655,7 +657,7 @@ and the build broke with zero code changes to point at.
    every review, twice; python-sdlc's own hook ran Gatehouse 0.23.0 and
    failed locally with a 401.
    - A call to a crunchtools reusable workflow (constitution, gatehouse,
-     ashigaru, python-sdlc) names its major tag: `@v1`, `@v0`, `@v2`. Each
+     ashigaru, sdlc) names its major tag: `@v1`, `@v0`, `@v2`. Each
      repo's release moves that tag, forward only (`major-tag.yml`). An exact
      release (`@vX.Y.Z`) is accepted to hold a repo back during an incident; a
      branch or a commit is not.
@@ -666,7 +668,7 @@ and the build broke with zero code changes to point at.
      `FROM` that bundles a tool into an image is a build input, not a
      reference, and keeps its version.
    - A pre-commit `rev:` stays an exact release: pre-commit never refetches a
-     moved tag. A hook repo floats by what it runs (python-sdlc's image), not
+     moved tag. A hook repo floats by what it runs (sdlc's image), not
      by its rev.
    - Third-party actions and images stay pinned by commit SHA or digest
      (rule 2). That is the supply-chain boundary, and it does not move.

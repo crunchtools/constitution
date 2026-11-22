@@ -675,11 +675,12 @@ jobs:
           tar -xzf "$RUNNER_TEMP/syft.tar.gz" -C "$RUNNER_TEMP" syft
           install -D -m 0755 "$RUNNER_TEMP/syft" "$RUNNER_TEMP/bin/syft"
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
-      - name: Attest the SBOM of the digest being promoted
+      # syft parses the image's contents, so it runs without the key, like
+      # the provenance writer below; only the cosign attest step holds it.
+      - name: Write the SBOM of the digest being promoted
+        id: sbom
         if: inputs.sign && steps.check.outputs.skip != 'true'
         env:
-          COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
-          COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
           IMAGE: ${{ inputs.image }}
           DIGEST: ${{ needs.resolve.outputs.digest || needs.build.outputs.digest }}
           PUB: .constitution/keys/crunchtools-bootc.pub
@@ -688,13 +689,25 @@ jobs:
           set -euo pipefail
           if cosign verify-attestation --insecure-ignore-tlog --type spdxjson --key "$PUB" "$IMAGE@$DIGEST" >/dev/null 2>&1; then
             echo "::notice::$IMAGE@$DIGEST already carries an SBOM (a release of a digest main promoted)"
-          else
-            syft scan "registry:$IMAGE@$DIGEST" -o "spdx-json=$RUNNER_TEMP/sbom.spdx.json"
-            cosign attest --yes --tlog-upload=false --type spdxjson \
-              --predicate "$RUNNER_TEMP/sbom.spdx.json" --key env://COSIGN_PRIVATE_KEY "$IMAGE@$DIGEST"
-            cosign verify-attestation --insecure-ignore-tlog --type spdxjson --key "$PUB" "$IMAGE@$DIGEST" >/dev/null
-            echo "::notice::attested the SBOM of $IMAGE@$DIGEST"
+            echo "attest=false" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
+          syft scan "registry:$IMAGE@$DIGEST" -o "spdx-json=$RUNNER_TEMP/sbom.spdx.json"
+          echo "attest=true" >> "$GITHUB_OUTPUT"
+      - name: Attest the SBOM of the digest being promoted
+        if: inputs.sign && steps.check.outputs.skip != 'true' && steps.sbom.outputs.attest == 'true'
+        env:
+          COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
+          COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
+          IMAGE: ${{ inputs.image }}
+          DIGEST: ${{ needs.resolve.outputs.digest || needs.build.outputs.digest }}
+          PUB: .constitution/keys/crunchtools-bootc.pub
+        run: |
+          set -euo pipefail
+          cosign attest --yes --tlog-upload=false --type spdxjson \
+            --predicate "$RUNNER_TEMP/sbom.spdx.json" --key env://COSIGN_PRIVATE_KEY "$IMAGE@$DIGEST"
+          cosign verify-attestation --insecure-ignore-tlog --type spdxjson --key "$PUB" "$IMAGE@$DIGEST" >/dev/null
+          echo "::notice::attested the SBOM of $IMAGE@$DIGEST"
       # Provenance names the run that built the digest, usually a pull
       # request's, read from the labels build wrote, never this promote run
       # (#204). A digest with no such record (built before #204) gets none,
