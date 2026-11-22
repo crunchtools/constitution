@@ -16,6 +16,9 @@ on:
 
 jobs:
   validate-cascade:
+    # Dependabot's pull requests get no Actions secrets, so the App token below
+    # cannot be minted; they only move action pins, and the merge runs this.
+    if: github.actor != 'dependabot[bot]'
     runs-on: ubuntu-latest
     permissions:
       contents: read
