@@ -81,6 +81,7 @@ def read_secrets(text: str) -> tuple[str, str]:
 class Gh:
     def __init__(self, runner: Runner):
         self.runner = runner
+        self.error = ""
 
     def api(self, path: str, method: str = "GET", body: dict | None = None) -> dict | None:
         """Parsed JSON, or None when GitHub refuses (404, no admin)."""
@@ -90,13 +91,15 @@ class Gh:
         stdin = json.dumps(body) if body is not None else None
         res = self.runner(cmd, input=stdin, capture_output=True, text=True, check=False)
         if res.returncode != 0:
+            # gh's own message (HTTP status and GitHub's reason); request bodies hold no secret.
+            self.error = res.stderr.strip()
             return None
         return json.loads(res.stdout) if res.stdout.strip() else {}
 
     def must(self, path: str, method: str = "GET", body: dict | None = None) -> dict:
         found = self.api(path, method, body)
         if found is None:
-            raise Refused(f"{method} {path} failed (missing, or the token lacks admin)")
+            raise Refused(f"{method} {path} failed: {self.error or 'no reason given'}")
         return found
 
     def set_secret(self, repo: str, name: str, value: str) -> None:
@@ -137,10 +140,14 @@ def gate_problems(gh: Gh, repo: str, want: set[tuple[str, str]]) -> list[str]:
 
 
 def stale(gh: Gh, repo: str) -> list[str]:
-    """COSIGN_* outside the environment: readable by every branch's jobs."""
+    """COSIGN_* outside the environment: readable by every branch's jobs.
+
+    Both lists must be read: a refused read is an error, never "none found".
+    actions/organization-secrets lists the org secrets this repo can read.
+    """
     found = []
     for scope, path in (("repo", "actions/secrets"), ("org", "actions/organization-secrets")):
-        for name in sorted(names(gh.api(f"repos/{repo}/{path}?per_page=100"))):
+        for name in sorted(names(gh.must(f"repos/{repo}/{path}?per_page=100"))):
             if name.startswith("COSIGN_"):
                 found.append(f"stale {scope} secret {name}")
     return found

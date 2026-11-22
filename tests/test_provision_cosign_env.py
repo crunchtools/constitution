@@ -29,6 +29,7 @@ class FakeGitHub:
     """One repo's environment, policies and secret names, behind `gh api` and `gh secret set`."""
 
     def __init__(self, env=None, policies=(), repo_secrets=(), org_secrets=(), sticky=True):
+        self.refused: set[str] = set()
         self.env = env
         self.policies = {i + 1: p for i, p in enumerate(policies)}
         self.env_secrets: dict[str, str] = {}
@@ -59,7 +60,7 @@ class FakeGitHub:
             f"repos/{REPO}/actions/organization-secrets": lambda: self.named(self.org_secrets),
         }
         key = path.rsplit("/", 1)[0] if method == "DELETE" else path
-        found = handlers.get(key, lambda: None)()
+        found = None if key in self.refused else handlers.get(key, lambda: None)()
         return self.ok(found) if found is not None else self.missing()
 
     def environment(self, method, body):
@@ -86,7 +87,7 @@ class FakeGitHub:
 
     @staticmethod
     def missing():
-        return subprocess.CompletedProcess([], 1, stdout="", stderr="HTTP 404")
+        return subprocess.CompletedProcess([], 1, stdout="", stderr="gh: Not Found (HTTP 404)")
 
     def writes(self):
         return [c for c in self.calls if c[:2] == ["gh", "secret"] or c[3] != "GET"]
@@ -196,3 +197,13 @@ def test_only_names_listed_signers(capsys):
 
 def test_signers_cover_the_bootc_hosts():
     assert {"rhel10-bootc-server", "rhel10-bootc-workstation"} <= set(prov.signers(None))
+
+
+def test_an_unreadable_secret_list_is_an_error_not_a_clean_bill(capsys):
+    fake = FakeGitHub(env=GATED, policies=sorted(WANT))
+    fake.env_secrets = {"COSIGN_PRIVATE_KEY": "x", "COSIGN_PASSWORD": "y"}
+    fake.refused = {f"repos/{REPO}/actions/organization-secrets"}
+    assert prov.main(["--check", "--only", "ashigaru"], fake) == 1
+    out = capsys.readouterr()
+    assert "provisioned" not in out.out
+    assert "actions/organization-secrets" in out.err and "HTTP 404" in out.err
