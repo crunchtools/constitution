@@ -479,7 +479,18 @@ def test_a_custom_publisher_that_cannot_sign_fails(tmp_path, environment):
     copy = job("promote", "skopeo copy --all --preserve-digests docker://a docker://b")
     copy = copy.replace("    runs-on:", environment + "    runs-on:")
     [found] = check(make(tmp_path, "custom-repo", release=workflow(copy)), "1.60.0")
-    assert "no job in the `cosign-signing` environment" in found
+    assert "promotes in no job of the `cosign-signing` environment" in found
+
+
+def test_a_key_holding_job_that_promotes_nothing_does_not_count(tmp_path):
+    """The key must be in the job that promotes, not merely somewhere in the repo."""
+    unsigned = job("promote", "skopeo copy --all --preserve-digests docker://a docker://b")
+    idle = job("idle", "true").replace(
+        "    runs-on:", "    environment: cosign-signing\n    runs-on:"
+    )
+    root = make(tmp_path, "custom-repo", release=workflow(unsigned), other=workflow(idle))
+    [found] = check(root, "1.60.0")
+    assert "promotes in no job of the `cosign-signing` environment" in found
 
 
 def test_the_signing_environment_may_be_given_as_a_mapping(tmp_path):

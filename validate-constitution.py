@@ -2163,8 +2163,10 @@ def _signing_refusals(repo_root: Path, name: str, fleet: dict, custom: bool) -> 
     """IX since SIGN_SINCE, for a repo that publishes: signed, and gated.
 
     A custom workflow signs however it likes (sdlc runs a script), so what is
-    checked is the one thing signing cannot do without: a job that deploys to
-    `cosign-signing`, the only place the fleet key lives.
+    checked is what signing cannot do without: the job that promotes (a
+    digest-preserving `skopeo copy`) deploys to `cosign-signing`, the only
+    place the fleet key lives. A key-holding job that promotes nothing, or a
+    promotion in a job without the key, does not count.
     """
     jobs = [
         (path, job_id, job)
@@ -2179,10 +2181,13 @@ def _signing_refusals(repo_root: Path, name: str, fleet: dict, custom: bool) -> 
         if _RELEASE_CALL.match(str(job.get("uses", "")))
         and (job.get("with") or {}).get("sign") is not True
     ]
-    if custom and not any(_environment(job) == "cosign-signing" for _, _, job in jobs):
+    if custom and not any(
+        _environment(job) == "cosign-signing" and _DIGEST_COPY.search(_job_commands(job))
+        for _, _, job in jobs
+    ):
         violations.append(
-            "CONTAINER: custom release workflow has no job in the `cosign-signing` "
-            "environment, so it cannot sign what it publishes (IX, sdlc#88)"
+            "CONTAINER: custom release workflow promotes in no job of the `cosign-signing` "
+            "environment, so the promotion cannot sign what it publishes (IX, sdlc#88)"
         )
     if fleet.get("renamed_repos", {}).get(name, name) not in fleet.get("cosign_signers", []):
         violations.append(
