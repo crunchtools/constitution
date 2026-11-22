@@ -598,7 +598,7 @@ def test_sign_on_attests_an_sbom_of_the_signed_digest_before_any_tag_moves():
     assert write["run"].count(verify) == attest["run"].count(verify) == 1
 
 
-def _run_attest_step(tmp_path: Path, *, attested: bool, fail: str = "") -> tuple:
+def _run_sbom_steps(tmp_path: Path, *, attested: bool, fail: str = "") -> tuple:
     """Run the SBOM write step, then the attest step when the write step's
     output asks for it, as the `if:` would, with stub cosign and syft.
     `attested` is what the first verify-attestation finds; `fail` names one
@@ -647,14 +647,14 @@ def _run_attest_step(tmp_path: Path, *, attested: bool, fail: str = "") -> tuple
 
 
 def test_an_attested_digest_is_reused_not_attested_again(tmp_path):
-    result, calls = _run_attest_step(tmp_path, attested=True)
+    result, calls = _run_sbom_steps(tmp_path, attested=True)
     assert result.returncode == 0, result.stderr
     assert calls == ["cosign verify-attestation"]
     assert "already carries an SBOM" in result.stdout
 
 
 def test_an_unattested_digest_is_scanned_attested_and_proven(tmp_path):
-    result, calls = _run_attest_step(tmp_path, attested=False)
+    result, calls = _run_sbom_steps(tmp_path, attested=False)
     assert result.returncode == 0, result.stderr
     assert calls == [
         "cosign verify-attestation",
@@ -667,7 +667,7 @@ def test_an_unattested_digest_is_scanned_attested_and_proven(tmp_path):
 
 @pytest.mark.parametrize("fail", ["syft scan", "cosign attest", "cosign verify-attestation"])
 def test_a_failed_scan_attestation_or_proof_stops_promote(tmp_path, fail):
-    result, calls = _run_attest_step(tmp_path, attested=False, fail=fail)
+    result, calls = _run_sbom_steps(tmp_path, attested=False, fail=fail)
     assert result.returncode != 0
     assert calls[-1] == fail
     assert "attested the SBOM" not in result.stdout

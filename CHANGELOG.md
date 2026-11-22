@@ -90,6 +90,12 @@ Entries through 1.14.0 are derived from the Ratification History table in
   redirects it. `floating_images` keeps both image names, because
   `quay.io/crunchtools/python-sdlc` stays a mirror of `sdlc` until the fleet
   has moved. XII's text names sdlc.
+- `validate-cascade.py` resolves a renamed repo (`renamed_repos` in
+  requirements.toml, `python-sdlc = "sdlc"`) before comparing graphs (a978).
+  GitHub redirects the old name, so gatehouse's and gourmand's dispatch of
+  `python-sdlc` still rebuilds sdlc; the rename had turned it into a FAIL on
+  every pull request. Each stale name is now a WARN instead, left for #88's
+  Wave 3 to fix.
 - Container Image IX's case for environment secrets drops the GitHub Free
   reason (a938): the organization is on Team, and the other two reasons stand.
 

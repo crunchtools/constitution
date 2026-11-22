@@ -59,6 +59,9 @@ sdlc_hooks_repo = "https://github.com/crunchtools/sdlc"
 # still accepted, so no repo fails XII for naming the old one; convert_repo.py
 # rewrites it.
 sdlc_hooks_repo_renamed_from = ["https://github.com/crunchtools/python-sdlc"]
+# Repos renamed in place, old name -> new. GitHub redirects the old name, so a
+# reference to it still works; validate-cascade.py resolves it and warns.
+renamed_repos = { python-sdlc = "sdlc" }
 sdlc_hooks = ["sdlc-commit", "sdlc-push"]
 sdlc_exempt = ["gourmand", "sdlc"]
 # Since v1.46.0 the preferred wiring for every repo, Python or not: `repo: local`
