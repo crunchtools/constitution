@@ -40,7 +40,7 @@ from fleet_common import MANIFEST, ORG, clone, gh_json, load_validator, select_r
 
 STALE_DAYS = 14  # constitution.md XV rule 4: bot PRs older than this are drift
 # (display name, `gh pr list --author` value or None, head branch prefix). Renovate
-# PRs are known by their branch, whichever App opened them (crunchtools-renovate
+# PRs are known by their branch, whichever App opened them (renovate.crunchtools.com
 # today), so a renamed App or a hand-run Renovate still counts.
 BOTS = (("Dependabot", "app/dependabot", ""), ("Renovate", None, "renovate/"))
 AUDIT_WORKERS = 8  # concurrent clones; well under GitHub's secondary rate limits

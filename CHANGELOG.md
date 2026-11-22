@@ -20,7 +20,7 @@ Entries through 1.14.0 are derived from the Ratification History table in
   straight from this repo's default branch, so there is no copy to sync. A dry
   run (the default, and every pull request) mints a read-only token, ignores
   the weekly window, and summarises what each repo would get. A real run is `dry-run` off, from main only. Both mint from Renovate's
-  own App, crunchtools-renovate (`RENOVATE_CLIENT_ID`, `RENOVATE_APP_KEY`),
+  own App, renovate.crunchtools.com (key in `RENOVATE_APP_KEY`),
   which has no workflows permission. `scripts/renovate-app-permissions.mjs`
   reports what the App lacks (`renovate/app-permissions.json`).
 

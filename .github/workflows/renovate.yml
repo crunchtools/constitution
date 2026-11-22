@@ -8,7 +8,7 @@ name: Renovate
 # repo, which extends the preset at v1, so a repo needs no Renovate config of
 # its own.
 #
-# Renovate has its own App, crunchtools-renovate, with ordinary permissions
+# Renovate has its own App, renovate.crunchtools.com, with ordinary permissions
 # only (contents, pull requests, issues and statuses write; checks and
 # Dependabot alerts read) and no workflows permission: it never touches
 # .github/workflows, which the preset ignores. Its key is a plain repo secret
@@ -64,6 +64,9 @@ jobs:
     timeout-minutes: 120
     env:
       REAL: ${{ github.event_name == 'workflow_dispatch' && !inputs.dry-run }}
+      # renovate.crunchtools.com's client ID. Not a secret; a literal until a
+      # repo variable holds it.
+      RENOVATE_CLIENT_ID: Iv23liH4RqEwxk282x
     steps:
       # A pull request has no inputs, so it is always a dry run. A real run
       # works from main's config only.
@@ -83,7 +86,7 @@ jobs:
       # below fails anyway when the App lacks what it asks for.
       - name: App permissions
         env:
-          CLIENT_ID: ${{ vars.RENOVATE_CLIENT_ID }}
+          CLIENT_ID: ${{ env.RENOVATE_CLIENT_ID }}
           APP_KEY: ${{ secrets.RENOVATE_APP_KEY }}
           SET: ${{ env.REAL == 'true' && 'real' || 'dry-run' }}
         run: node scripts/renovate-app-permissions.mjs renovate/app-permissions.json "$SET"
@@ -95,7 +98,7 @@ jobs:
         if: ${{ env.REAL != 'true' }}
         uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         with:
-          client-id: ${{ vars.RENOVATE_CLIENT_ID }}
+          client-id: ${{ env.RENOVATE_CLIENT_ID }}
           private-key: ${{ secrets.RENOVATE_APP_KEY }}
           owner: crunchtools  # zizmor: ignore[github-app]
           permission-contents: read
@@ -106,7 +109,7 @@ jobs:
         if: ${{ env.REAL == 'true' }}
         uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         with:
-          client-id: ${{ vars.RENOVATE_CLIENT_ID }}
+          client-id: ${{ env.RENOVATE_CLIENT_ID }}
           private-key: ${{ secrets.RENOVATE_APP_KEY }}
           owner: crunchtools  # zizmor: ignore[github-app]
           permission-contents: write
@@ -115,9 +118,21 @@ jobs:
           permission-statuses: write
           permission-checks: read
           permission-vulnerability-alerts: read
+      # Commits carry the App's bot identity, read from the slug the token was
+      # minted for rather than guessed from the App's name.
+      - name: Bot identity
+        id: bot
+        env:
+          GH_TOKEN: ${{ steps.read-token.outputs.token || steps.write-token.outputs.token }}
+          APP_SLUG: ${{ steps.read-token.outputs.app-slug || steps.write-token.outputs.app-slug }}
+        run: |
+          user_id=$(gh api "/users/${APP_SLUG}[bot]" --jq .id)
+          echo "Renovate commits as ${APP_SLUG}[bot] (${user_id})"
+          echo "git-author=${APP_SLUG}[bot] <${user_id}+${APP_SLUG}[bot]@users.noreply.github.com>" >> "$GITHUB_OUTPUT"
       - name: Run
         env:
           RENOVATE_TOKEN: ${{ steps.read-token.outputs.token || steps.write-token.outputs.token }}
+          RENOVATE_GIT_AUTHOR: ${{ steps.bot.outputs.git-author }}
           LOG_LEVEL: ${{ inputs.log-level || 'info' }}
           ONLY: ${{ inputs.only }}
         run: |
@@ -136,7 +151,7 @@ jobs:
           fi
           # -e NAME passes a variable only when it is set.
           docker run --rm \
-            -e RENOVATE_TOKEN -e LOG_LEVEL -e RENOVATE_DRY_RUN -e RENOVATE_FORCE \
+            -e RENOVATE_TOKEN -e RENOVATE_GIT_AUTHOR -e LOG_LEVEL -e RENOVATE_DRY_RUN -e RENOVATE_FORCE \
             -e RENOVATE_AUTODISCOVER -e RENOVATE_REPOSITORIES \
             -e RENOVATE_CONFIG_FILE=/config/self-hosted.json \
             -v "$PWD/renovate:/config:ro" \

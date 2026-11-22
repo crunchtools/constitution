@@ -614,7 +614,7 @@ and the build broke with zero code changes to point at.
    ecosystem the profiles use outside `.github/workflows` — uv and pip,
    Containerfile images, pre-commit and npm. Renovate never touches
    `.github/workflows`: the preset turns the `github-actions` manager off and
-   ignores the path, and Renovate's App, crunchtools-renovate, holds no
+   ignores the path, and Renovate's App, renovate.crunchtools.com, holds no
    workflows permission, so a repo that turns the manager back on gets only
    rejected pushes. A workflow is code that runs with the repo's token, and an
    App that can rewrite every workflow in the org is the one credential worth
@@ -754,8 +754,8 @@ moves through `scripts/fleet-bump.py`.
 **Transition.** Order matters. The `v1` tag must carry
 `renovate/default.json` before Renovate runs for real, or every repo gets a
 Renovate config-error issue for a preset that does not exist. Renovate runs
-as its own App, crunchtools-renovate (key `RENOVATE_APP_KEY`, a repo secret;
-client ID `RENOVATE_CLIENT_ID`, a repo variable), with ordinary permissions
+as its own App, renovate.crunchtools.com (key `RENOVATE_APP_KEY`, a repo secret;
+its client ID is not secret and sits in the workflow), with ordinary permissions
 only: contents, pull requests, issues and statuses write, checks and
 Dependabot alerts read. Without workflows permission the key is not
 sensitive, so dry and real runs share it. A dry run is the default and the

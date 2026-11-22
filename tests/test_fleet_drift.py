@@ -57,12 +57,12 @@ def _stale_problems(monkeypatch):
 
 
 def test_a_stale_renovate_pr_is_reported(monkeypatch):
-    _open_prs(monkeypatch, [("app/crunchtools-renovate", "renovate/minor-and-patch", 30)])
+    _open_prs(monkeypatch, [("app/renovate-crunchtools-com", "renovate/minor-and-patch", 30)])
     assert _stale_problems(monkeypatch) == ["1 Renovate PR(s) older than 14d"]
 
 
 def test_a_fresh_renovate_pr_is_not_reported(monkeypatch):
-    _open_prs(monkeypatch, [("app/crunchtools-renovate", "renovate/minor-and-patch", 2)])
+    _open_prs(monkeypatch, [("app/renovate-crunchtools-com", "renovate/minor-and-patch", 2)])
     assert _stale_problems(monkeypatch) == []
 
 
@@ -86,7 +86,7 @@ def test_both_bots_are_reported_separately(monkeypatch):
         [
             ("app/dependabot", "dependabot/pip/x", 20),
             ("app/dependabot", "dependabot/pip/y", 21),
-            ("app/crunchtools-renovate", "renovate/minor-and-patch", 30),
+            ("app/renovate-crunchtools-com", "renovate/minor-and-patch", 30),
         ],
     )
     assert _stale_problems(monkeypatch) == [
