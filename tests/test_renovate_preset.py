@@ -56,12 +56,21 @@ def test_majors_and_the_unclassified_wait_for_a_human():
 def test_weekly_and_every_profile_ecosystem():
     assert "schedule:weekly" in PRESET["extends"]
     assert PRESET["pre-commit"]["enabled"] is True  # off by default in Renovate
-    assert "helpers:pinGitHubActionDigestsToSemver" in PRESET["extends"]
     assert "docker:pinDigests" in PRESET["extends"]
 
 
+def test_workflows_are_never_touched():
+    """The Renovate App has no workflows permission; the preset never reaches for one."""
+    assert PRESET["github-actions"] == {"enabled": False}
+    assert ".github/workflows/**" in PRESET["ignorePaths"]
+    assert not any("helpers:pinGitHubAction" in e for e in PRESET["extends"])
+    # ignorePaths is not mergeable: restating config:recommended's list keeps
+    # vendored and test package files out.
+    assert {"**/node_modules/**", "**/vendor/**", "**/tests/**"} <= set(PRESET["ignorePaths"])
+
+
 def test_crunchtools_floats_at_its_major_tag():
-    """XV rule 5: the constitution is ignored, and crunchtools refs are never digest-pinned."""
+    """XV rule 5: the constitution is ignored, and crunchtools images are never digest-pinned."""
     assert PRESET["ignoreDeps"] == ["crunchtools/constitution"]
     unpinned = {
         name
@@ -69,4 +78,4 @@ def test_crunchtools_floats_at_its_major_tag():
         if r.get("pinDigests") is False
         for name in r["matchPackageNames"]
     }
-    assert {"crunchtools/**", "quay.io/crunchtools/**"} <= unpinned
+    assert "quay.io/crunchtools/**" in unpinned

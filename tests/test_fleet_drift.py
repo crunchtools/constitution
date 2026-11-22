@@ -1,8 +1,6 @@
 """fleet-drift.py: settings the workflow token can't see are unknown, not violations."""
 
-import base64
 import importlib.util
-import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -23,7 +21,7 @@ def test_only_an_explicit_false_flags_auto_merge(monkeypatch, settings, flagged)
     monkeypatch.setattr(drift, "clone", lambda name, dest: dest)
     monkeypatch.setattr(drift, "audit_checkout", lambda *a: None)
     monkeypatch.setattr(drift, "gh_json", lambda *a: settings)
-    monkeypatch.setattr(drift, "stale_bot_prs", lambda name, days, author: 0)
+    monkeypatch.setattr(drift, "stale_bot_prs", lambda name, days, author, prefix: 0)
     row = drift.audit({"name": "example"}, None, (1, 18, 0), drift.STALE_DAYS)
     assert ("allow_auto_merge off" in row["problems"]) is flagged
 
@@ -34,17 +32,18 @@ def test_only_an_explicit_false_flags_auto_merge(monkeypatch, settings, flagged)
 # mid-migration shows both.
 
 
-def _prs_by_bot(monkeypatch, ages_by_author):
-    """Fake `gh pr list`: PR ages in days, keyed by the --author value."""
+def _open_prs(monkeypatch, prs):
+    """Fake `gh pr list`: `prs` is (author, head branch, age in days) per open PR."""
     now = datetime.now(UTC)
 
     def gh_json(*args):
-        if "--author" not in args:
+        if args[:2] != ("pr", "list"):
             return {}  # the repo settings read
-        author = args[args.index("--author") + 1]
+        author = args[args.index("--author") + 1] if "--author" in args else None
         return [
-            {"createdAt": (now - timedelta(days=d)).isoformat()}
-            for d in ages_by_author.get(author, [])
+            {"createdAt": (now - timedelta(days=d)).isoformat(), "headRefName": branch}
+            for by, branch, d in prs
+            if author in (None, by)
         ]
 
     monkeypatch.setattr(drift, "gh_json", gh_json)
@@ -58,22 +57,38 @@ def _stale_problems(monkeypatch):
 
 
 def test_a_stale_renovate_pr_is_reported(monkeypatch):
-    _prs_by_bot(monkeypatch, {"app/renovate": [30]})
+    _open_prs(monkeypatch, [("app/crunchtools-renovate", "renovate/minor-and-patch", 30)])
     assert _stale_problems(monkeypatch) == ["1 Renovate PR(s) older than 14d"]
 
 
 def test_a_fresh_renovate_pr_is_not_reported(monkeypatch):
-    _prs_by_bot(monkeypatch, {"app/renovate": [2]})
+    _open_prs(monkeypatch, [("app/crunchtools-renovate", "renovate/minor-and-patch", 2)])
+    assert _stale_problems(monkeypatch) == []
+
+
+def test_only_renovate_branches_are_renovate_prs(monkeypatch):
+    """Another App's PR (a fleet bump) is not a Renovate PR, however old."""
+    _open_prs(monkeypatch, [("app/fleet-bump", "chore/inherit-1.61.0", 30)])
     assert _stale_problems(monkeypatch) == []
 
 
 def test_a_stale_dependabot_pr_keeps_its_wording(monkeypatch):
-    _prs_by_bot(monkeypatch, {"app/dependabot": [20, 3]})
+    _open_prs(
+        monkeypatch,
+        [("app/dependabot", "dependabot/pip/x", 20), ("app/dependabot", "dependabot/pip/y", 3)],
+    )
     assert _stale_problems(monkeypatch) == ["1 Dependabot PR(s) older than 14d"]
 
 
 def test_both_bots_are_reported_separately(monkeypatch):
-    _prs_by_bot(monkeypatch, {"app/dependabot": [20, 21], "app/renovate": [30]})
+    _open_prs(
+        monkeypatch,
+        [
+            ("app/dependabot", "dependabot/pip/x", 20),
+            ("app/dependabot", "dependabot/pip/y", 21),
+            ("app/crunchtools-renovate", "renovate/minor-and-patch", 30),
+        ],
+    )
     assert _stale_problems(monkeypatch) == [
         "2 Dependabot PR(s) older than 14d",
         "1 Renovate PR(s) older than 14d",
@@ -271,32 +286,3 @@ def test_a_current_pin_that_is_somehow_not_sdlc_is_left_alone(tmp_path):
     """At or above SDLC_SINCE the validator's own XII rules do the judging."""
     row = _audited(tmp_path, _Validator("1.30.0", sdlc=False))
     assert PROBLEM not in row["problems"]
-
-
-# ------------------------------------------------ the org Renovate config
-
-
-def _renovate_file(monkeypatch, live):
-    """Fake the contents API: `live` is the JSON the repo holds, or None if unreadable."""
-    content = None if live is None else base64.b64encode(json.dumps(live).encode()).decode()
-    monkeypatch.setattr(
-        drift, "gh_json", lambda *a: None if content is None else {"content": content}
-    )
-
-
-def test_a_matching_renovate_config_is_clean(monkeypatch):
-    _renovate_file(monkeypatch, json.loads(drift.RENOVATE_CANONICAL.read_text()))
-    assert drift.renovate_config_gaps() == []
-
-
-def test_a_differing_renovate_config_is_a_problem(monkeypatch):
-    _renovate_file(monkeypatch, {"extends": ["config:base"]})
-    assert drift.renovate_config_gaps() == [
-        "crunchtools/renovate-config org-inherited-config.json differs from constitution "
-        "renovate/org-inherited-config.json; copy it there"
-    ]
-
-
-def test_an_unreadable_renovate_config_is_unknown_not_a_problem(monkeypatch):
-    _renovate_file(monkeypatch, None)
-    assert drift.renovate_config_gaps() is None

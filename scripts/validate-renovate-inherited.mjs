@@ -1,6 +1,6 @@
 // Validate renovate/org-inherited-config.json the way Renovate validates
-// crunchtools/renovate-config's copy: config type "inherit", where global-only
-// keys such as onboarding and requireConfig are allowed. renovate-config-validator
+// it when inheriting it from crunchtools/constitution: config type "inherit", where
+// global-only keys such as onboarding and requireConfig are allowed. renovate-config-validator
 // has no such mode; this calls the same function the inherited-config worker does.
 //
 // Usage: node scripts/validate-renovate-inherited.mjs <renovate package dir> <file>

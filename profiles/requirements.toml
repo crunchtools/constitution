@@ -25,9 +25,10 @@ third_party_pins = "report"
 files = ["CHANGELOG.md", ".pre-commit-config.yaml"]
 
 # XV rules 2-4: Renovate runs on every repo from the org-inherited config
-# (crunchtools/renovate-config, canonical copy renovate/org-inherited-config.json),
-# which extends renovate/default.json. A repo needs no config of its own, and one
-# it adds may override anything except the release-age cooldown: these keys
+# (renovate/org-inherited-config.json, which the self-hosted run has every repo
+# inherit from crunchtools/constitution), which extends renovate/default.json. A
+# repo needs no config of its own, and one it adds may override anything except
+# the release-age cooldown: these keys
 # (stabilityDays is the old name Renovate migrates to minimumReleaseAge, 0 to
 # none at all) ...
 renovate_locked = [

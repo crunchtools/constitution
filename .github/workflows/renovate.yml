@@ -1,0 +1,164 @@
+name: Renovate
+
+# Self-hosted Renovate for the whole org (XV, a1007). The Mend Renovate app is
+# not installed; this job is the fleet's update path instead. It runs Renovate's
+# own image, at the version ci.yml validates the preset with, over every
+# crunchtools/* repo, with renovate/self-hosted.json as its global config. That
+# config makes every repo inherit renovate/org-inherited-config.json from this
+# repo, which extends the preset at v1, so a repo needs no Renovate config of
+# its own.
+#
+# Renovate has its own App, crunchtools-renovate, with ordinary permissions
+# only (contents, pull requests, issues and statuses write; checks and
+# Dependabot alerts read) and no workflows permission: it never touches
+# .github/workflows, which the preset ignores. Its key is a plain repo secret
+# for that reason. A dry run (the default, and every pull request) mints a
+# read-only token from it and writes nothing; a real run is workflow_dispatch
+# from main with dry-run off.
+#
+# Triggered weekly by Hermes via workflow_dispatch, like fleet-drift and
+# validate-cascade. Deliberately no schedule: trigger. A pull request that
+# changes the Renovate setup runs it too, always as a dry run: the policy change
+# is seen against the real fleet before it merges. Repos inherit the config on
+# main, so a pull request's own org-inherited-config.json is not what they read.
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - renovate/**
+      - .github/workflows/renovate.yml
+      - scripts/renovate-app-permissions.mjs
+  workflow_dispatch:
+    inputs:
+      only:
+        description: "Comma-separated repo names (default: every crunchtools/* repo)"
+        required: false
+      log-level:
+        description: "Renovate LOG_LEVEL"
+        type: choice
+        options: [info, debug]
+        default: info
+      dry-run:
+        description: "List what would change; write nothing"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: renovate
+  cancel-in-progress: false
+
+env:
+  # Renovate's image at the version ci.yml validates with (ci.yml fails if they
+  # differ), by index digest.
+  RENOVATE_IMAGE: ghcr.io/renovatebot/renovate:44.221.0@sha256:fc9d9ea902fa0f3892e0a6e0e4924b04e80becc3d475d8b14849b0e39b81c409
+
+jobs:
+  renovate:
+    name: Renovate
+    # Never the cached runner: this job holds an org-wide App token.
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      REAL: ${{ github.event_name == 'workflow_dispatch' && !inputs.dry-run }}
+    steps:
+      # A pull request has no inputs, so it is always a dry run. A real run
+      # works from main's config only.
+      - name: Refuse a real run off main
+        if: ${{ env.REAL == 'true' && github.ref != 'refs/heads/main' }}
+        run: |
+          echo "::error::a real Renovate run starts from main only"
+          exit 1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+      # What the App's installation grants, against what this kind of run needs
+      # (renovate/app-permissions.json). Reported, never failed on: the mint
+      # below fails anyway when the App lacks what it asks for.
+      - name: App permissions
+        env:
+          CLIENT_ID: ${{ vars.RENOVATE_CLIENT_ID }}
+          APP_KEY: ${{ secrets.RENOVATE_APP_KEY }}
+          SET: ${{ env.REAL == 'true' && 'real' || 'dry-run' }}
+        run: node scripts/renovate-app-permissions.mjs renovate/app-permissions.json "$SET"
+      # Renovate walks every repo in the org, so both tokens are org-wide by
+      # design. Renovate reads issues while opening each repo, so even the dry
+      # run needs issues: read.
+      - name: Mint read token
+        id: read-token
+        if: ${{ env.REAL != 'true' }}
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ vars.RENOVATE_CLIENT_ID }}
+          private-key: ${{ secrets.RENOVATE_APP_KEY }}
+          owner: crunchtools  # zizmor: ignore[github-app]
+          permission-contents: read
+          permission-pull-requests: read
+          permission-issues: read
+      - name: Mint write token
+        id: write-token
+        if: ${{ env.REAL == 'true' }}
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ vars.RENOVATE_CLIENT_ID }}
+          private-key: ${{ secrets.RENOVATE_APP_KEY }}
+          owner: crunchtools  # zizmor: ignore[github-app]
+          permission-contents: write
+          permission-pull-requests: write
+          permission-issues: write
+          permission-statuses: write
+          permission-checks: read
+          permission-vulnerability-alerts: read
+      - name: Run
+        env:
+          RENOVATE_TOKEN: ${{ steps.read-token.outputs.token || steps.write-token.outputs.token }}
+          LOG_LEVEL: ${{ inputs.log-level || 'info' }}
+          ONLY: ${{ inputs.only }}
+        run: |
+          set -o pipefail
+          if [ "$REAL" != true ]; then
+            export RENOVATE_DRY_RUN=full
+            # A dry run ignores the preset's weekly window (schedule:weekly), so
+            # it shows the week's plan on any day; a real run keeps the window.
+            export RENOVATE_FORCE='{"schedule": []}'
+          fi
+          if [ -n "$ONLY" ]; then
+            # Named repos replace autodiscovery.
+            export RENOVATE_AUTODISCOVER=false
+            RENOVATE_REPOSITORIES=$(sed 's/[[:space:]]//g; s/^/crunchtools\//; s/,/,crunchtools\//g' <<< "$ONLY")
+            export RENOVATE_REPOSITORIES
+          fi
+          # -e NAME passes a variable only when it is set.
+          docker run --rm \
+            -e RENOVATE_TOKEN -e LOG_LEVEL -e RENOVATE_DRY_RUN -e RENOVATE_FORCE \
+            -e RENOVATE_AUTODISCOVER -e RENOVATE_REPOSITORIES \
+            -e RENOVATE_CONFIG_FILE=/config/self-hosted.json \
+            -v "$PWD/renovate:/config:ro" \
+            "$RENOVATE_IMAGE" 2>&1 | tee "$RUNNER_TEMP/renovate.log"
+      # Printed as well as summarised, so the digest is the tail of the log.
+      - name: Summary
+        if: always()
+        run: |
+          log="$RUNNER_TEMP/renovate.log"
+          [ -f "$log" ] || exit 0
+          # The sample stops at 400 lines. awk, not grep | head: no match and an
+          # early-closed pipe both fail under pipefail.
+          pick() { awk -v re="$1" '$0 ~ re { print; if (++n == 400) exit }' "$log"; }
+          {
+            echo "### Renovate"
+            echo
+            # One uncapped pass; awk fails loudly if the log cannot be read.
+            awk '/Repository started/ { r++ } /Repository result: done/ { d++ }
+                 /DRY-RUN: Would commit files to branch/ { b++ } /DRY-RUN: Would create PR/ { p++ }
+                 END { printf "- repos: %d\n- repos done: %d\n- branches it would commit: %d\n- PRs it would create: %d\n", r, d, b, p }' "$log"
+            echo
+            echo '```'
+            pick 'DRY-RUN: Would (create PR|commit files to branch)|Repository result:|Repository is a fork|ERROR:'
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
