@@ -77,6 +77,8 @@ Entries through 1.14.0 are derived from the Ratification History table in
   longer tag one. Container Image profile 1.16.0 (IX).
 - `crunchtools/python-sdlc` joins `cosign_signers` (a938), so its
   `cosign-signing` environment can be provisioned before python-sdlc#82 merges.
+- Container Image IX's case for environment secrets drops the GitHub Free
+  reason (a938): the organization is on Team, and the other two reasons stand.
 
 ## [1.59.0] - 2026-11-21
 
