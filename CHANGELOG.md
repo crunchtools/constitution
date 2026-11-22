@@ -9,6 +9,8 @@ Entries through 1.14.0 are derived from the Ratification History table in
 
 ## [Unreleased]
 
+## [1.60.0] - 2026-11-22
+
 ### Added
 - `container-release.yml` with `sign: true` attests an SBOM to the digest it
   signs (#203, a918): syft 1.57.0, installed by sha256, writes SPDX JSON for

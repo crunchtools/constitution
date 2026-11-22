@@ -118,8 +118,9 @@ def write(root: Path, rel: str, text: str) -> None:
     path.write_text(text)
 
 
-# A repo still on Dependabot (XV, accepted until v1.60.0): the fixture's default,
-# since most of the fleet has not been swapped to Renovate yet.
+# A repo still on Dependabot (XV), accepted only while it inherits a release
+# before `dependabot_until` (v1.60.0). add_dependabot() writes one.
+DEPENDABOT_LAST = "1.59.0"
 DEPENDABOT_UV = """\
 version: 2
 updates:
@@ -136,6 +137,15 @@ updates:
 """
 
 
+@pytest.fixture(autouse=True)
+def example_server_signs(monkeypatch):
+    """The fixture publishes an image, so since v1.60.0 it is a listed signer (IX)."""
+    requirements = V.load_requirements()
+    fleet = requirements.setdefault("fleet", {})
+    fleet["cosign_signers"] = [*fleet.get("cosign_signers", []), "example-server"]
+    monkeypatch.setattr(V, "load_requirements", lambda: requirements)
+
+
 @pytest.fixture
 def repo(tmp_path: Path) -> Path:
     root = tmp_path / "example-server"
@@ -148,10 +158,9 @@ def repo(tmp_path: Path) -> Path:
     write(root, ".github/workflows/gatehouse-retriage.yml", RETRIAGE)
     write(root, ".github/workflows/gourmand.yml", GOURMAND)
     write(root, ".github/workflows/ci.yml", SDLC_CI)
-    for name in ("constitution.yml", "dependabot-automerge.yml", "container.yml"):
+    for name in ("constitution.yml", "container.yml"):
         text = re.sub(r"@v\d+\.\d+\.\d+", f"@v{VERSION}", (ROOT / "examples" / name).read_text())
         write(root, f".github/workflows/{name}", text)
-    write(root, ".github/dependabot.yml", DEPENDABOT_UV)
     for rel in ("pyproject.toml", "uv.lock", "Containerfile"):
         write(root, rel, "")
     write(root, "tests/test_tools.py", "assert tool.annotations.readOnlyHint is True\n")
@@ -170,6 +179,17 @@ def inherit(root: Path, old: str) -> None:
         path.write_text(path.read_text().replace(f"v{VERSION}", f"v{old}"))
     config = root / ".pre-commit-config.yaml"
     config.write_text(config.read_text().replace(SDLC_BLOCK, STANDALONE_BLOCK))
+
+
+def add_dependabot(root: Path) -> None:
+    """A repo not yet swapped to Renovate: Dependabot and its auto-merge caller,
+    on the last release that accepts them."""
+    write(root, ".github/dependabot.yml", DEPENDABOT_UV)
+    automerge = (ROOT / "examples" / "dependabot-automerge.yml").read_text()
+    write(root, ".github/workflows/dependabot-automerge.yml", automerge)
+    for rel in (".specify/memory/constitution.md", ".github/workflows/constitution.yml"):
+        path = root / rel
+        path.write_text(path.read_text().replace(f"v{VERSION}", f"v{DEPENDABOT_LAST}"))
 
 
 def violations(root: Path, **kwargs) -> list[str]:
@@ -203,6 +223,7 @@ def test_validate_at_the_major_tag_or_a_held_back_release_passes(repo, ref):
 
 @pytest.mark.parametrize("ref", ["main", "abc1234"])
 def test_a_constitution_call_at_a_branch_or_commit_fails(repo, ref):
+    add_dependabot(repo)
     flow = repo / ".github/workflows/dependabot-automerge.yml"
     flow.write_text(
         flow.read_text().replace("dependabot-automerge.yml@v1", f"dependabot-automerge.yml@{ref}")
@@ -1049,12 +1070,14 @@ def test_license_must_be_agpl(repo):
 
 
 def test_dependabot_must_ignore_constitution(repo):
+    add_dependabot(repo)
     dependabot = repo / ".github/dependabot.yml"
     dependabot.write_text(dependabot.read_text().replace("crunchtools/constitution*", "example/x"))
     assert any("must ignore crunchtools/constitution" in v for v in violations(repo))
 
 
 def test_dependabot_must_cover_profile_ecosystem(repo):
+    add_dependabot(repo)
     dependabot = repo / ".github/dependabot.yml"
     dependabot.write_text(dependabot.read_text().replace('"uv"', '"pip"'))
     assert violations(repo) == ["FILES: .github/dependabot.yml does not cover `uv` (XV)"]
@@ -1068,12 +1091,19 @@ def drop_dependabot(root: Path) -> None:
 
 def test_a_repo_needs_no_update_config_of_its_own(repo):
     """Renovate reaches every repo from crunchtools/renovate-config (XV)."""
+    add_dependabot(repo)
     drop_dependabot(repo)
+    assert violations(repo) == []
+
+
+def test_a_repo_on_the_last_dependabot_release_passes(repo):
+    add_dependabot(repo)
     assert violations(repo) == []
 
 
 def test_dependabot_fails_from_the_cutoff(repo):
     """At `dependabot_until` the file and its auto-merge caller are both reported."""
+    add_dependabot(repo)
     fleet = {"dependabot_until": VERSION}
     found = V.dependabot_violations(repo, VERSION, fleet, [])
     assert [v.split("`")[1] for v in found] == [
@@ -1090,7 +1120,6 @@ def test_dependabot_is_judged_as_before_until_the_cutoff(repo):
 
 
 def test_a_repo_renovate_config_may_override_anything_but_the_cooldown(repo):
-    drop_dependabot(repo)
     write(repo, "renovate.json", '{"labels": ["deps"], "packageRules": [{"automerge": false}]}\n')
     assert violations(repo) == []
 
@@ -1112,7 +1141,6 @@ def test_a_repo_renovate_config_may_override_anything_but_the_cooldown(repo):
     ],
 )
 def test_a_repo_renovate_config_must_not_touch_the_cooldown(repo, name, text, key):
-    drop_dependabot(repo)
     write(repo, name, text)
     assert violations(repo) == [
         f"FILES: {name} sets `{key}`; the release-age cooldown is fleet policy, "
@@ -1138,7 +1166,6 @@ def test_a_repo_renovate_config_must_not_touch_the_cooldown(repo, name, text, ke
     ],
 )
 def test_a_repo_renovate_config_must_not_extend_a_cooldown_preset(repo, name, text, preset):
-    drop_dependabot(repo)
     write(repo, name, text)
     assert violations(repo) == [
         f"FILES: {name} extends `{preset}`, which sets its own release-age cooldown; "
@@ -1147,7 +1174,6 @@ def test_a_repo_renovate_config_must_not_extend_a_cooldown_preset(repo, name, te
 
 
 def test_a_repo_renovate_config_may_extend_other_presets(repo):
-    drop_dependabot(repo)
     write(repo, "renovate.json", '{"extends": ["config:recommended", ":label(deps)"]}')
     assert violations(repo) == []
 
