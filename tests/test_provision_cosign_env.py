@@ -30,6 +30,8 @@ class FakeGitHub:
 
     def __init__(self, env=None, policies=(), repo_secrets=(), org_secrets=(), sticky=True):
         self.refused: set[str] = set()
+        self.secret_set_fails = False
+        self.env_error = ""
         self.env = env
         self.policies = {i + 1: p for i, p in enumerate(policies)}
         self.env_secrets: dict[str, str] = {}
@@ -44,16 +46,27 @@ class FakeGitHub:
         self.calls.append(cmd)
         self.stdins.append(stdin)
         if cmd[:3] == ["gh", "secret", "set"]:
-            self.env_secrets[cmd[3]] = stdin
-            return self.ok({})
+            return self.secret_set(cmd[3], stdin)
+        if cmd[2:4] == ["--paginate", "--slurp"]:
+            # One page, slurped into a list as gh does.
+            res = self.route("GET", cmd[4].split("?")[0], None)
+            res.stdout = f"[{res.stdout}]" if res.returncode == 0 else ""
+            return res
         method, path = cmd[3], cmd[4].split("?")[0]
         body = json.loads(stdin) if stdin else None
         return self.route(method, path, body)
 
+    def secret_set(self, name, value):
+        code = 1 if self.secret_set_fails else 0
+        if code == 0:
+            self.env_secrets[name] = value
+        err = "HTTP 403: forbidden" if code else ""
+        return subprocess.CompletedProcess([], code, stdout="", stderr=err)
+
     def route(self, method, path, body):
         handlers = {
             f"repos/{REPO}": lambda: {"default_branch": "main"},
-            ENV_PATH: lambda: self.environment(method, body),
+            ENV_PATH: lambda: None if self.env_error else self.environment(method, body),
             POLICIES: lambda: self.branch_policies(method, path, body),
             f"{ENV_PATH}/secrets": lambda: self.named(self.env_secrets),
             f"repos/{REPO}/actions/secrets": lambda: self.named(self.repo_secrets),
@@ -61,6 +74,8 @@ class FakeGitHub:
         }
         key = path.rsplit("/", 1)[0] if method == "DELETE" else path
         found = None if key in self.refused else handlers.get(key, lambda: None)()
+        if found is None and key == ENV_PATH and self.env_error:
+            return subprocess.CompletedProcess([], 1, stdout="", stderr=self.env_error)
         return self.ok(found) if found is not None else self.missing()
 
     def environment(self, method, body):
@@ -90,7 +105,8 @@ class FakeGitHub:
         return subprocess.CompletedProcess([], 1, stdout="", stderr="gh: Not Found (HTTP 404)")
 
     def writes(self):
-        return [c for c in self.calls if c[:2] == ["gh", "secret"] or c[3] != "GET"]
+        reads = ("GET", "--slurp")
+        return [c for c in self.calls if c[:2] == ["gh", "secret"] or c[3] not in reads]
 
 
 GATED = {"deployment_branch_policy": {"protected_branches": False, "custom_branch_policies": True}}
@@ -207,3 +223,21 @@ def test_an_unreadable_secret_list_is_an_error_not_a_clean_bill(capsys):
     out = capsys.readouterr()
     assert "provisioned" not in out.out
     assert "actions/organization-secrets" in out.err and "HTTP 404" in out.err
+
+
+def test_a_failed_secret_write_fails_the_repo(monkeypatch, capsys):
+    fake = FakeGitHub()
+    fake.secret_set_fails = True
+    code, out = provision(fake, monkeypatch, capsys)
+    assert code == 1
+    assert "setting COSIGN_PRIVATE_KEY in cosign-signing failed: HTTP 403" in out.err
+    assert "key and password set" not in out.out
+
+
+def test_a_refused_environment_read_is_not_reported_as_missing(capsys):
+    fake = FakeGitHub(env=GATED, policies=sorted(WANT))
+    fake.env_error = "gh: Must have admin rights to Repository. (HTTP 403)"
+    assert prov.main(["--check", "--only", "ashigaru"], fake) == 1
+    out = capsys.readouterr()
+    assert "no cosign-signing environment" not in out.out
+    assert "HTTP 403" in out.err

@@ -89,6 +89,7 @@ class Gh:
         if body is not None:
             cmd += ["--input", "-"]
         stdin = json.dumps(body) if body is not None else None
+        self.error = ""
         res = self.runner(cmd, input=stdin, capture_output=True, text=True, check=False)
         if res.returncode != 0:
             # gh's own message (HTTP status and GitHub's reason); request bodies hold no secret.
@@ -102,15 +103,24 @@ class Gh:
             raise Refused(f"{method} {path} failed: {self.error or 'no reason given'}")
         return found
 
+    def listed(self, path: str, key: str) -> list[dict]:
+        """Every page's `key` items; a refused page is an error, never an empty list."""
+        cmd = ["gh", "api", "--paginate", "--slurp", f"{path}?per_page=100"]
+        res = self.runner(cmd, input=None, capture_output=True, text=True, check=False)
+        if res.returncode != 0:
+            raise Refused(f"GET {path} failed: {res.stderr.strip() or 'no reason given'}")
+        return [item for page in json.loads(res.stdout) for item in page.get(key) or []]
+
     def set_secret(self, repo: str, name: str, value: str) -> None:
         cmd = ["gh", "secret", "set", name, "--env", ENV, "--repo", repo]
         res = self.runner(cmd, input=value, capture_output=True, text=True, check=False)
         if res.returncode != 0:
-            raise Refused(f"{repo}: setting {name} in {ENV} failed")
+            # gh echoes nothing of the value it read from stdin.
+            raise Refused(f"setting {name} in {ENV} failed: {res.stderr.strip()}")
 
 
-def names(found: dict | None, key: str = "secrets") -> set[str]:
-    return {item["name"] for item in (found or {}).get(key) or []}
+def names(gh: Gh, path: str) -> set[str]:
+    return {item["name"] for item in gh.listed(path, "secrets")}
 
 
 def wanted_policies(gh: Gh, repo: str) -> set[tuple[str, str]]:
@@ -119,14 +129,20 @@ def wanted_policies(gh: Gh, repo: str) -> set[tuple[str, str]]:
 
 
 def policies(gh: Gh, repo: str) -> dict[tuple[str, str], int]:
-    found = gh.must(f"repos/{repo}/environments/{ENV}/deployment-branch-policies?per_page=100")
-    return {(p["name"], p.get("type") or "branch"): p["id"] for p in found["branch_policies"]}
+    found = gh.listed(
+        f"repos/{repo}/environments/{ENV}/deployment-branch-policies", "branch_policies"
+    )
+    return {(p["name"], p.get("type") or "branch"): p["id"] for p in found}
 
 
 def gate_problems(gh: Gh, repo: str, want: set[tuple[str, str]]) -> list[str]:
     env = gh.api(f"repos/{repo}/environments/{ENV}")
-    if env is None:
+    if env is None and "HTTP 404" in gh.error:
         return [f"no {ENV} environment"]
+    if env is None:
+        raise Refused(
+            f"GET repos/{repo}/environments/{ENV} failed: {gh.error or 'no reason given'}"
+        )
     rule = env.get("deployment_branch_policy") or {}
     if (
         rule.get("protected_branches") is not False
@@ -147,7 +163,7 @@ def stale(gh: Gh, repo: str) -> list[str]:
     """
     found = []
     for scope, path in (("repo", "actions/secrets"), ("org", "actions/organization-secrets")):
-        for name in sorted(names(gh.must(f"repos/{repo}/{path}?per_page=100"))):
+        for name in sorted(names(gh, f"repos/{repo}/{path}")):
             if name.startswith("COSIGN_"):
                 found.append(f"stale {scope} secret {name}")
     return found
@@ -156,7 +172,7 @@ def stale(gh: Gh, repo: str) -> list[str]:
 def check(gh: Gh, repo: str) -> list[str]:
     problems = gate_problems(gh, repo, wanted_policies(gh, repo))
     if not problems:
-        missing = set(SECRETS) - names(gh.api(f"repos/{repo}/environments/{ENV}/secrets"))
+        missing = set(SECRETS) - names(gh, f"repos/{repo}/environments/{ENV}/secrets")
         problems += [f"{ENV} lacks {name}" for name in sorted(missing)]
     return problems + stale(gh, repo)
 
