@@ -30,6 +30,7 @@ WANT = {("main", "branch"), ("v*.*.*", "tag")}
 PROTECTED = ["deletion", "non_fast_forward", "pull_request"]
 ORG_RULESET = 900
 ADMINS = {"actor_type": "OrganizationAdmin", "actor_id": 1, "bypass_mode": "always"}
+APP = {"actor_type": "Integration", "actor_id": APP_ID, "bypass_mode": "always"}
 
 
 def ok(payload):
@@ -58,7 +59,7 @@ class FakeGitHub:
         self.policies = {i + 1: p for i, p in enumerate(policies)}
         self.rulesets: dict[int, dict] = {}
         self.branch_rules = [{"type": t, "ruleset_id": ORG_RULESET} for t in branch_rules]
-        self.parent_rulesets = {ORG_RULESET: {"id": ORG_RULESET, "bypass_actors": [ADMINS]}}
+        self.parent_rulesets = {ORG_RULESET: {"id": ORG_RULESET, "bypass_actors": [APP]}}
         # name -> (commit, on the default branch, annotated)
         self.tags: dict[str, tuple[str, bool, bool]] = {}
         self.env_secrets: dict[str, str] = {}
@@ -208,10 +209,7 @@ def test_fresh_repo_gets_the_gate_then_the_secrets(capsys):
     assert ruleset["target"] == "tag" and ruleset["enforcement"] == "active"
     assert ruleset["conditions"]["ref_name"]["include"] == ["refs/tags/v*.*.*"]
     assert {r["type"] for r in ruleset["rules"]} == {"creation", "update", "deletion"}
-    assert {(a["actor_type"], a["actor_id"]) for a in ruleset["bypass_actors"]} == {
-        ("OrganizationAdmin", None),
-        ("Integration", APP_ID),
-    }
+    assert ruleset["bypass_actors"] == [APP]
     assert fake.env_secrets == {"COSIGN_PRIVATE_KEY": KEY, "COSIGN_PASSWORD": PASSWORD}
     first_secret = next(i for i, c in enumerate(fake.calls) if c[:3] == ["gh", "secret", "set"])
     assert all(c[:2] == ["gh", "api"] for c in fake.calls[:first_secret])
@@ -233,8 +231,18 @@ def test_a_widened_tag_ruleset_is_put_back(capsys):
     ruleset["bypass_actors"].append({"actor_type": "Integration", "actor_id": 15368})
     assert provision(fake, capsys)[0] == 0
     assert [c[4] for c in fake.writes() if c[3] == "PUT"][-1] == f"{RULESETS}/{ruleset['id']}"
-    actors = fake.rulesets[ruleset["id"]]["bypass_actors"]
-    assert [a["actor_type"] for a in actors] == ["OrganizationAdmin", "Integration"]
+    assert fake.rulesets[ruleset["id"]]["bypass_actors"] == [APP]
+
+
+def test_an_org_admin_tag_bypass_fails_check_and_is_put_back(capsys):
+    fake = ready(FakeGitHub())
+    (ruleset,) = fake.rulesets.values()
+    ruleset["bypass_actors"].append(ADMINS)
+    capsys.readouterr()
+    assert run(fake, ["--check", "--only", "ashigaru"]) == 1
+    assert "'cosign release tags' bypass is not exactly the release App" in capsys.readouterr().out
+    assert provision(fake, capsys)[0] == 0
+    assert fake.rulesets[ruleset["id"]]["bypass_actors"] == [APP]
 
 
 def test_no_secret_is_set_when_the_environment_does_not_hold(capsys):
@@ -423,7 +431,9 @@ def test_tags_on_the_default_branch_pass(capsys):
 @pytest.mark.parametrize(
     "bypass",
     [
-        [ADMINS, {"actor_type": "Integration", "actor_id": 15368, "bypass_mode": "always"}],
+        [ADMINS],
+        [ADMINS, APP],
+        [APP, {"actor_type": "Integration", "actor_id": 15368, "bypass_mode": "always"}],
         [{"actor_type": "RepositoryRole", "actor_id": 4, "bypass_mode": "always"}],
         None,
     ],
@@ -446,4 +456,10 @@ def test_a_tight_ruleset_beside_a_loose_one_holds_the_rule(capsys):
     loose = {"actor_type": "Integration", "actor_id": 15368, "bypass_mode": "always"}
     fake.parent_rulesets[901] = {"id": 901, "bypass_actors": [loose]}
     fake.branch_rules += [{"type": t, "ruleset_id": 901} for t in PROTECTED]
+    assert provision(fake, capsys)[0] == 0
+
+
+def test_a_branch_ruleset_no_one_can_bypass_is_tight(capsys):
+    fake = FakeGitHub()
+    fake.parent_rulesets[ORG_RULESET]["bypass_actors"] = []
     assert provision(fake, capsys)[0] == 0

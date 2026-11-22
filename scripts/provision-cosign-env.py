@@ -15,14 +15,15 @@ parts, and the secrets are set only once all three read back correctly:
 - the environment: custom deployment policies, exactly the default branch and
   the `v*.*.*` tag pattern;
 - a tag ruleset on `refs/tags/v*.*.*` restricting creation, update and
-  deletion, bypassed only by organization admins and the release App
-  (`cosign_release_app`, which tags merged release pull requests). Without it,
-  anyone who can push could tag a pull request's commit and run its workflow
-  with the key;
+  deletion, bypassed only by the release App (`cosign_release_app`, which tags
+  merged release pull requests). Not organization admins: seats push and call
+  create_release as an org admin, so that bypass would let any seat tag. Without
+  the ruleset, anyone who can push could tag a pull request's commit and run its
+  workflow with the key;
 - the default branch's effective rules (organization rulesets included): no
   force-push, no deletion, a pull request required, each from a ruleset that
-  only organization admins and the release App can bypass. This one is
-  verified, not written: branch rules are the organization ruleset's to set.
+  only the release App, or no one, can bypass. This one is verified, not
+  written: branch rules are the organization ruleset's to set.
 
 It also refuses while any existing `v*.*.*` tag names a commit the default
 branch does not carry: the ruleset stops new tags, not ones made before it.
@@ -157,24 +158,13 @@ def names(gh: Gh, path: str) -> set[str]:
 
 
 def bypass_actors(gh: Gh) -> list[dict]:
-    """Organization admins (the token behind create_release) and the release App."""
+    """The release App alone: never org admins, whose token every seat's create_release holds."""
     app = gh.must(f"apps/{fleet()['cosign_release_app']}")["id"]
-    return [
-        {"actor_type": "OrganizationAdmin", "actor_id": None, "bypass_mode": "always"},
-        {"actor_type": "Integration", "actor_id": app, "bypass_mode": "always"},
-    ]
+    return [{"actor_type": "Integration", "actor_id": app, "bypass_mode": "always"}]
 
 
 def actor_keys(actors: list[dict]) -> set[tuple]:
-    # GitHub ignores, and may fill in, the id of OrganizationAdmin.
-    return {
-        (
-            a["actor_type"],
-            None if a["actor_type"] == "OrganizationAdmin" else a["actor_id"],
-            a.get("bypass_mode", "always"),
-        )
-        for a in actors
-    }
+    return {(a["actor_type"], a["actor_id"], a.get("bypass_mode", "always")) for a in actors}
 
 
 def ruleset_body(actors: list[dict]) -> dict:
@@ -234,7 +224,7 @@ def ruleset_problems(ruleset: dict, actors: list[dict]) -> list[str]:
     if not set(TAG_RULES) <= rules:
         problems.append(f"'{RULESET}' lacks {sorted(set(TAG_RULES) - rules)}")
     if actor_keys(ruleset.get("bypass_actors") or []) != actor_keys(actors):
-        problems.append(f"'{RULESET}' bypass is not exactly org admins and the release App")
+        problems.append(f"'{RULESET}' bypass is not exactly the release App")
     return problems
 
 
@@ -243,7 +233,7 @@ def tag_problems(ruleset: dict | None, actors: list[dict]) -> list[str]:
 
 
 def tight(gh: Gh, repo: str, ruleset_id: int, actors: list[dict]) -> bool:
-    """Whether only org admins and the release App can bypass this ruleset.
+    """Whether no one but the release App can bypass this ruleset (no one at all is tight).
 
     A bypass list the token cannot read counts as loose.
     """
@@ -256,8 +246,8 @@ def branch_problems(gh: Gh, repo: str, default: str, actors: list[dict]) -> list
     """Each required rule on the default branch, from a ruleset few can bypass.
 
     The rules come from every active ruleset, organization ones included. A rule
-    holds if at least one ruleset enforcing it is bypassed by no one but org
-    admins and the release App: bypassing one ruleset leaves the others.
+    holds if at least one ruleset enforcing it is bypassed by no one but the
+    release App: bypassing one ruleset leaves the others.
     """
     rules = gh.listed(f"repos/{repo}/rules/branches/{default}")
     seen: dict[int, bool] = {}
