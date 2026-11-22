@@ -18,6 +18,20 @@ Entries through 1.14.0 are derived from the Ratification History table in
   digest main already attested reuses it. Verify with
   `cosign verify-attestation --insecure-ignore-tlog --type spdxjson --key keys/crunchtools-bootc.pub IMAGE@DIGEST`.
   Container Image profile 1.16.0 (IX).
+- `container-release.yml` with `sign: true` also attests SLSA v1 provenance
+  (#204, a920) naming the run that built the digest, not the promote run that
+  reuses it. `build` labels the image with that run
+  (`com.crunchtools.build.run`, `.builder`, `.workflow`, `.commit`); promote's
+  new `container_release.py provenance` turns the labels into a
+  `slsaprovenance1` predicate whose `builder.id` is this repo's
+  `container-release.yml` at the ref that built (`job.workflow_ref`), with the
+  caller's workflow in `externalParameters`. A keyless step writes it and
+  `cosign attest --tlog-upload=false` signs it with the fleet key, next to the
+  SBOM. A digest with no record of its own repo's build at its own
+  revision (built before this change, or carrying a base image's labels) gets
+  none, with a warning. Verify with
+  `cosign verify-attestation --insecure-ignore-tlog --type slsaprovenance1 --key keys/crunchtools-bootc.pub IMAGE@DIGEST`.
+  Container Image profile 1.16.0 (IX).
 - `.github/workflows/fleet-bump.yml` (a867): runs `fleet-bump.py` in the pipeline
   on `workflow_dispatch` (`mode` bump, zizmor-callers or renovate; `version`;
   `only`; `dry-run`, on by default), so a fleet rollout needs no `gh` or

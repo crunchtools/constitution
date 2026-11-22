@@ -339,6 +339,9 @@ def test_rhsm_passes_both_secret_ids_from_the_same_files():
     assert "--secret" in rhsm_block and "--secret" not in run.split('if [ "$RHSM"', 1)[0]
 
 
+CR_BUILDER = "crunchtools/constitution/.github/workflows/container-release.yml@refs/tags/v1"
+
+
 def _run_build_step(
     tmp_path, *, dependabot: bool, key: str
 ) -> tuple[subprocess.CompletedProcess, str]:
@@ -366,6 +369,9 @@ def _run_build_step(
         "BUILD_ARGS": "",
         "FORMAT": "docker",
         "SOURCE": "https://github.com/crunchtools/canary",
+        "RUN": "https://github.com/crunchtools/canary/actions/runs/1/attempts/1",
+        "WORKFLOW": "crunchtools/canary/.github/workflows/ci.yml@refs/heads/main",
+        "BUILDER": CR_BUILDER,
         "RHSM": "true",
         "RHSM_KEY_VALUE": key,
         "RHSM_ORG_VALUE": "org" if key else "",
@@ -647,6 +653,172 @@ def test_a_failed_scan_attestation_or_proof_stops_promote(tmp_path, fail):
     assert result.returncode != 0
     assert calls[-1] == fail
     assert "attested the SBOM" not in result.stdout
+
+
+WRITE = "Write the provenance of the digest being promoted"
+PROVENANCE = "Attest the provenance of the digest being promoted"
+KEY_ENV = ("COSIGN_PRIVATE_KEY", "COSIGN_PASSWORD")
+
+
+def test_sign_on_attests_the_provenance_after_the_sbom_before_any_tag_moves():
+    """The signed digest carries SLSA v1 provenance, written without the key and
+    attested with the same key as the SBOM by a step of its own (#204)."""
+    steps = _promote_steps(sign=True)
+    ids = [s.get("name") or s.get("id") for s in steps]
+    sbom = next(s for s in steps if s.get("name") == "Attest the SBOM of the digest being promoted")
+    write = next(s for s in steps if s.get("name") == WRITE)
+    prov = next(s for s in steps if s.get("name") == PROVENANCE)
+    assert write["id"] == "provenance"
+    sign = ids.index("Sign the digest being promoted")
+    order = [ids.index(n) for n in (sbom["name"], WRITE, PROVENANCE, "p")]
+    assert sign < order[0] < order[1] < order[2] < order[3]
+    assert write["if"] == sbom["if"] == f"{SIGN_IF} && {SKIP_IF}"
+    assert prov["if"] == f"{SIGN_IF} && {SKIP_IF} && steps.provenance.outputs.attest == 'true'"
+    for step in (write, prov):
+        assert "continue-on-error" not in step
+    # Only the step that attests holds the key.
+    assert not [k for k in write["env"] if k.startswith("COSIGN_")]
+    assert all(k in prov["env"] for k in KEY_ENV)
+    p = next(s for s in steps if s.get("id") == "p")
+    for step in (write, prov):
+        assert step["env"]["DIGEST"] == p["env"]["DIGEST"]  # exactly what promote copies
+        assert step["env"]["PUB"] == ".constitution/keys/crunchtools-bootc.pub"
+    verify = "cosign verify-attestation --insecure-ignore-tlog --type slsaprovenance1 --key"
+    assert "container_release.py provenance" in write["run"]
+    assert "cosign attest" not in write["run"]
+    assert write["run"].count(verify) == 1  # skip what is already attested
+    assert "python3" not in prov["run"]
+    assert "cosign attest --yes --tlog-upload=false --type slsaprovenance1" in prov["run"]
+    assert "--key env://COSIGN_PRIVATE_KEY" in prov["run"]
+    assert prov["run"].count(verify) == 1  # prove it landed
+
+
+def test_install_syft_puts_its_bin_dir_on_the_path_itself():
+    install = next(
+        s for s in _promote_steps(sign=True) if str(s.get("name", "")).startswith("Install syft")
+    )
+    assert 'echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"' in install["run"]
+
+
+def test_build_labels_the_image_with_the_run_builder_workflow_and_commit():
+    """Promote reads the builder off these labels, so they name the build run (#204)."""
+    import yaml
+
+    workflow = yaml.safe_load((ROOT / ".github/workflows/container-release.yml").read_text())
+    build = next(s for s in workflow["jobs"]["build"]["steps"] if s.get("name") == "Build once")
+    for label, var in [
+        ("com.crunchtools.build.run", "RUN"),
+        ("com.crunchtools.build.builder", "BUILDER"),
+        ("com.crunchtools.build.workflow", "WORKFLOW"),
+        ("com.crunchtools.build.commit", "SHA"),
+    ]:
+        assert f'--label "{label}=${var}"' in build["run"]
+    run_env = build["env"]["RUN"]
+    for part in ("github.run_id", "github.run_attempt", "/actions/runs/", "/attempts/"):
+        assert part in run_env
+    assert build["env"]["WORKFLOW"] == "${{ github.workflow_ref }}"
+    assert build["env"]["BUILDER"] == "${{ job.workflow_ref }}"
+
+
+def _run_provenance_step(
+    tmp_path: Path, name: str, *, attested: bool = False, record: bool = True, fail: str = ""
+) -> tuple:
+    """Run one provenance step with stub cosign and python3. `attested` is what the
+    first verify-attestation finds; `record` is whether the stub python3 writes --out.
+    Returns the result, the stub calls and what the step wrote to GITHUB_OUTPUT."""
+    step = next(s for s in _promote_steps(sign=True) if s.get("name") == name)
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir(exist_ok=True)
+    log = tmp_path / "calls"
+    marker = tmp_path / "attested"
+    if attested:
+        marker.touch()
+    cosign = (
+        "#!/bin/sh\n"
+        f'echo "$(basename "$0") $1" >> {log}\n'
+        f'[ "$(basename "$0") $1" = "{fail}" ] && exit 1\n'
+        f'case "$1" in attest) touch {marker} ;;\n'
+        f"  verify-attestation) [ -e {marker} ] || exit 1 ;; esac\n"
+        "exit 0\n"
+    )
+    python = (
+        "#!/bin/sh\n"
+        f'echo "python3 $3" >> {log}\n'
+        f'[ "python3 $3" = "{fail}" ] && exit 1\n'
+        'while [ $# -gt 0 ]; do [ "$1" = --out ] && out="$2"; shift; done\n'
+        + ('echo "{}" > "$out"\n' if record else "")
+        + "exit 0\n"
+    )
+    for stub, text in (("cosign", cosign), ("python3", python)):
+        (bin_dir / stub).write_text(text)
+        (bin_dir / stub).chmod(0o755)
+    output = tmp_path / "output"
+    output.touch()
+    env = {
+        "PATH": f"{bin_dir}:/usr/bin:/bin",
+        "RUNNER_TEMP": str(tmp_path),
+        "GITHUB_OUTPUT": str(output),
+        "IMAGE": "quay.io/crunchtools/canary",
+        "DIGEST": "sha256:" + "a" * 64,
+        "PUB": "crunchtools-bootc.pub",
+    }
+    result = subprocess.run(
+        ["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", step["run"]],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    calls = log.read_text().split("\n")[:-1] if log.exists() else []
+    return result, calls, output.read_text().split()
+
+
+def test_an_already_attested_provenance_is_reused_not_written_again(tmp_path):
+    result, calls, out = _run_provenance_step(tmp_path, WRITE, attested=True)
+    assert result.returncode == 0, result.stderr
+    assert calls == ["cosign verify-attestation"]
+    assert "attest=true" not in out
+    assert "already carries provenance" in result.stdout
+
+
+def test_a_recorded_build_is_written_and_marked_for_attestation(tmp_path):
+    result, calls, out = _run_provenance_step(tmp_path, WRITE)
+    assert result.returncode == 0, result.stderr
+    assert calls == ["cosign verify-attestation", "python3 provenance"]
+    assert out == ["attest=true"]
+    assert (tmp_path / "provenance.json").exists()
+
+
+def test_a_digest_with_no_build_record_is_promoted_without_provenance(tmp_path):
+    result, calls, out = _run_provenance_step(tmp_path, WRITE, record=False)
+    assert result.returncode == 0, result.stderr
+    assert calls == ["cosign verify-attestation", "python3 provenance"]
+    assert out == ["attest=false"]
+    assert not (tmp_path / "provenance.json").exists()
+
+
+def test_a_failed_provenance_write_stops_promote(tmp_path):
+    result, calls, out = _run_provenance_step(tmp_path, WRITE, fail="python3 provenance")
+    assert result.returncode != 0
+    assert calls[-1] == "python3 provenance"
+    assert "attest=true" not in out
+
+
+def test_the_written_provenance_is_attested_and_proven(tmp_path):
+    (tmp_path / "provenance.json").write_text("{}")
+    result, calls, _ = _run_provenance_step(tmp_path, PROVENANCE)
+    assert result.returncode == 0, result.stderr
+    assert calls == ["cosign attest", "cosign verify-attestation"]
+    assert "attested the provenance" in result.stdout
+
+
+@pytest.mark.parametrize("fail", ["cosign attest", "cosign verify-attestation"])
+def test_a_failed_provenance_attestation_or_proof_stops_promote(tmp_path, fail):
+    (tmp_path / "provenance.json").write_text("{}")
+    result, calls, _ = _run_provenance_step(tmp_path, PROVENANCE, fail=fail)
+    assert result.returncode != 0
+    assert calls[-1] == fail
+    assert "attested the provenance" not in result.stdout
 
 
 @pytest.mark.parametrize(
