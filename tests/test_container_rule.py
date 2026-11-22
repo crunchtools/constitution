@@ -464,6 +464,12 @@ def test_a_custom_publisher_must_be_a_signer_too(tmp_path):
     assert "not in `cosign_signers`" in found
 
 
+def test_a_clone_under_the_old_name_counts_as_the_new_signer(tmp_path):
+    fleet = {**REQ["fleet"], "renamed_repos": {"old-name": "x"}}
+    root = make(tmp_path, "old-name", container=workflow(SIGNED_CALL))
+    assert V.check_container_release(root, "1.60.0", {"fleet": fleet}) == []
+
+
 def test_an_unpublished_repo_needs_no_signing(tmp_path):
     assert check(make(tmp_path, "reference-repo"), "1.60.0") == []
 

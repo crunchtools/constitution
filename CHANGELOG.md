@@ -89,13 +89,17 @@ Entries through 1.14.0 are derived from the Ratification History table in
   listed repo. The list is what that script provisions, so listing comes
   before a repo turns on `sign: true` or is provisioned.
 - `crunchtools/python-sdlc` is now `crunchtools/sdlc` (a978):
-  `cosign_signers` (a938 added it under the old name), `sdlc_exempt` and
-  `container_release_custom` name the new repo, and `sdlc_hooks_repo` is
+  `cosign_signers` (a938 added it under the old name) names the new repo,
+  `sdlc_exempt` and `container_release_custom` carry both names until the
+  cutover, and `sdlc_hooks_repo` is
   `https://github.com/crunchtools/sdlc`. A rev-pinned hook block from the old
   URL still passes XII (`sdlc_hooks_repo_renamed_from`), since GitHub
   redirects it. `floating_images` keeps both image names, because
   `quay.io/crunchtools/python-sdlc` stays a mirror of `sdlc` until the fleet
   has moved. XII's text names sdlc.
+- `sdlc_bootstrap_sha256` accepts sdlc#82's `bin/sdlc-bootstrap`
+  (`fb2d76…`, the one that verifies the image's signature before running
+  it), beside #62's (a978).
 - `validate-cascade.py` resolves a renamed repo (`renamed_repos` in
   requirements.toml, `python-sdlc = "sdlc"`) before comparing graphs (a978).
   GitHub redirects the old name, so gatehouse's and gourmand's dispatch of

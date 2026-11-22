@@ -2163,7 +2163,7 @@ def _signing_refusals(repo_root: Path, name: str, fleet: dict) -> list[str]:
         and _RELEASE_CALL.match(str(job.get("uses", "")))
         and (job.get("with") or {}).get("sign") is not True
     ]
-    if name not in fleet.get("cosign_signers", []):
+    if fleet.get("renamed_repos", {}).get(name, name) not in fleet.get("cosign_signers", []):
         violations.append(
             f"CONTAINER: `{name}` publishes an image but is not in `cosign_signers` "
             f"(profiles/requirements.toml), so nothing gates its signing environment (IX)"

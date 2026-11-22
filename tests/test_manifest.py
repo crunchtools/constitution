@@ -1486,7 +1486,7 @@ def test_non_python_repo_keeps_the_standalone_hooks(repo):
     assert not [v for v in violations(repo) if v.startswith("XII")]
 
 
-@pytest.mark.parametrize("name", ["gourmand", "sdlc"])
+@pytest.mark.parametrize("name", ["gourmand", "sdlc", "python-sdlc"])
 def test_a_repo_that_builds_the_image_is_exempt(repo, name):
     """gourmand and sdlc build what the image contains."""
     exempt = repo.parent / name
