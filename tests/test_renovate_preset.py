@@ -10,6 +10,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 PRESET = json.loads((ROOT / "renovate" / "default.json").read_text())
+SELF_HOSTED = json.loads((ROOT / "renovate" / "self-hosted.json").read_text())
 
 
 def rules_for(update_type: str) -> list[dict]:
@@ -79,3 +80,19 @@ def test_crunchtools_floats_at_its_major_tag():
         for name in r["matchPackageNames"]
     }
     assert "quay.io/crunchtools/**" in unpinned
+
+
+def test_the_self_hosted_run_covers_the_fleet_from_this_repo():
+    """renovate/self-hosted.json: every crunchtools repo, forks included, inheriting
+    this repo's org-inherited config or failing loudly."""
+    assert SELF_HOSTED["platform"] == "github"
+    assert SELF_HOSTED["autodiscover"] is True
+    assert SELF_HOSTED["autodiscoverFilter"] == ["crunchtools/*"]
+    assert SELF_HOSTED["forkProcessing"] == "enabled"
+    assert SELF_HOSTED["inheritConfig"] is True
+    assert SELF_HOSTED["inheritConfigRepoName"] == "crunchtools/constitution"
+    assert SELF_HOSTED["inheritConfigFileName"] == "renovate/org-inherited-config.json"
+    assert (ROOT / SELF_HOSTED["inheritConfigFileName"]).is_file()
+    assert SELF_HOSTED["inheritConfigStrict"] is True
+    # The workflow decides dry or real; the file must not force either.
+    assert "dryRun" not in SELF_HOSTED

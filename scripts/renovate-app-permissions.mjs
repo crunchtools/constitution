@@ -24,7 +24,13 @@ export function gaps(required, granted) {
     .map(([name, level]) => `${name}: needs ${level}, has ${granted[name] ?? "none"}`);
 }
 
-/** An RS256 App JWT for `clientId`, valid for five minutes. */
+/**
+ * An App JWT, which GitHub accepts for App-level endpoints such as an org's
+ * installation.
+ * @param {string} clientId the App's client ID (Iv...), used as `iss`
+ * @param {string} key the App's private key, PEM (PKCS#1 or PKCS#8)
+ * @returns {string} a compact RS256 JWT, valid from a minute ago for five minutes
+ */
 export function jwt(clientId, key) {
   const b64 = (o) => Buffer.from(JSON.stringify(o)).toString("base64url");
   const now = Math.floor(Date.now() / 1000);
@@ -43,19 +49,19 @@ export function jwt(clientId, key) {
  * @returns {Promise<string[]>}
  */
 export async function report(required, org, token, fetchFn = fetch) {
-  let app_slug, permissions;
+  let appSlug, permissions;
   try {
     const res = await fetchFn(`https://api.github.com/orgs/${org}/installation`, {
       headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json" },
     });
     if (!res.ok) return [`### App permissions not readable: HTTP ${res.status}`];
-    ({ app_slug, permissions } = await res.json());
+    ({ app_slug: appSlug, permissions } = await res.json());
   } catch (err) {
     return [`### App permissions not readable: ${err.message}`];
   }
   const missing = gaps(required, permissions ?? {});
   return [
-    `### ${app_slug} on ${org}: ${missing.length ? `${missing.length} permission(s) short of a real run` : "every permission a real run needs"}`,
+    `### ${appSlug} on ${org}: ${missing.length ? `${missing.length} permission(s) short of a real run` : "every permission a real run needs"}`,
     "",
     ...missing.map((m) => `- ${m}`),
     "",
