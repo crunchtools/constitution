@@ -72,6 +72,14 @@ def test_a_dispatch_of_a_renamed_repo_counts_for_its_new_name():
     assert missing == []
 
 
+def test_a_stale_name_is_a_warning_naming_both(capsys):
+    C.report("crunchtools", [], [], [], [("gatehouse", "python-sdlc", "sdlc")])
+    out = capsys.readouterr().out
+    assert "WARN: dispatches naming a repo by its old name" in out
+    assert "gatehouse dispatches python-sdlc, now sdlc" in out
+    assert "FAIL" not in out
+
+
 def test_the_renamed_repos_come_from_requirements():
     assert C.renamed_repos()["python-sdlc"] == "sdlc"
 
