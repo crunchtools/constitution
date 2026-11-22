@@ -552,6 +552,7 @@ def test_promote_refuses_something_that_is_not_a_digest(w):
 # ------------------------------------------------------------- provenance
 
 RUN_URL = f"https://github.com/{REPO}/actions/runs/123/attempts/2"
+BUILDER = CR.BUILDER + "refs/tags/v1"
 WORKFLOW = f"{REPO}/.github/workflows/ci.yml@refs/pull/7/merge"
 COMMIT = "c" * 40
 
@@ -559,6 +560,7 @@ COMMIT = "c" * 40
 def build_labels(**changes):
     labels = {
         CR.BUILD_RUN: RUN_URL,
+        CR.BUILD_BUILDER: BUILDER,
         CR.BUILD_WORKFLOW: WORKFLOW,
         CR.BUILD_COMMIT: COMMIT,
         CR.REVISION: COMMIT,
@@ -570,7 +572,7 @@ def build_labels(**changes):
 def test_provenance_names_the_run_that_built_the_digest(w):
     d = w.image("pr", labels=build_labels())
     predicate = CR.provenance(CR.Registry(IMAGE, w.skopeo), REPO, d)
-    assert predicate["runDetails"]["builder"]["id"] == f"https://github.com/{WORKFLOW}"
+    assert predicate["runDetails"]["builder"]["id"] == f"https://github.com/{BUILDER}"
     assert predicate["runDetails"]["metadata"]["invocationId"] == RUN_URL
     definition = predicate["buildDefinition"]
     assert definition["buildType"] == CR.BUILD_TYPE
@@ -582,6 +584,9 @@ def test_provenance_names_the_run_that_built_the_digest(w):
     assert definition["resolvedDependencies"] == [
         {"uri": f"git+https://github.com/{REPO}", "digest": {"gitCommit": COMMIT}}
     ]
+    assert predicate["buildDefinition"]["externalParameters"]["workflow"]["path"] == (
+        ".github/workflows/ci.yml"
+    )  # the caller's workflow is a parameter, not the builder
     assert "promote" not in json.dumps(predicate)
 
 
@@ -592,6 +597,9 @@ def test_provenance_names_the_run_that_built_the_digest(w):
         {"name": "canary"},
         build_labels(**{CR.BUILD_RUN: None}),
         build_labels(**{CR.BUILD_WORKFLOW: None}),
+        build_labels(**{CR.BUILD_BUILDER: None}),
+        build_labels(**{CR.BUILD_BUILDER: f"{REPO}/.github/workflows/ci.yml@refs/heads/main"}),
+        build_labels(**{CR.BUILD_BUILDER: CR.BUILDER}),
         build_labels(**{CR.BUILD_COMMIT: None}),
         build_labels(**{CR.REVISION: None}),
         build_labels(

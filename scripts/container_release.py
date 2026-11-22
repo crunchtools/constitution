@@ -480,31 +480,38 @@ def _release_tags(version: tuple[int, int, int], releases: dict) -> list[str]:
 
 # ------------------------------------------------------------------ provenance
 
-# What build stamps on every image (#204): the run that built it, the caller's
-# workflow, and the commit, next to the org.opencontainers.image.revision it
-# already wrote. Inside the config, so the signature covers them.
+# What build stamps on every image (#204): the run that built it, the
+# reusable workflow that ran the build (job.workflow_ref, the trusted builder),
+# the caller's workflow, and the commit, next to the
+# org.opencontainers.image.revision it already wrote. Inside the config, so
+# the signature covers them.
 BUILD_RUN = "com.crunchtools.build.run"
+BUILD_BUILDER = "com.crunchtools.build.builder"
 BUILD_WORKFLOW = "com.crunchtools.build.workflow"
 BUILD_COMMIT = "com.crunchtools.build.commit"
 REVISION = "org.opencontainers.image.revision"
+BUILDER = "crunchtools/constitution/.github/workflows/container-release.yml@"
 COMMIT = re.compile(r"^[0-9a-f]{40}$")
 BUILD_TYPE = "https://slsa-framework.github.io/github-actions-buildtypes/workflow/v1"
 
 
-def build_record(labels: dict[str, str], repo: str) -> tuple[str, str, str] | None:
-    """(run, workflow, commit) when the labels record a build of `repo` at their own revision."""
-    run_url, workflow, commit = (
-        labels.get(k, "") for k in (BUILD_RUN, BUILD_WORKFLOW, BUILD_COMMIT)
+def build_record(labels: dict[str, str], repo: str) -> tuple[str, str, str, str] | None:
+    """(run, builder, workflow, commit) when the labels record this constitution's
+    build of `repo` at their own revision."""
+    run_url, builder, workflow, commit = (
+        labels.get(k, "") for k in (BUILD_RUN, BUILD_BUILDER, BUILD_WORKFLOW, BUILD_COMMIT)
     )
     own_run = re.compile(rf"^https://github\.com/{re.escape(repo)}/actions/runs/\d+/attempts/\d+$")
     honest = (
         own_run.match(run_url)
+        and builder.startswith(BUILDER)
+        and len(builder) > len(BUILDER)
         and workflow.startswith(f"{repo}/.github/workflows/")
         and "@" in workflow
         and COMMIT.match(commit)
         and commit == labels.get(REVISION)
     )
-    return (run_url, workflow, commit) if honest else None
+    return (run_url, builder, workflow, commit) if honest else None
 
 
 def provenance(reg: Registry, repo: str, digest: str) -> dict | None:
@@ -525,7 +532,7 @@ def provenance(reg: Registry, repo: str, digest: str) -> dict | None:
             "revision (built before #204, or a base image's record); no provenance attested"
         )
         return None
-    run_url, workflow, commit = record
+    run_url, builder, workflow, commit = record
     path, ref = workflow.removeprefix(f"{repo}/").split("@", 1)
     source = f"https://github.com/{repo}"
     return {
@@ -535,7 +542,7 @@ def provenance(reg: Registry, repo: str, digest: str) -> dict | None:
             "resolvedDependencies": [{"uri": f"git+{source}", "digest": {"gitCommit": commit}}],
         },
         "runDetails": {
-            "builder": {"id": f"https://github.com/{workflow}"},
+            "builder": {"id": f"https://github.com/{builder}"},
             "metadata": {"invocationId": run_url},
         },
     }
