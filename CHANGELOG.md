@@ -64,6 +64,22 @@ Entries through 1.14.0 are derived from the Ratification History table in
   the `fleet-bump` environment, which deploys from main only, and queues apart
   from dry runs.
 
+### Changed
+- `scripts/provision-cosign-env.py` (a938): the `cosign release tags` ruleset
+  is bypassed by the release App (`ashigaru-crunchtools`) alone, no longer by
+  organization admins. Seats push and call `create_release` as an org admin,
+  so that bypass let any seat tag a signer, against the organization's
+  "release tags: Ashigaru only" ruleset. The read-back is strict, so an
+  `OrganizationAdmin` bypass on a repo now fails `--check` and a run puts the
+  ruleset back. A default-branch rule now holds only when some ruleset
+  enforcing it is bypassed by the App alone or by no one. A signer's release
+  tags come only from Ashigaru's `release-tag.yml`; `create_release` can no
+  longer tag one. Container Image profile 1.16.0 (IX).
+- `crunchtools/python-sdlc` joins `cosign_signers` (a938), so its
+  `cosign-signing` environment can be provisioned before python-sdlc#82 merges.
+- Container Image IX's case for environment secrets drops the GitHub Free
+  reason (a938): the organization is on Team, and the other two reasons stand.
+
 ## [1.59.0] - 2026-11-21
 
 ### Added
