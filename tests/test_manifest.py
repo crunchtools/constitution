@@ -553,6 +553,34 @@ def test_sign_on_signs_with_cosign_v2_before_any_tag_moves():
     assert pub.endswith("-----END PUBLIC KEY-----\n")
 
 
+def test_sign_on_attests_an_sbom_of_the_signed_digest_before_any_tag_moves():
+    """A signed digest carries a syft SPDX SBOM attested with the same key (#203)."""
+    steps = _promote_steps(sign=True)
+    ids = [s.get("name") or s.get("id") for s in steps]
+    install = next(s for s in steps if str(s.get("name", "")).startswith("Install syft"))
+    attest = next(
+        s for s in steps if s.get("name") == "Attest the SBOM of the digest being promoted"
+    )
+    sign = ids.index("Sign the digest being promoted")
+    assert sign < ids.index(install["name"]) < ids.index(attest["name"]) < ids.index("p")
+    unskipped = f"{SIGN_IF} && {SKIP_IF}"
+    assert install["if"] == attest["if"] == unskipped
+    for step in (install, attest):
+        assert "continue-on-error" not in step
+    assert "/anchore/syft/releases/download/v1." in install["run"]
+    assert "sha256sum -c" in install["run"]
+    p = next(s for s in steps if s.get("id") == "p")
+    assert attest["env"]["DIGEST"] == p["env"]["DIGEST"]  # attests exactly what promote copies
+    assert attest["env"]["PUB"] == ".constitution/keys/crunchtools-bootc.pub"
+    run = attest["run"]
+    assert 'syft scan "registry:$IMAGE@$DIGEST" -o "spdx-json=' in run
+    assert "cosign attest --yes --tlog-upload=false --type spdxjson" in run
+    assert "--key env://COSIGN_PRIVATE_KEY" in run
+    # Once to skip an already attested release digest, once to prove the attestation landed.
+    verify = "cosign verify-attestation --insecure-ignore-tlog --type spdxjson --key"
+    assert run.count(verify) == len(("skip", "prove"))
+
+
 @pytest.mark.parametrize(
     ("name", "call"),
     [
