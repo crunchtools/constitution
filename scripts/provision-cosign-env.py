@@ -20,8 +20,12 @@ parts, and the secrets are set only once all three read back correctly:
   anyone who can push could tag a pull request's commit and run its workflow
   with the key;
 - the default branch's effective rules (organization rulesets included): no
-  force-push, no deletion, a pull request required. This one is verified, not
-  written: branch rules are the organization ruleset's to set.
+  force-push, no deletion, a pull request required, each from a ruleset that
+  only organization admins and the release App can bypass. This one is
+  verified, not written: branch rules are the organization ruleset's to set.
+
+It also refuses while any existing `v*.*.*` tag names a commit the default
+branch does not carry: the ruleset stops new tags, not ones made before it.
 
 Running it again changes nothing but the two secret values. The key (the PEM
 block) and then the password, on one line, arrive on stdin; neither is echoed,
@@ -60,6 +64,8 @@ TAG = "v*.*.*"
 RULESET = "cosign release tags"
 TAG_RULES = ("creation", "deletion", "update")
 BRANCH_RULES = ("deletion", "non_fast_forward", "pull_request")
+# TAG as GitHub matches it (fnmatch, `*` never crossing `/`).
+RELEASE_TAG = re.compile(r"^v[^/]*\.[^/]*\.[^/]*$")
 REQUIREMENTS = Path(__file__).resolve().parents[1] / "profiles" / "requirements.toml"
 PEM_END = re.compile(r"^-----END [A-Z0-9 ]*PRIVATE KEY-----$")
 
@@ -236,10 +242,62 @@ def tag_problems(ruleset: dict | None, actors: list[dict]) -> list[str]:
     return [f"no '{RULESET}' tag ruleset"] if ruleset is None else ruleset_problems(ruleset, actors)
 
 
-def branch_problems(gh: Gh, repo: str, default: str) -> list[str]:
-    """The default branch's effective rules, from every active ruleset."""
-    have = {rule["type"] for rule in gh.listed(f"repos/{repo}/rules/branches/{default}")}
-    return [f"{default} has no '{rule}' rule" for rule in BRANCH_RULES if rule not in have]
+def tight(gh: Gh, repo: str, ruleset_id: int, actors: list[dict]) -> bool:
+    """Whether only org admins and the release App can bypass this ruleset.
+
+    A bypass list the token cannot read counts as loose.
+    """
+    path = f"repos/{repo}/rulesets/{ruleset_id}?includes_parents=true"
+    ruleset = gh.must(path)
+    return "bypass_actors" in ruleset and actor_keys(ruleset["bypass_actors"]) <= actor_keys(actors)
+
+
+def branch_problems(gh: Gh, repo: str, default: str, actors: list[dict]) -> list[str]:
+    """Each required rule on the default branch, from a ruleset few can bypass.
+
+    The rules come from every active ruleset, organization ones included. A rule
+    holds if at least one ruleset enforcing it is bypassed by no one but org
+    admins and the release App: bypassing one ruleset leaves the others.
+    """
+    rules = gh.listed(f"repos/{repo}/rules/branches/{default}")
+    seen: dict[int, bool] = {}
+    problems = []
+    for kind in BRANCH_RULES:
+        ids = sorted({rule["ruleset_id"] for rule in rules if rule["type"] == kind})
+        for ruleset_id in ids:
+            if ruleset_id not in seen:
+                seen[ruleset_id] = tight(gh, repo, ruleset_id, actors)
+        if not ids:
+            problems.append(f"{default} has no '{kind}' rule")
+        elif not any(seen[i] for i in ids):
+            problems.append(f"{default}'s '{kind}' rule can be bypassed by others (or unreadable)")
+    return problems
+
+
+def tag_commit(gh: Gh, repo: str, ref: dict) -> str:
+    """The commit a tag ref names, through any annotated tag objects."""
+    target = ref["object"]
+    while target["type"] == "tag":
+        target = gh.must(f"repos/{repo}/git/tags/{target['sha']}")["object"]
+    return str(target["sha"])
+
+
+def stray_tags(gh: Gh, repo: str, default: str) -> list[str]:
+    """Release tags whose commit the default branch does not carry.
+
+    The ruleset stops new ones; a tag made before it could still name a pull
+    request's commit, and the environment would deploy it.
+    """
+    problems = []
+    for ref in gh.listed(f"repos/{repo}/git/matching-refs/tags/v"):
+        name = ref["ref"].removeprefix("refs/tags/")
+        if not RELEASE_TAG.match(name):
+            continue
+        sha = tag_commit(gh, repo, ref)
+        status = gh.must(f"repos/{repo}/compare/{default}...{sha}").get("status")
+        if status not in ("identical", "behind"):
+            problems.append(f"tag {name} is not on {default}")
+    return problems
 
 
 def gate_problems(
@@ -249,7 +307,8 @@ def gate_problems(
     return (
         (missing if env is None else environment_problems(gh, repo, default, env))
         + tag_problems(find_ruleset(gh, repo), actors)
-        + branch_problems(gh, repo, default)
+        + branch_problems(gh, repo, default, actors)
+        + stray_tags(gh, repo, default)
     )
 
 
@@ -312,6 +371,8 @@ def provision(gh: Gh, repo: str, key: str, password: str, actors: list[dict]) ->
     problems = gate_problems(gh, repo, default, actors, environment(gh, repo))
     if problems:
         raise Refused(f"gate not in place, no secret set: {'; '.join(problems)}")
+    # Two writes, not one: if the second fails, the pair is mismatched and
+    # promote's key check fails closed; rerunning the script repairs it.
     gh.set_secret(repo, "COSIGN_PRIVATE_KEY", key)
     gh.set_secret(repo, "COSIGN_PASSWORD", password)
     return stale(gh, repo)

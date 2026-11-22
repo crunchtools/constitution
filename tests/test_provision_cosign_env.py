@@ -28,6 +28,8 @@ APP_ID = 424242
 GATED = {"deployment_branch_policy": {"protected_branches": False, "custom_branch_policies": True}}
 WANT = {("main", "branch"), ("v*.*.*", "tag")}
 PROTECTED = ["deletion", "non_fast_forward", "pull_request"]
+ORG_RULESET = 900
+ADMINS = {"actor_type": "OrganizationAdmin", "actor_id": 1, "bypass_mode": "always"}
 
 
 def ok(payload):
@@ -55,7 +57,10 @@ class FakeGitHub:
         self.env = env
         self.policies = {i + 1: p for i, p in enumerate(policies)}
         self.rulesets: dict[int, dict] = {}
-        self.branch_rules = list(branch_rules)
+        self.branch_rules = [{"type": t, "ruleset_id": ORG_RULESET} for t in branch_rules]
+        self.parent_rulesets = {ORG_RULESET: {"id": ORG_RULESET, "bypass_actors": [ADMINS]}}
+        # name -> (commit, on the default branch, annotated)
+        self.tags: dict[str, tuple[str, bool, bool]] = {}
         self.env_secrets: dict[str, str] = {}
         self.repo_secrets: list[str] = []
         self.org_secrets: list[str] = []
@@ -92,7 +97,8 @@ class FakeGitHub:
             ENV_PATH: lambda: self.environment(method, body),
             POLICIES: lambda: self.branch_policies(method, body),
             RULESETS: lambda: self.ruleset_list(method, body),
-            f"repos/{REPO}/rules/branches/main": lambda: [{"type": t} for t in self.branch_rules],
+            f"repos/{REPO}/rules/branches/main": lambda: self.branch_rules,
+            f"repos/{REPO}/git/matching-refs/tags/v": self.tag_refs,
             f"{ENV_PATH}/secrets": lambda: (
                 None if self.env is None else self.named(self.env_secrets)
             ),
@@ -103,8 +109,10 @@ class FakeGitHub:
         items = {
             POLICIES: lambda: self.policy_item(method, int(item)),
             RULESETS: lambda: self.ruleset_item(method, int(item), body),
+            f"repos/{REPO}/git/tags": lambda: self.tag_object(item),
+            f"repos/{REPO}/compare": lambda: self.compare(item),
         }
-        handler = handlers.get(path) or (items.get(base) if item.isdigit() else None)
+        handler = handlers.get(path) or items.get(base)
         found = None if path in self.errors or not handler else handler()
         if found is None:
             return fail(self.errors.get(path, "gh: Not Found (HTTP 404)"))
@@ -135,7 +143,26 @@ class FakeGitHub:
     def ruleset_item(self, method, ruleset_id, body):
         if method == "PUT" and self.sticky:
             self.rulesets[ruleset_id] = {**body, "id": ruleset_id}
-        return self.rulesets.get(ruleset_id)
+        return self.rulesets.get(ruleset_id) or self.parent_rulesets.get(ruleset_id)
+
+    def tag_refs(self):
+        return [
+            {
+                "ref": f"refs/tags/{name}",
+                "object": {"type": "tag", "sha": f"t{sha}"}
+                if annotated
+                else {"type": "commit", "sha": sha},
+            }
+            for name, (sha, _, annotated) in self.tags.items()
+        ]
+
+    def tag_object(self, sha):
+        return {"object": {"type": "commit", "sha": sha.removeprefix("t")}}
+
+    def compare(self, spec):
+        head = spec.removeprefix("main...")
+        on_main = any(c == head and on for c, on, _ in self.tags.values())
+        return {"status": "behind" if on_main else "diverged"}
 
     @staticmethod
     def named(secrets):
@@ -369,3 +396,54 @@ def test_only_names_listed_signers(capsys):
 
 def test_signers_cover_the_bootc_hosts():
     assert {"rhel10-bootc-server", "rhel10-bootc-workstation"} <= set(prov.signers(None))
+
+
+def test_a_release_tag_off_the_default_branch_blocks_the_secrets(capsys):
+    fake = FakeGitHub()
+    fake.tags = {
+        "v1.0.0": ("a" * 40, True, False),
+        "v1.1.0": ("b" * 40, False, True),
+        "v4": ("c" * 40, False, False),
+    }
+    code, out = provision(fake, capsys)
+    assert code == 1 and "no secret set" in out.err
+    assert "tag v1.1.0 is not on main" in out.err
+    assert "v1.0.0" not in out.err and "tag v4" not in out.err
+    assert fake.env_secrets == {}
+    assert run(fake, ["--check", "--only", "ashigaru"]) == 1
+    assert "tag v1.1.0 is not on main" in capsys.readouterr().out
+
+
+def test_tags_on_the_default_branch_pass(capsys):
+    fake = FakeGitHub()
+    fake.tags = {"v1.0.0": ("a" * 40, True, True), "v1.1.0": ("b" * 40, True, False)}
+    assert provision(fake, capsys)[0] == 0
+
+
+@pytest.mark.parametrize(
+    "bypass",
+    [
+        [ADMINS, {"actor_type": "Integration", "actor_id": 15368, "bypass_mode": "always"}],
+        [{"actor_type": "RepositoryRole", "actor_id": 4, "bypass_mode": "always"}],
+        None,
+    ],
+)
+def test_a_branch_rule_others_can_bypass_blocks_the_secrets(capsys, bypass):
+    fake = FakeGitHub()
+    org = fake.parent_rulesets[ORG_RULESET]
+    if bypass is None:
+        del org["bypass_actors"]
+    else:
+        org["bypass_actors"] = bypass
+    code, out = provision(fake, capsys)
+    assert code == 1
+    assert "main's 'pull_request' rule can be bypassed by others" in out.err
+    assert fake.env_secrets == {}
+
+
+def test_a_tight_ruleset_beside_a_loose_one_holds_the_rule(capsys):
+    fake = FakeGitHub()
+    loose = {"actor_type": "Integration", "actor_id": 15368, "bypass_mode": "always"}
+    fake.parent_rulesets[901] = {"id": 901, "bypass_actors": [loose]}
+    fake.branch_rules += [{"type": t, "ruleset_id": 901} for t in PROTECTED]
+    assert provision(fake, capsys)[0] == 0

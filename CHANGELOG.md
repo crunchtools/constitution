@@ -43,7 +43,9 @@ Entries through 1.14.0 are derived from the Ratification History table in
   the release App (`cosign_release_app`, `ashigaru-crunchtools`), so a pusher
   cannot tag a pull request's commit into the environment; and the default
   branch's effective rules forbid force-push and deletion and require a pull
-  request (verified, not written). The tag pattern narrows from `v*` to
+  request, each from a ruleset only those two can bypass (verified, not
+  written). It also refuses while any existing `v*.*.*` tag names a commit off
+  the default branch, since the ruleset stops only new tags. The tag pattern narrows from `v*` to
   `v*.*.*`, keeping major tags, which `GITHUB_TOKEN` moves, out of the gate.
   Idempotent, so rotation is one run over every signer. `--check` lists
   repos not fully gated or provisioned, stale COSIGN_* repository secrets,
