@@ -18,6 +18,8 @@ Subcommands, each run by one job of that workflow:
             resolve: skip=true, exit 0.
   promote   move main / latest / semver to a gated digest by copy, refusing
             to move a floating tag backwards, and verify every copy.
+  provenance  write the SLSA v1 predicate of a digest from the build run its
+            labels record, for promote to attest; nothing if it records none.
   boot      the boot gate: does the image actually start and answer.
 
 Every registry write is `skopeo copy --all --preserve-digests` followed by a
@@ -476,6 +478,69 @@ def _release_tags(version: tuple[int, int, int], releases: dict) -> list[str]:
     return tags
 
 
+# ------------------------------------------------------------------ provenance
+
+# What build stamps on every image (#204): the run that built it, the caller's
+# workflow, and the commit, next to the org.opencontainers.image.revision it
+# already wrote. Inside the config, so the signature covers them.
+BUILD_RUN = "com.crunchtools.build.run"
+BUILD_WORKFLOW = "com.crunchtools.build.workflow"
+BUILD_COMMIT = "com.crunchtools.build.commit"
+REVISION = "org.opencontainers.image.revision"
+COMMIT = re.compile(r"^[0-9a-f]{40}$")
+BUILD_TYPE = "https://slsa-framework.github.io/github-actions-buildtypes/workflow/v1"
+
+
+def build_record(labels: dict[str, str], repo: str) -> tuple[str, str, str] | None:
+    """(run, workflow, commit) when the labels record a build of `repo` at their own revision."""
+    run_url, workflow, commit = (
+        labels.get(k, "") for k in (BUILD_RUN, BUILD_WORKFLOW, BUILD_COMMIT)
+    )
+    own_run = re.compile(rf"^https://github\.com/{re.escape(repo)}/actions/runs/\d+/attempts/\d+$")
+    honest = (
+        own_run.match(run_url)
+        and workflow.startswith(f"{repo}/.github/workflows/")
+        and "@" in workflow
+        and COMMIT.match(commit)
+        and commit == labels.get(REVISION)
+    )
+    return (run_url, workflow, commit) if honest else None
+
+
+def provenance(reg: Registry, repo: str, digest: str) -> dict | None:
+    """The SLSA v1 predicate naming the run that built `digest`; None if it records none.
+
+    Promote usually takes a digest a pull request's run built (resolve), so the
+    builder is read off the image, where build wrote it, never taken from the
+    promote run. A digest built before build wrote the record, or whose record
+    is not this repo's build of this image's revision (inherited FROM a base
+    image), gets no provenance rather than a wrong one.
+    """
+    if not DIGEST.match(digest):
+        raise Refused(f"'{digest}' is not a sha256 digest")
+    record = build_record(reg.labels(digest), repo)
+    if record is None:
+        log(
+            f"::warning::{reg.image}@{digest} records no build run of {repo} at its own "
+            "revision (built before #204, or a base image's record); no provenance attested"
+        )
+        return None
+    run_url, workflow, commit = record
+    path, ref = workflow.removeprefix(f"{repo}/").split("@", 1)
+    source = f"https://github.com/{repo}"
+    return {
+        "buildDefinition": {
+            "buildType": BUILD_TYPE,
+            "externalParameters": {"workflow": {"ref": ref, "repository": source, "path": path}},
+            "resolvedDependencies": [{"uri": f"git+{source}", "digest": {"gitCommit": commit}}],
+        },
+        "runDetails": {
+            "builder": {"id": f"https://github.com/{workflow}"},
+            "metadata": {"invocationId": run_url},
+        },
+    }
+
+
 # ------------------------------------------------------------------ boot
 
 
@@ -759,6 +824,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         p.add_argument("--outside", default="", help="globs that never reach the image")
         p.add_argument("--base", default="", help="resolve a pull request against this base")
 
+    _provenance_parser(sub)
     b = sub.add_parser("boot")
     b.add_argument("--image", required=True)
     b.add_argument("--profile", required=True, choices=sorted(BOOTS))
@@ -801,6 +867,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     return 0
 
 
+def _provenance_parser(sub: Any) -> None:
+    v = sub.add_parser("provenance")
+    v.add_argument("--image", required=True)
+    v.add_argument("--repo", default=os.environ.get("GITHUB_REPOSITORY", ""))
+    v.add_argument("--digest", required=True)
+    v.add_argument("--authfile")
+    v.add_argument("--out", required=True, help="the predicate, written only if there is one")
+
+
 def _registry_action(a: argparse.Namespace) -> None:
     reg = Registry(a.image, authfile=a.authfile)
     gh = GitHub(a.repo)
@@ -818,6 +893,12 @@ def _registry_action(a: argparse.Namespace) -> None:
         output("rebuild", "false" if digest else "true")
     elif a.action == "mark":
         reg.copy(a.digest, f"gated-{a.sha}")
+    elif a.action == "provenance":
+        predicate = provenance(reg, a.repo, a.digest)
+        if predicate is not None:
+            with open(a.out, "w", encoding="utf-8") as fh:
+                json.dump(predicate, fh, indent=2)
+            log(f"provenance: {predicate['runDetails']['metadata']['invocationId']}")
     else:
         event = Event(a.sha, a.ref, a.branch, a.cascade)
         output("tags", " ".join(promote(reg, gh, a.digest, event)))

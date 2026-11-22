@@ -39,7 +39,8 @@
 # fleet cosign key; it verifies against keys/crunchtools-bootc.pub here
 # (rhel10-bootc-server#47). Only promote holds the key, so a pull request's
 # candidate is never signed. Promote then attests a syft SPDX SBOM to the
-# digest with that key (#203).
+# digest with that key (#203), and SLSA v1 provenance naming the run that
+# built it, which build records in the image's labels (#204).
 
 name: Container release
 
@@ -299,6 +300,10 @@ jobs:
           BUILD_ARGS: ${{ inputs.build-args }}
           FORMAT: ${{ inputs.format }}
           SOURCE: ${{ github.server_url }}/${{ github.repository }}
+          # The record promote's provenance names as the builder (#204): this
+          # run, not whichever later run promotes the digest.
+          RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
+          WORKFLOW: ${{ github.workflow_ref }}
           RHSM: ${{ inputs.rhsm }}
           # Not named after the secret ids: podman 4.9 (the runner's) mounts
           # a secret whose id matches an environment variable empty, ignoring
@@ -351,6 +356,9 @@ jobs:
           podman build --pull=always --format "$FORMAT" "${args[@]}" \
             --label "org.opencontainers.image.revision=$SHA" \
             --label "org.opencontainers.image.source=$SOURCE" \
+            --label "com.crunchtools.build.run=$RUN" \
+            --label "com.crunchtools.build.workflow=$WORKFLOW" \
+            --label "com.crunchtools.build.commit=$SHA" \
             -f "$FILE" -t localhost/release:candidate "$CONTEXT"
       - id: push
         env:
@@ -683,6 +691,33 @@ jobs:
             cosign verify-attestation --insecure-ignore-tlog --type spdxjson --key "$PUB" "$IMAGE@$DIGEST" >/dev/null
             echo "::notice::attested the SBOM of $IMAGE@$DIGEST"
           fi
+      # Provenance names the run that built the digest, usually a pull
+      # request's, read from the labels build wrote, never this promote run
+      # (#204). A digest with no such record (built before #204) gets none,
+      # with a warning, rather than a predicate naming the wrong builder.
+      - name: Attest the provenance of the digest being promoted
+        if: inputs.sign && steps.check.outputs.skip != 'true'
+        env:
+          COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
+          COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
+          IMAGE: ${{ inputs.image }}
+          DIGEST: ${{ needs.resolve.outputs.digest || needs.build.outputs.digest }}
+          PUB: .constitution/keys/crunchtools-bootc.pub
+        run: |
+          set -euo pipefail
+          if cosign verify-attestation --insecure-ignore-tlog --type slsaprovenance1 --key "$PUB" "$IMAGE@$DIGEST" >/dev/null 2>&1; then
+            echo "::notice::$IMAGE@$DIGEST already carries provenance (a release of a digest main promoted)"
+            exit 0
+          fi
+          rm -f "$RUNNER_TEMP/provenance.json"
+          python3 -I .constitution/scripts/container_release.py provenance \
+            --image "$IMAGE" --digest "$DIGEST" --out "$RUNNER_TEMP/provenance.json"
+          if [ -e "$RUNNER_TEMP/provenance.json" ]; then
+            cosign attest --yes --tlog-upload=false --type slsaprovenance1 \
+              --predicate "$RUNNER_TEMP/provenance.json" --key env://COSIGN_PRIVATE_KEY "$IMAGE@$DIGEST"
+            cosign verify-attestation --insecure-ignore-tlog --type slsaprovenance1 --key "$PUB" "$IMAGE@$DIGEST" >/dev/null
+            echo "::notice::attested the provenance of $IMAGE@$DIGEST"
+          fi
       - id: p
         if: steps.check.outputs.skip != 'true'
         env:
@@ -716,6 +751,8 @@ jobs:
               echo "Signed: \`cosign verify --insecure-ignore-tlog --key crunchtools-bootc.pub $IMAGE@$DIGEST\`"
               echo
               echo "SBOM: \`cosign verify-attestation --insecure-ignore-tlog --type spdxjson --key crunchtools-bootc.pub $IMAGE@$DIGEST\`"
+              echo
+              echo "Provenance: \`cosign verify-attestation --insecure-ignore-tlog --type slsaprovenance1 --key crunchtools-bootc.pub $IMAGE@$DIGEST\`"
               echo
             fi
             echo "Rollback: \`skopeo copy --all --preserve-digests docker://$IMAGE:rollback-main docker://$IMAGE:main\` (or \`rollback-latest\` / \`latest\`)."

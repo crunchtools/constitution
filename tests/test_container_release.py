@@ -549,6 +549,96 @@ def test_promote_refuses_something_that_is_not_a_digest(w):
         CR.promote(*parts(w), "latest", CR.Event("c2", "refs/heads/main"))
 
 
+# ------------------------------------------------------------- provenance
+
+RUN_URL = f"https://github.com/{REPO}/actions/runs/123/attempts/2"
+WORKFLOW = f"{REPO}/.github/workflows/ci.yml@refs/pull/7/merge"
+COMMIT = "c" * 40
+
+
+def build_labels(**changes):
+    labels = {
+        CR.BUILD_RUN: RUN_URL,
+        CR.BUILD_WORKFLOW: WORKFLOW,
+        CR.BUILD_COMMIT: COMMIT,
+        CR.REVISION: COMMIT,
+    }
+    labels.update(changes)
+    return {k: v for k, v in labels.items() if v is not None}
+
+
+def test_provenance_names_the_run_that_built_the_digest(w):
+    d = w.image("pr", labels=build_labels())
+    predicate = CR.provenance(CR.Registry(IMAGE, w.skopeo), REPO, d)
+    assert predicate["runDetails"]["builder"]["id"] == f"https://github.com/{WORKFLOW}"
+    assert predicate["runDetails"]["metadata"]["invocationId"] == RUN_URL
+    definition = predicate["buildDefinition"]
+    assert definition["buildType"] == CR.BUILD_TYPE
+    assert definition["externalParameters"]["workflow"] == {
+        "ref": "refs/pull/7/merge",
+        "repository": f"https://github.com/{REPO}",
+        "path": ".github/workflows/ci.yml",
+    }
+    assert definition["resolvedDependencies"] == [
+        {"uri": f"git+https://github.com/{REPO}", "digest": {"gitCommit": COMMIT}}
+    ]
+    assert "promote" not in json.dumps(predicate)
+
+
+@pytest.mark.parametrize(
+    "labels",
+    [
+        {},
+        {"name": "canary"},
+        build_labels(**{CR.BUILD_RUN: None}),
+        build_labels(**{CR.BUILD_WORKFLOW: None}),
+        build_labels(**{CR.BUILD_COMMIT: None}),
+        build_labels(**{CR.REVISION: None}),
+        build_labels(
+            **{CR.BUILD_RUN: "https://github.com/crunchtools/other/actions/runs/1/attempts/1"}
+        ),
+        build_labels(**{CR.BUILD_RUN: f"https://github.com/{REPO}/actions/runs/123"}),
+        build_labels(**{CR.BUILD_RUN: f"https://github.com/{REPO}x/actions/runs/1/attempts/1"}),
+        build_labels(
+            **{CR.BUILD_WORKFLOW: "crunchtools/other/.github/workflows/ci.yml@refs/heads/main"}
+        ),
+        build_labels(**{CR.BUILD_WORKFLOW: f"{REPO}/.github/workflows/ci.yml"}),
+        build_labels(**{CR.BUILD_COMMIT: "d" * 40}),
+        build_labels(**{CR.BUILD_COMMIT: "abc", CR.REVISION: "abc"}),
+    ],
+)
+def test_a_digest_with_no_record_of_its_own_build_gets_no_provenance(w, labels, capsys):
+    d = w.image("old", labels=labels)
+    assert CR.provenance(CR.Registry(IMAGE, w.skopeo), REPO, d) is None
+    assert "::warning::" in capsys.readouterr().err
+
+
+def test_a_digest_with_no_labels_at_all_gets_no_provenance(w):
+    d = w.image("bare")
+    assert CR.provenance(CR.Registry(IMAGE, w.skopeo), REPO, d) is None
+
+
+@pytest.mark.parametrize("bad", ["latest", "sha256:abc", "main@sha256:" + "a" * 64])
+def test_provenance_refuses_something_that_is_not_a_digest(w, bad):
+    with pytest.raises(CR.Refused, match="not a sha256"):
+        CR.provenance(CR.Registry(IMAGE, w.skopeo), REPO, bad)
+
+
+def test_the_provenance_cli_writes_the_predicate_only_for_a_recorded_build(
+    w, monkeypatch, tmp_path
+):
+    monkeypatch.setattr(CR.Registry.__init__, "__defaults__", (w.skopeo, None))
+    good = w.image("good", labels=build_labels())
+    old = w.image("old", labels={"name": "canary"})
+    out = tmp_path / "provenance.json"
+    args = ["provenance", "--image", IMAGE, "--repo", REPO, "--out", str(out)]
+    assert CR.main([*args, "--digest", old]) == 0
+    assert not out.exists()
+    assert CR.main([*args, "--digest", good]) == 0
+    written = json.loads(out.read_text())
+    assert written["runDetails"]["metadata"]["invocationId"] == RUN_URL
+
+
 def test_the_cli_exits_zero_when_superseded_and_one_when_refused(w, monkeypatch, capsys):
     monkeypatch.setattr(CR.Registry.__init__, "__defaults__", (w.skopeo, None))
     monkeypatch.setattr(CR.GitHub.__init__, "__defaults__", (w.gh,))

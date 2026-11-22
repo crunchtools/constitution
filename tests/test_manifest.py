@@ -366,6 +366,8 @@ def _run_build_step(
         "BUILD_ARGS": "",
         "FORMAT": "docker",
         "SOURCE": "https://github.com/crunchtools/canary",
+        "RUN": "https://github.com/crunchtools/canary/actions/runs/1/attempts/1",
+        "WORKFLOW": "crunchtools/canary/.github/workflows/ci.yml@refs/heads/main",
         "RHSM": "true",
         "RHSM_KEY_VALUE": key,
         "RHSM_ORG_VALUE": "org" if key else "",
@@ -647,6 +649,130 @@ def test_a_failed_scan_attestation_or_proof_stops_promote(tmp_path, fail):
     assert result.returncode != 0
     assert calls[-1] == fail
     assert "attested the SBOM" not in result.stdout
+
+
+PROVENANCE = "Attest the provenance of the digest being promoted"
+
+
+def test_sign_on_attests_the_provenance_after_the_sbom_before_any_tag_moves():
+    """The signed digest carries SLSA v1 provenance, attested with the same key (#204)."""
+    steps = _promote_steps(sign=True)
+    ids = [s.get("name") or s.get("id") for s in steps]
+    sbom = next(s for s in steps if s.get("name") == "Attest the SBOM of the digest being promoted")
+    prov = next(s for s in steps if s.get("name") == PROVENANCE)
+    sign = ids.index("Sign the digest being promoted")
+    assert sign < ids.index(sbom["name"]) < ids.index(PROVENANCE) < ids.index("p")
+    assert prov["if"] == sbom["if"] == f"{SIGN_IF} && {SKIP_IF}"
+    assert "continue-on-error" not in prov
+    p = next(s for s in steps if s.get("id") == "p")
+    assert prov["env"]["DIGEST"] == p["env"]["DIGEST"]  # attests exactly what promote copies
+    assert prov["env"]["PUB"] == ".constitution/keys/crunchtools-bootc.pub"
+    run = prov["run"]
+    assert "container_release.py provenance" in run
+    assert "cosign attest --yes --tlog-upload=false --type slsaprovenance1" in run
+    assert "--key env://COSIGN_PRIVATE_KEY" in run
+    verify = "cosign verify-attestation --insecure-ignore-tlog --type slsaprovenance1 --key"
+    assert run.count(verify) == len(("skip", "prove"))
+
+
+def test_build_labels_the_image_with_the_run_workflow_and_commit_that_built_it():
+    """Promote reads the builder off these labels, so they name the build run (#204)."""
+    import yaml
+
+    workflow = yaml.safe_load((ROOT / ".github/workflows/container-release.yml").read_text())
+    build = next(s for s in workflow["jobs"]["build"]["steps"] if s.get("name") == "Build once")
+    for label, var in [
+        ("com.crunchtools.build.run", "RUN"),
+        ("com.crunchtools.build.workflow", "WORKFLOW"),
+        ("com.crunchtools.build.commit", "SHA"),
+    ]:
+        assert f'--label "{label}=${var}"' in build["run"]
+    run_env = build["env"]["RUN"]
+    for part in ("github.run_id", "github.run_attempt", "/actions/runs/", "/attempts/"):
+        assert part in run_env
+    assert build["env"]["WORKFLOW"] == "${{ github.workflow_ref }}"
+
+
+def _run_provenance_step(tmp_path: Path, *, attested: bool, record: bool, fail: str = "") -> tuple:
+    """Run the provenance step with stub cosign and python3. `attested` is what the
+    first verify-attestation finds; `record` is whether the stub python3 writes --out."""
+    step = next(s for s in _promote_steps(sign=True) if s.get("name") == PROVENANCE)
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    log = tmp_path / "calls"
+    marker = tmp_path / "attested"
+    if attested:
+        marker.touch()
+    cosign = (
+        "#!/bin/sh\n"
+        f'echo "$(basename "$0") $1" >> {log}\n'
+        f'[ "$(basename "$0") $1" = "{fail}" ] && exit 1\n'
+        f'case "$1" in attest) touch {marker} ;;\n'
+        f"  verify-attestation) [ -e {marker} ] || exit 1 ;; esac\n"
+        "exit 0\n"
+    )
+    python = (
+        "#!/bin/sh\n"
+        f'echo "python3 $3" >> {log}\n'
+        f'[ "python3 $3" = "{fail}" ] && exit 1\n'
+        'while [ $# -gt 0 ]; do [ "$1" = --out ] && out="$2"; shift; done\n'
+        + ('echo "{}" > "$out"\n' if record else "")
+        + "exit 0\n"
+    )
+    for name, text in (("cosign", cosign), ("python3", python)):
+        (bin_dir / name).write_text(text)
+        (bin_dir / name).chmod(0o755)
+    env = {
+        "PATH": f"{bin_dir}:/usr/bin:/bin",
+        "RUNNER_TEMP": str(tmp_path),
+        "IMAGE": "quay.io/crunchtools/canary",
+        "DIGEST": "sha256:" + "a" * 64,
+        "PUB": "crunchtools-bootc.pub",
+    }
+    result = subprocess.run(
+        ["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", step["run"]],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return result, log.read_text().split("\n")[:-1]
+
+
+def test_an_already_attested_provenance_is_reused_not_attested_again(tmp_path):
+    result, calls = _run_provenance_step(tmp_path, attested=True, record=True)
+    assert result.returncode == 0, result.stderr
+    assert calls == ["cosign verify-attestation"]
+    assert "already carries provenance" in result.stdout
+
+
+def test_a_recorded_build_is_attested_and_proven(tmp_path):
+    result, calls = _run_provenance_step(tmp_path, attested=False, record=True)
+    assert result.returncode == 0, result.stderr
+    assert calls == [
+        "cosign verify-attestation",
+        "python3 provenance",
+        "cosign attest",
+        "cosign verify-attestation",
+    ]
+    assert "attested the provenance" in result.stdout
+
+
+def test_a_digest_with_no_build_record_is_promoted_without_provenance(tmp_path):
+    result, calls = _run_provenance_step(tmp_path, attested=False, record=False)
+    assert result.returncode == 0, result.stderr
+    assert calls == ["cosign verify-attestation", "python3 provenance"]
+    assert "attested the provenance" not in result.stdout
+
+
+@pytest.mark.parametrize(
+    "fail", ["python3 provenance", "cosign attest", "cosign verify-attestation"]
+)
+def test_a_failed_provenance_attestation_or_proof_stops_promote(tmp_path, fail):
+    result, calls = _run_provenance_step(tmp_path, attested=False, record=True, fail=fail)
+    assert result.returncode != 0
+    assert calls[-1] == fail
+    assert "attested the provenance" not in result.stdout
 
 
 @pytest.mark.parametrize(
