@@ -680,9 +680,9 @@ jobs:
             syft scan "registry:$IMAGE@$DIGEST" -o "spdx-json=$RUNNER_TEMP/sbom.spdx.json"
             cosign attest --yes --tlog-upload=false --type spdxjson \
               --predicate "$RUNNER_TEMP/sbom.spdx.json" --key env://COSIGN_PRIVATE_KEY "$IMAGE@$DIGEST"
+            cosign verify-attestation --insecure-ignore-tlog --type spdxjson --key "$PUB" "$IMAGE@$DIGEST" >/dev/null
+            echo "::notice::attested the SBOM of $IMAGE@$DIGEST"
           fi
-          cosign verify-attestation --insecure-ignore-tlog --type spdxjson --key "$PUB" "$IMAGE@$DIGEST" >/dev/null
-          echo "::notice::attested the SBOM of $IMAGE@$DIGEST"
       - id: p
         if: steps.check.outputs.skip != 'true'
         env:
