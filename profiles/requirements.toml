@@ -83,6 +83,10 @@ container_release_unpublished = ["claude-agent", "claude-supervisor"]
 # puts the fleet key in each one's cosign-signing environment, and rotates it,
 # from one operator-held copy. A repo is added here before it signs.
 cosign_signers = ["rhel10-bootc-server", "rhel10-bootc-workstation", "ashigaru", "developer"]
+# The App that tags merged release pull requests (ashigaru release-tag.yml mints
+# its token from ASHIGARU_CLIENT_ID). With organization admins, the only actor
+# that may create, move or delete a signer's v*.*.* tags.
+cosign_release_app = "ashigaru-crunchtools"
 
 # What a developer machine has (XII host contract): the only programs a
 # `language: system` pre-commit hook may start, besides scripts in the repo.

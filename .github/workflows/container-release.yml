@@ -152,7 +152,7 @@ on:
       sign:
         description: >-
           Sign the promoted digest with cosign before any tag moves. The job
-          runs in the `cosign-signing` environment (main and v* only); pass
+          runs in the `cosign-signing` environment (main and v*.*.* only); pass
           COSIGN_PRIVATE_KEY and COSIGN_PASSWORD by name. Off by default on
           purpose: a caller that passes no key fails promote, so turning it on
           is a caller change (examples/container.yml), never a default.

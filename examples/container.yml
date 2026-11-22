@@ -36,8 +36,8 @@ jobs:
       # Hosts refuse an unsigned quay.io/crunchtools image
       # (rhel10-bootc-server#47). Provision the repo's cosign-signing
       # environment BEFORE setting this, with the constitution's
-      # scripts/provision-cosign-env.py: deployment rules for main and v*
-      # only, then the key. GitHub auto-creates a missing environment with no
+      # scripts/provision-cosign-env.py: deployment rules for main and
+      # v*.*.* only, a tag ruleset on v*.*.*, then the key. GitHub auto-creates a missing environment with no
       # rules. The key is an environment secret, never an org or repo secret
       # (any branch reads those). Without it, promote refuses.
       sign: true

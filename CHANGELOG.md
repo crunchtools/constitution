@@ -34,14 +34,21 @@ Entries through 1.14.0 are derived from the Ratification History table in
   Container Image profile 1.16.0 (IX).
 - `scripts/provision-cosign-env.py` (a925): the one way the fleet cosign key
   reaches a signing repo. For each repo in `cosign_signers`
-  (profiles/requirements.toml) it creates or updates the `cosign-signing`
-  environment with exactly the default branch and `v*` tag as deployment
-  rules, re-reads them, and only then sets `COSIGN_PRIVATE_KEY` and
-  `COSIGN_PASSWORD`, read from stdin (PEM key, then a password line) and never
-  echoed or passed in argv. Idempotent, so rotation is one run over every
-  signer. `--check` reads only names and lists repos not provisioned and stale
-  COSIGN_* repository or organization secrets. Needs a token with admin on
-  each repo. Container Image profile 1.16.0 (IX) records why the key stays an
+  (profiles/requirements.toml) it writes and reads back the gate, and only
+  then sets `COSIGN_PRIVATE_KEY` and `COSIGN_PASSWORD`, read from stdin (PEM
+  key, then a password line) and never echoed or passed in argv. The gate: the
+  `cosign-signing` environment deploys from exactly the default branch and
+  `v*.*.*` tags; a `cosign release tags` ruleset restricts creating, moving
+  and deleting `refs/tags/v*.*.*`, bypassed only by organization admins and
+  the release App (`cosign_release_app`, `ashigaru-crunchtools`), so a pusher
+  cannot tag a pull request's commit into the environment; and the default
+  branch's effective rules forbid force-push and deletion and require a pull
+  request (verified, not written). The tag pattern narrows from `v*` to
+  `v*.*.*`, keeping major tags, which `GITHUB_TOKEN` moves, out of the gate.
+  Idempotent, so rotation is one run over every signer. `--check` lists
+  repos not fully gated or provisioned, stale COSIGN_* repository secrets,
+  and every COSIGN_* organization secret, whatever its scope. Needs a token
+  with admin on each repo and read access to organization secrets. Container Image profile 1.16.0 (IX) records why the key stays an
   environment secret and is never an organization secret: org and repo
   secrets reach every branch's jobs, so only the environment's branch rules
   keep the key from pull requests, and environment > repository >

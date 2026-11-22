@@ -29,3 +29,11 @@ file = "scripts/fleet-bump.py"
 evidence = "    steps = job.get(\"steps\")\n    if not isinstance(steps, list) or not all(isinstance(s, dict) for s in steps):\n        return False\n    if any(\"uses\" in s for s in steps):\n        return False\n    script = \"\\n\".join(str(s.get(\"run\", \"\")) for s in steps)\n    if hashlib.sha256(script.encode()).hexdigest() not in REVIEWED_GUARDS:\n        return False\n    envs = [workflow_env, job.get(\"env\"), *(s.get(\"env\") for s in steps)]"
 status = "not-a-bug"
 reason = "The ignore claims only that nothing from the PR is checked out or run, which a guard switched off by if: false makes no less true: a job that does not run executes nothing. Whether the guard blocks merges is branch protection's job (it is a required check), not zizmor's dangerous-triggers audit."
+
+[[findings]]
+agent = "security"
+category = "security"
+file = "scripts/provision-cosign-env.py"
+evidence = "def branch_problems(gh: Gh, repo: str, default: str) -> list[str]:\n    \"\"\"The default branch's effective rules, from every active ruleset.\"\"\"\n    have = {rule[\"type\"] for rule in gh.listed(f\"repos/{repo}/rules/branches/{default}\")}\n    return [f\"{default} has no '{rule}' rule\" for rule in BRANCH_RULES if rule not in have]"
+status = "not-a-bug"
+reason = "The fleet merges its own pull requests once the organization ruleset's required checks pass (Gatehouse triage, sdlc ci, Validate constitution); no repo requires a second human's approval, so demanding one would refuse every signer. The gate the brief set is a required pull request, no force-push and no deletion, which this verifies."
