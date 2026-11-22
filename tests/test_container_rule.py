@@ -455,9 +455,13 @@ def test_a_publisher_missing_from_cosign_signers_fails(tmp_path):
     assert "`unlisted` publishes an image but is not in `cosign_signers`" in found
 
 
+SIGNING_PROMOTE = job(
+    "promote", "skopeo copy --all --preserve-digests docker://a docker://b"
+).replace("    runs-on:", "    environment: cosign-signing\n    runs-on:")
+
+
 def test_a_custom_publisher_must_be_a_signer_too(tmp_path):
-    copy = job("promote", "skopeo copy --all --preserve-digests docker://a docker://b")
-    assert check(make(tmp_path, "custom-repo", release=workflow(copy)), "1.60.0") == []
+    assert check(make(tmp_path, "custom-repo", release=workflow(SIGNING_PROMOTE)), "1.60.0") == []
     unlisted = {"fleet": {**REQ["fleet"], "cosign_signers": []}}
     root = tmp_path / "custom-repo"
     [found] = V.check_container_release(root, "1.60.0", unlisted)
@@ -470,12 +474,28 @@ def test_a_clone_under_the_old_name_counts_as_the_new_signer(tmp_path):
     assert V.check_container_release(root, "1.60.0", {"fleet": fleet}) == []
 
 
+@pytest.mark.parametrize("environment", ["", "    environment: staging\n"])
+def test_a_custom_publisher_that_cannot_sign_fails(tmp_path, environment):
+    copy = job("promote", "skopeo copy --all --preserve-digests docker://a docker://b")
+    copy = copy.replace("    runs-on:", environment + "    runs-on:")
+    [found] = check(make(tmp_path, "custom-repo", release=workflow(copy)), "1.60.0")
+    assert "no job in the `cosign-signing` environment" in found
+
+
+def test_the_signing_environment_may_be_given_as_a_mapping(tmp_path):
+    promote = SIGNING_PROMOTE.replace(
+        "environment: cosign-signing", "environment:\n      name: cosign-signing"
+    )
+    assert check(make(tmp_path, "custom-repo", release=workflow(promote)), "1.60.0") == []
+
+
 def test_an_unpublished_repo_needs_no_signing(tmp_path):
     assert check(make(tmp_path, "reference-repo"), "1.60.0") == []
 
 
-def test_every_publisher_in_the_table_is_a_signer():
-    """The live list: a repo that publishes is listed before it bumps to 1.60.0."""
+def test_the_live_signer_list_names_each_repo_once_by_its_current_name():
+    """Provisioning keys on these names: a duplicate or a redirected old name
+    would gate the same repo twice."""
     signers = V.load_requirements()["fleet"]["cosign_signers"]
     assert len(signers) == len(set(signers))
     assert "python-sdlc" not in signers and "sdlc" in signers

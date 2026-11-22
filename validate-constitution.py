@@ -1806,6 +1806,13 @@ def check_locked_install(repo_root: Path, requirements: dict) -> list[str]:
 CONTAINER_RELEASE_SINCE = (1, 39, 0)
 """First constitution version whose container-image VII is machine-checked (RT#1550)."""
 
+
+def _environment(job: dict) -> str:
+    """A job's `environment:`, given as a name or as `{name: ...}`."""
+    env = job.get("environment")
+    return str(env.get("name", "")) if isinstance(env, dict) else str(env or "")
+
+
 SIGN_SINCE = (1, 60, 0)
 """First constitution version whose IX signs every published image (sdlc#88):
 each container-release.yml call passes `sign: true`, and the repo is in
@@ -2148,21 +2155,35 @@ def check_container_release(repo_root: Path, inherits: str, requirements: dict) 
             "crunchtools/constitution/.github/workflows/container-release.yml@v1 (VII, RT#1550)"
         )
     if _version_tuple(inherits) >= SIGN_SINCE and (custom or calls):
-        violations += _signing_refusals(repo_root, name, fleet)
+        violations += _signing_refusals(repo_root, name, fleet, custom)
     return violations
 
 
-def _signing_refusals(repo_root: Path, name: str, fleet: dict) -> list[str]:
-    """IX since SIGN_SINCE, for a repo that publishes: signed, and gated."""
-    violations = [
-        f"CONTAINER: {path.name} job `{job_id}` calls container-release.yml "
-        f"without `sign: true`; every published image is signed (IX, sdlc#88)"
+def _signing_refusals(repo_root: Path, name: str, fleet: dict, custom: bool) -> list[str]:
+    """IX since SIGN_SINCE, for a repo that publishes: signed, and gated.
+
+    A custom workflow signs however it likes (sdlc runs a script), so what is
+    checked is the one thing signing cannot do without: a job that deploys to
+    `cosign-signing`, the only place the fleet key lives.
+    """
+    jobs = [
+        (path, job_id, job)
         for path in workflow_files(repo_root)
         for job_id, job in ((load_yaml(path) or {}).get("jobs") or {}).items()
         if isinstance(job, dict)
-        and _RELEASE_CALL.match(str(job.get("uses", "")))
+    ]
+    violations = [
+        f"CONTAINER: {path.name} job `{job_id}` calls container-release.yml "
+        f"without `sign: true`; every published image is signed (IX, sdlc#88)"
+        for path, job_id, job in jobs
+        if _RELEASE_CALL.match(str(job.get("uses", "")))
         and (job.get("with") or {}).get("sign") is not True
     ]
+    if custom and not any(_environment(job) == "cosign-signing" for _, _, job in jobs):
+        violations.append(
+            "CONTAINER: custom release workflow has no job in the `cosign-signing` "
+            "environment, so it cannot sign what it publishes (IX, sdlc#88)"
+        )
     if fleet.get("renamed_repos", {}).get(name, name) not in fleet.get("cosign_signers", []):
         violations.append(
             f"CONTAINER: `{name}` publishes an image but is not in `cosign_signers` "
