@@ -1453,6 +1453,7 @@ def version_matches(constraint: str, version: tuple[int, int]) -> bool:
 
 
 def ignore_versions(ignore: dict) -> list[str]:
+    """An ignore's `versions` as a list: Dependabot takes one string or a list."""
     value = ignore.get("versions") or []
     return [value] if isinstance(value, str) else list(value)
 
