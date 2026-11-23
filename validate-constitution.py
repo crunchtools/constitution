@@ -1303,9 +1303,10 @@ def dependabot_violations(
 
     Renovate runs on every repo from the org-inherited config, so a repo needs
     no update config of its own. Before the cut-off a `.github/dependabot.yml`
-    is accepted and checked as before (ecosystem coverage and the constitution
-    ignore; check_gate_workflows wants its auto-merge caller). From it, the file
-    and any auto-merge caller fail: scripts/fleet-bump.py --renovate deletes both.
+    is accepted and checked as before (ecosystem coverage, the constitution
+    ignore, and the Python base image's minor held back; check_gate_workflows
+    wants its auto-merge caller). From it, the file and any auto-merge caller
+    fail: scripts/fleet-bump.py --renovate deletes both.
     """
     dependabot = repo_root / ".github" / "dependabot.yml"
     until = version_tuple(fleet.get("dependabot_until"))
@@ -1351,7 +1352,134 @@ def dependabot_violations(
             "FILES: dependabot.yml must ignore crunchtools/constitution; it is called "
             "at its major tag, and a new major moves through scripts/fleet-bump.py"
         )
+    violations += [
+        f"FILES: dependabot.yml's docker block for `{directory}` must hold "
+        f"hummingbird/python at {'.'.join(map(str, version))}: ignore "
+        "`version-update:semver-minor` and `semver-major`, or a `versions` range "
+        "that blocks the next minor and major; a Python minor is a runtime "
+        "migration the uv lock cannot follow (XV)"
+        for directory, version, ignores in python_base_blocks(repo_root, doc)
+        if not holds_python_base(ignores, version)
+    ]
     return violations
+
+
+PYTHON_BASE = "hummingbird/python"
+# The image as Dependabot names it, behind at most a registry host, and its
+# `major.minor` tag (`3.14`, `3.14-builder`). A digest-only or `latest` image
+# never moves a version, so it has nothing to hold.
+PYTHON_FROM = re.compile(rf"(?:[^\s/]+/)?{PYTHON_BASE}:(\d+)\.(\d+)(?![\d.])", re.I)
+FROM_LINE = re.compile(r"^\s*FROM\s+(?:--\S+\s+)*(\S+)", re.M | re.I)
+ARG_LINE = re.compile(r"^\s*ARG\s+(\w+)=(\S+)", re.M | re.I)
+
+
+def python_base_versions(containerfile: str) -> set[tuple[int, int]]:
+    """The hummingbird/python `major.minor` tags a Containerfile builds FROM.
+
+    `FROM ${BASE}` is resolved from the ARG defaults; an image still templated
+    after that is skipped, since only the build knows it.
+    """
+    args = {name: value.strip("\"'") for name, value in ARG_LINE.findall(containerfile)}
+
+    def resolve(m: re.Match) -> str:
+        return args.get(m.group(1) or m.group(2), m.group(0))
+
+    found = set()
+    for image in FROM_LINE.findall(containerfile):
+        image = re.sub(r"\$\{(\w+)\}|\$(\w+)", resolve, image)
+        m = PYTHON_FROM.match(image.split("@")[0])
+        if m and "$" not in image:
+            found.add((int(m.group(1)), int(m.group(2))))
+    return found
+
+
+def python_base_blocks(repo_root: Path, doc) -> list[tuple[str, tuple[int, int], list[dict]]]:
+    """Each Dependabot docker directory with the Python base versions it would
+    bump, and the ignores that apply to hummingbird/python there."""
+    blocks = []
+    for u in (doc or {}).get("updates", []) or []:
+        if not isinstance(u, dict) or u.get("package-ecosystem") != "docker":
+            continue
+        ignores = [
+            i
+            for i in u.get("ignore", []) or []
+            if isinstance(i, dict) and fnmatch.fnmatch(PYTHON_BASE, i.get("dependency-name", ""))
+        ]
+        for directory in u.get("directories") or [u.get("directory", "/")]:
+            root = repo_root / str(directory).strip("/")
+            versions = {
+                v
+                for pattern in ("Containerfile*", "Dockerfile*")
+                for f in (root.glob(pattern) if root.is_dir() else [])
+                if f.is_file()
+                for v in python_base_versions(f.read_text(errors="replace"))
+            }
+            blocks += [(directory, v, ignores) for v in sorted(versions)]
+    return blocks
+
+
+VERSION_CLAUSE = re.compile(r"^(>=|<=|!=|>|<|=)?\s*v?(\d+(?:\.(?:\d+|[x*]))*)$")
+
+
+def version_matches(constraint: str, version: tuple[int, int]) -> bool:
+    """Dependabot's `versions` form: comma-joined clauses that must all hold.
+
+    A clause this does not read fails the match, so a form it misreads can
+    only report a hold missing, never pass one that is not there.
+    """
+    for clause in str(constraint).split(","):
+        m = VERSION_CLAUSE.match(clause.strip())
+        if not m:
+            return False
+        op, raw = m.group(1) or "=", m.group(2)
+        parts = raw.split(".")
+        exact = tuple(int(p) for p in parts if p.isdigit())
+        if len(exact) < len(parts):  # `3.x`: the leading parts are fixed
+            ok = version[: len(exact)] == exact and op == "="
+        else:
+            bound = (*exact, 0)[: max(len(exact), 2)]
+            have = version + (0,) * (len(bound) - 2)
+            ok = {
+                ">=": have >= bound,
+                ">": have > bound,
+                "<=": have <= bound,
+                "<": have < bound,
+                "!=": have != bound,
+                "=": have[: len(exact)] == bound[: len(exact)],
+            }[op]
+        if not ok:
+            return False
+    return True
+
+
+def ignore_versions(ignore: dict) -> list[str]:
+    """An ignore's `versions` as a list: Dependabot takes one string or a list."""
+    value = ignore.get("versions") or []
+    return [value] if isinstance(value, str) else list(value)
+
+
+def holds_python_base(ignores: list[dict], current: tuple[int, int]) -> bool:
+    """The ignores stop both the next Python minor and the next major from `current`.
+
+    An entry blocks a bump when every condition it names matches: its
+    `update-types` (none named is every type) and its `versions` (none named
+    is every version).
+    """
+    bumps = [
+        ((current[0], current[1] + 1), "version-update:semver-minor"),
+        ((current[0] + 1, 0), "version-update:semver-major"),
+    ]
+    return all(
+        any(
+            (not i.get("update-types") or kind in i["update-types"])
+            and (
+                not ignore_versions(i)
+                or any(version_matches(c, target) for c in ignore_versions(i))
+            )
+            for i in ignores
+        )
+        for target, kind in bumps
+    )
 
 
 def check_dependency_updates(
