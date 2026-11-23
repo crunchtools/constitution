@@ -9,6 +9,8 @@ Entries through 1.14.0 are derived from the Ratification History table in
 
 ## [Unreleased]
 
+## [1.61.0] - 2026-11-23
+
 ### Added
 - XII accepts sdlc's fleet file as the CI job: a `sdlc / check` job whose
   step runs exactly `sdlc event`, without `continue-on-error`, in an

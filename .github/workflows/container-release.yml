@@ -231,7 +231,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: crunchtools/constitution
-          ref: ${{ inputs.constitution-ref || 'v1.60.0' }}
+          ref: ${{ inputs.constitution-ref || 'v1.61.0' }}
           path: .constitution
           persist-credentials: false
       - id: r
@@ -447,7 +447,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: crunchtools/constitution
-          ref: ${{ inputs.constitution-ref || 'v1.60.0' }}
+          ref: ${{ inputs.constitution-ref || 'v1.61.0' }}
           path: .constitution
           persist-credentials: false
       - if: needs.build.outputs.pushed == 'false'
@@ -539,7 +539,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: crunchtools/constitution
-          ref: ${{ inputs.constitution-ref || 'v1.60.0' }}
+          ref: ${{ inputs.constitution-ref || 'v1.61.0' }}
           path: .constitution
           persist-credentials: false
       - env:
@@ -600,7 +600,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: crunchtools/constitution
-          ref: ${{ inputs.constitution-ref || 'v1.60.0' }}
+          ref: ${{ inputs.constitution-ref || 'v1.61.0' }}
           path: .constitution
           persist-credentials: false
       # The check and the copies read REGISTRY_AUTH_FILE from here. Only this
@@ -861,7 +861,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: crunchtools/constitution
-          ref: ${{ inputs.constitution-ref || 'v1.60.0' }}
+          ref: ${{ inputs.constitution-ref || 'v1.61.0' }}
           path: .constitution
           persist-credentials: false
       - name: Open or comment on the alert issue
