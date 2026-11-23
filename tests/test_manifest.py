@@ -2016,6 +2016,22 @@ def test_a_fleet_check_running_something_else_is_no_ci_job(repo):
     assert any("no CI job named `sdlc ci`" in v for v in violations(repo))
 
 
+def test_the_fleet_file_replaces_the_gate_workflows(repo):
+    """`sdlc event` runs Gourmand, Gatehouse, the guard, validation and the image release."""
+    float_repo(repo)
+    for name in ("gatehouse.yml", "gatehouse-retriage.yml", "gourmand.yml", "constitution.yml", "container.yml"):
+        (repo / ".github/workflows" / name).unlink()
+    fleet_ci(repo)
+    assert violations(repo) == []
+
+
+def test_an_unsound_fleet_file_replaces_nothing(repo):
+    float_repo(repo)
+    (repo / ".github/workflows/gourmand.yml").unlink()
+    fleet_ci(repo, image="quay.io/crunchtools/sdlc-bootstrap:0")
+    assert any("gourmand.yml" in v for v in violations(repo))
+
+
 def test_a_dotted_launcher_path_counts(repo):
     float_repo(repo)
     write(repo, ".pre-commit-config.yaml", FLOATING.replace("entry: .sdlc", "entry: ./.sdlc"))

@@ -483,6 +483,25 @@ def _fleet_check(job: dict, where: str, images: list[str]) -> tuple[bool, list[s
     return True, violations
 
 
+def runs_fleet_ci(repo_root: Path, requirements: dict) -> bool:
+    """The repo runs sdlc's fleet file, with a sound `check` job.
+
+    `sdlc event` then does what the per-repo gate workflows did: Gourmand,
+    Gatehouse review and triage, the workflow guard, constitution validation,
+    and the image's build, gate and signed promote. The checks that look for
+    those workflows stand down for it.
+    """
+    images = requirements.get("fleet", {}).get("sdlc_bootstrap_images", [])
+    for path in workflow_files(repo_root):
+        workflow = load_yaml(path) or {}
+        jobs = workflow.get("jobs") if isinstance(workflow, dict) else None
+        for job in (jobs or {}).values():
+            if isinstance(job, dict) and FLEET_CHECK.match(str(job.get("name", ""))):
+                if _fleet_check(job, path.name, images) == (True, []):
+                    return True
+    return False
+
+
 def check_floating_ci(repo_root: Path, launcher: str, images: list[str] | None = None) -> list[str]:
     """The required CI job: the floating `sdlc ci` job, or the fleet file's `check`.
 
@@ -644,7 +663,7 @@ def check_quality_gate_wiring(
         violations += check_standalone_hooks(hooks)
 
     triage = re.compile(r"uses:\s*(?:crunchtools/gatehouse|\.)/\.github/workflows/triage\.yml")
-    if not any(
+    if not runs_fleet_ci(repo_root, requirements) and not any(
         triage.search(strip_yaml_comments(f.read_text())) for f in workflow_files(repo_root)
     ):
         violations.append(
@@ -1255,7 +1274,9 @@ def check_gate_workflows(repo_root: Path, inherits: str, requirements: dict) -> 
         required.append(
             (constitution, "dependabot-automerge", "pull_request", None, "Dependabot auto-merge")
         )
-    for calls, target, event, workflow_name, label in required:
+    # The fleet file's `sdlc event` runs all of these, and its gate job guards workflows.
+    fleet_file = runs_fleet_ci(repo_root, requirements)
+    for calls, target, event, workflow_name, label in [] if fleet_file else required:
         if not called(calls, target, event, workflow_name):
             where = f" in the workflow named '{workflow_name}'" if workflow_name else ""
             violations.append(
@@ -1267,7 +1288,7 @@ def check_gate_workflows(repo_root: Path, inherits: str, requirements: dict) -> 
     violations += triage_review_result_violations(flows, inherits)
 
     gatehouse_workflow = [wf for wf in flows.files.values() if wf.get("name") == "Gatehouse"]
-    if not any(
+    if not fleet_file and not any(
         (job or {}).get("name") == "Protect workflows" and "steps" in (job or {})
         for wf in gatehouse_workflow
         for job in (wf.get("jobs") or {}).values()
@@ -2317,7 +2338,7 @@ def check_container_release(repo_root: Path, inherits: str, requirements: dict) 
             "CONTAINER: custom release workflow never promotes with "
             "`skopeo copy --all --preserve-digests` (VII)"
         )
-    elif not custom and not unpublished and not calls:
+    elif not custom and not unpublished and not calls and not runs_fleet_ci(repo_root, requirements):
         violations.append(
             "CONTAINER: a Containerfile is present but no workflow job calls "
             "crunchtools/constitution/.github/workflows/container-release.yml@v1 (VII, RT#1550)"
