@@ -1098,14 +1098,41 @@ HOLD_PYTHON_MINOR = """\
           - "version-update:semver-minor"
           - "version-update:semver-major"
 """
+# crunchtools/hermes holds its base with a version range instead (a1119 review).
+HERMES_DOCKER = """\
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    ignore:
+      # hermes-agent requires Python <3.14 (project.requires-python); the
+      # 3.14 base broke the build on 2026-10-02. Lift when upstream allows it.
+      - dependency-name: "hummingbird/python"
+        versions: [">=3.14"]
+"""
+HERMES_CONTAINERFILE = """\
+FROM quay.io/hummingbird/python:3.13-builder AS builder
+ARG HERMES_REF=v2026.9.24
+FROM quay.io/hummingbird/python:3.13
+"""
+
+
+def python_violations(repo: Path) -> list[str]:
+    return [v for v in violations(repo) if "hummingbird/python" in v]
+
+
+def with_docker(repo: Path, block: str, containerfile: str, where: str = "Containerfile") -> Path:
+    add_dependabot(repo)
+    dependabot = repo / ".github/dependabot.yml"
+    dependabot.write_text(dependabot.read_text() + block)
+    write(repo, where, containerfile)
+    return dependabot
 
 
 def test_dependabot_holds_back_the_python_base_minor(repo):
-    """XV: a docker block over a FROM hummingbird/python ignores its minor and major
+    """XV: a docker block over a FROM hummingbird/python stops its minor and major
     tag bumps (#874), and only then; digest bumps are not ignored."""
-    add_dependabot(repo)
-    dependabot = repo / ".github/dependabot.yml"
-    dependabot.write_text(dependabot.read_text() + DEPENDABOT_DOCKER)
+    dependabot = with_docker(repo, DEPENDABOT_DOCKER, "FROM quay.io/hummingbird/node:22\n")
     assert violations(repo) == []  # no Containerfile builds on Python
     for other in ("quay.io/not-hummingbird/python:3.14", "quay.io/acme/hummingbird/python:3.14"):
         (repo / "Containerfile").write_text(f"FROM {other}\n")
@@ -1113,25 +1140,76 @@ def test_dependabot_holds_back_the_python_base_minor(repo):
     (repo / "Containerfile").write_text(
         "FROM --platform=linux/amd64 quay.io/hummingbird/python:3.14-builder@sha256:ab AS b\n"
     )
-    assert any("hummingbird/python" in v for v in violations(repo))
+    assert len(python_violations(repo)) == 1
     dependabot.write_text(dependabot.read_text() + HOLD_PYTHON_MINOR)
     assert violations(repo) == []
     dependabot.write_text(
         dependabot.read_text().replace('          - "version-update:semver-major"\n', "")
     )
-    assert any("hummingbird/python" in v for v in violations(repo))
+    assert len(python_violations(repo)) == 1
+
+
+def test_a_version_range_holds_the_python_base_too(repo):
+    """hermes's real config: `versions: [">=3.14"]` on a 3.13 base blocks the next
+    minor and the next major, which is stricter than the update-types form."""
+    dependabot = with_docker(repo, HERMES_DOCKER, HERMES_CONTAINERFILE)
+    assert violations(repo) == []
+    # The same range under a 3.12 base lets 3.13 through.
+    (repo / "Containerfile").write_text("FROM quay.io/hummingbird/python:3.12\n")
+    assert len(python_violations(repo)) == 1
+    (repo / "Containerfile").write_text("FROM quay.io/hummingbird/python:3.14\n")
+    for held in ('[">=3.15"]', '[">= 3.15, < 5"]', '["3.15.x", "4.x"]', '[">3.14"]'):
+        dependabot.write_text(re.sub(r"versions: .*", f"versions: {held}", dependabot.read_text()))
+        assert violations(repo) == [], held
+    for leaky in ('["3.15.x"]', '[">=3.16"]', '["~> 3.15"]'):
+        dependabot.write_text(re.sub(r"versions: .*", f"versions: {leaky}", dependabot.read_text()))
+        assert len(python_violations(repo)) == 1, leaky
+
+
+def test_semver_minor_with_a_range_for_the_major_is_a_hold(repo):
+    block = (
+        DEPENDABOT_DOCKER
+        + """\
+    ignore:
+      - dependency-name: "hummingbird/python"
+        update-types: ["version-update:semver-minor"]
+      - dependency-name: "hummingbird/python"
+        versions: [">=4"]
+"""
+    )
+    with_docker(repo, block, "FROM quay.io/hummingbird/python:3.14\n")
+    assert violations(repo) == []
+
+
+def test_an_arg_templated_base_is_resolved_or_skipped(repo):
+    with_docker(
+        repo, DEPENDABOT_DOCKER, 'ARG BASE="quay.io/hummingbird/python:3.14"\nFROM ${BASE}\n'
+    )
+    assert len(python_violations(repo)) == 1
+    (repo / "Containerfile").write_text("ARG BASE\nFROM $BASE\nFROM ${OTHER}:3.14\n")
+    assert violations(repo) == []
+
+
+def test_only_the_docker_directory_is_read(repo):
+    """The block's own directory, not every Containerfile at the root."""
+    block = DEPENDABOT_DOCKER.replace('directory: "/"', 'directory: "/image"')
+    with_docker(repo, block, "FROM quay.io/hummingbird/python:3.14\n")
+    assert violations(repo) == []
+    write(repo, "image/Containerfile", "FROM quay.io/hummingbird/python:3.14\n")
+    assert any("`/image`" in v for v in python_violations(repo))
+    many = block.replace('directory: "/image"', 'directories: ["/", "/image"]')
+    (repo / ".github/dependabot.yml").write_text(
+        (repo / ".github/dependabot.yml").read_text().replace(block, many)
+    )
+    assert [v.split("`")[1] for v in python_violations(repo)] == ["/", "/image"]
 
 
 def test_the_dependabot_template_holds_back_the_python_base_minor(repo):
     """The commented docker block in the canonical template passes the check."""
-    add_dependabot(repo)
     template = (ROOT / ".github/dependabot.yml").read_text()
     block = template[template.index('  # - package-ecosystem: "docker"') :]
     docker = "\n".join(line.replace("  # ", "  ", 1) for line in block.splitlines())
-    dependabot = repo / ".github/dependabot.yml"
-    dependabot.write_text(dependabot.read_text() + docker + "\n")
-    (repo / "Containerfile").write_text("FROM quay.io/hummingbird/python:3.14\n")
-    assert V.ignores_python_minor(V.load_yaml(dependabot))
+    with_docker(repo, docker + "\n", "FROM quay.io/hummingbird/python:3.14\n")
     assert violations(repo) == []
 
 

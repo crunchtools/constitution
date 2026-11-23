@@ -666,8 +666,8 @@ and the build broke with zero code changes to point at.
    per minor; 3.14 → 3.15 broke every trentina build). Its digest and patch
    bumps flow as usual; the next minor moves by hand with its lock. A repo
    still on Dependabot ignores `version-update:semver-minor` and
-   `semver-major` for the image in its `docker` block, and the validator
-   checks it.
+   `semver-major` for the image in its `docker` block, or a `versions` range
+   that blocks the next minor and major, and the validator checks it.
    Only Acquacotta, Trentina and ROTV have users besides us, so the required
    checks are the gate, not a person reading a green diff. Renovate and
    Dependabot PRs left open more than 14 days show up in the drift report.

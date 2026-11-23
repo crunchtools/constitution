@@ -39,8 +39,12 @@ Entries through 1.14.0 are derived from the Ratification History table in
   The Renovate preset disables `minor` and `major` for `**/hummingbird/python`
   after the minor-and-patch group, keeping digest and patch bumps. The
   canonical `dependabot.yml` carries a commented `docker` block with the
-  matching `ignore`, and the validator fails a Dependabot `docker` block that
-  lacks it in a repo whose Containerfile builds `FROM hummingbird/python`.
+  matching `ignore`. The validator reads the Containerfiles in each Dependabot
+  `docker` block's directories, resolving `FROM ${ARG}` from ARG defaults and
+  skipping what stays templated, and fails a block over a
+  `hummingbird/python:X.Y` base unless its ignores stop the next minor and
+  major: by `update-types`, by a `versions` range (hermes's `>=3.14` on 3.13),
+  or both.
 - XV describes the self-hosted run in place of the org Renovate app.
   `fleet-drift.py` drops the `crunchtools/renovate-config` sync check and
   knows Renovate PRs by their `renovate/` branch.
