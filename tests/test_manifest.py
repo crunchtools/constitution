@@ -1092,7 +1092,7 @@ def drop_dependabot(root: Path) -> None:
 
 
 def test_a_repo_needs_no_update_config_of_its_own(repo):
-    """Renovate reaches every repo from crunchtools/renovate-config (XV)."""
+    """Renovate reaches every repo from crunchtools/constitution (XV)."""
     add_dependabot(repo)
     drop_dependabot(repo)
     assert violations(repo) == []
@@ -1186,7 +1186,7 @@ def test_a_package_json_without_renovate_is_not_renovate_config(repo):
 
 
 def test_org_inherited_config_extends_the_preset_at_the_major_tag():
-    """The canonical copy of crunchtools/renovate-config's file: Renovate on every repo."""
+    """The file every repo inherits from crunchtools/constitution: Renovate on every repo."""
     doc = json.loads((ROOT / "renovate" / "org-inherited-config.json").read_text())
     assert doc == {
         "onboarding": False,

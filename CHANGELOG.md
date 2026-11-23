@@ -9,6 +9,33 @@ Entries through 1.14.0 are derived from the Ratification History table in
 
 ## [Unreleased]
 
+### Added
+- Self-hosted Renovate (a1007). The Mend Renovate app was never installed and
+  `crunchtools/renovate-config` never existed, so XV's update path ran nowhere.
+  `.github/workflows/renovate.yml` runs Renovate's image (44.221.0 by digest,
+  the version `ci.yml` validates with, which fails if they differ) over every
+  `crunchtools/*` repo, forks included, dispatched weekly by Hermes and on any
+  pull request that changes the Renovate setup. `renovate/self-hosted.json`,
+  its global config, has each repo inherit `renovate/org-inherited-config.json`
+  straight from this repo's default branch, so there is no copy to sync. A dry
+  run (the default, and every pull request) mints a read-only token, ignores
+  the weekly window, and summarises what each repo would get. A real run is `dry-run` off, from main only. Both mint from Renovate's
+  own App, renovate.crunchtools.com (key in `RENOVATE_APP_KEY`),
+  which has no workflows permission. `scripts/renovate-app-permissions.mjs`
+  reports what the App lacks (`renovate/app-permissions.json`).
+
+### Changed
+- XV: Renovate never touches `.github/workflows` (a1007). The preset turns the
+  `github-actions` manager off, drops `helpers:pinGitHubActionDigestsToSemver`
+  and the crunchtools workflow-call rule, and ignores the path (restating
+  `config:recommended`'s `ignorePaths`, which a preset replaces rather than
+  extends). An App that rewrites every workflow in the org is the credential
+  worth stealing; workflow pins move with `fleet-bump.py` or by hand while the
+  fleet moves to one sdlc-only `ci.yml`. Reaches the fleet when `v1` moves.
+- XV describes the self-hosted run in place of the org Renovate app.
+  `fleet-drift.py` drops the `crunchtools/renovate-config` sync check and
+  knows Renovate PRs by their `renovate/` branch.
+
 ### Fixed
 - `container-release.yml` gates a secretless (Dependabot or fork) pull
   request's image from an archive in the build's own format

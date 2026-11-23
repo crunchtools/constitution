@@ -1,0 +1,21 @@
+{
+  "description": [
+    "Global config for the self-hosted Renovate run (.github/workflows/renovate.yml).",
+    "Every crunchtools/* repo inherits renovate/org-inherited-config.json from this",
+    "repo's default branch, which turns off onboarding, makes a repo config optional",
+    "and extends renovate/default.json at v1. Forks are processed: a forked MCP server",
+    "is ours to keep current. The workflow sets dryRun unless a real run was asked for."
+  ],
+  "platform": "github",
+  "autodiscover": true,
+  "autodiscoverFilter": [
+    "crunchtools/*"
+  ],
+  "onboarding": false,
+  "requireConfig": "optional",
+  "inheritConfig": true,
+  "inheritConfigRepoName": "crunchtools/constitution",
+  "inheritConfigFileName": "renovate/org-inherited-config.json",
+  "inheritConfigStrict": true,
+  "forkProcessing": "enabled"
+}

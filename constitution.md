@@ -599,26 +599,40 @@ and the build broke with zero code changes to point at.
    (invisible drift) for another (silent staleness — security patches and
    bugfixes never arrive). [Renovate](https://docs.renovatebot.com/) updates
    every repo from one policy, [`renovate/default.json`](renovate/default.json).
-   The org's Renovate app reads `org-inherited-config.json` from
-   `crunchtools/renovate-config` and applies it to every repo before the
-   repo's own config; that file turns off onboarding, makes a repo config
-   optional, and extends the preset at the major tag
-   (`github>crunchtools/constitution//renovate/default#v1`). A repo carries no
+   Renovate is self-hosted:
+   [`renovate.yml`](.github/workflows/renovate.yml) runs Renovate's image
+   over every `crunchtools/*` repo, with
+   [`renovate/self-hosted.json`](renovate/self-hosted.json) as its global
+   config, which has every repo inherit
+   [`renovate/org-inherited-config.json`](renovate/org-inherited-config.json)
+   from this repo's default branch before its own config; that file turns off
+   onboarding, makes a repo config optional, and extends the preset at the
+   major tag (`github>crunchtools/constitution//renovate/default#v1`). A repo carries no
    update config at all, so a policy change is one commit here that reaches the
    fleet when `v1` moves; under Dependabot, which cannot include shared config,
-   the same change was an edit in some 60 repos. The preset covers every ecosystem the profiles use — `github-actions`, uv and
-   pip, Containerfile and workflow images, pre-commit and npm — and a
-   `uses: some-action@v1.2.3` pin goes stale exactly like a lockfile entry
-   does. A third-party `uses:` names a full 40-character commit SHA, with its
-   version as a comment (`actions/checkout@<sha> # v7.0.1`), which Renovate
-   updates like any other pin; a `docker://` step names an image digest. A tag
+   the same change was an edit in some 60 repos. The preset covers every
+   ecosystem the profiles use outside `.github/workflows` — uv and pip,
+   Containerfile images, pre-commit and npm. Renovate never touches
+   `.github/workflows`: the preset turns the `github-actions` manager off and
+   ignores the path, and Renovate's App, renovate.crunchtools.com, holds no
+   workflows permission, so a repo that turns the manager back on gets only
+   rejected pushes. A workflow is code that runs with the repo's token, and an
+   App that can rewrite every workflow in the org is the one credential worth
+   stealing. The fleet is moving to one `ci.yml` per repo that only runs the
+   sdlc container, whose tool versions live in the sdlc repo as ordinary
+   files that Renovate bumps there; the pins left in workflows move with
+   `scripts/fleet-bump.py` or by hand. A third-party `uses:` still names a full
+   40-character commit SHA, with its version as a comment
+   (`actions/checkout@<sha> # v7.0.1`); a `docker://` step names an image
+   digest. A tag
    can be moved under every caller at once, and a SHA cannot. Our own
    `crunchtools/*` workflows float at their major tag instead (rule 5), and a
    `./` path is the repo's own code. The validator reports each unpinned
    reference as a warning; `third_party_pins` in `requirements.toml` turns that
    into a failure once the fleet is migrated.
 3. **Updates land as PRs, gated by the same CI as any other change.**
-   Renovate runs weekly, matching the weekly CVE scan. A non-security update
+   Renovate runs weekly, matching the weekly CVE scan (Hermes dispatches
+   `renovate.yml`). A non-security update
    waits a week where the registry publishes release times (Docker Hub, PyPI,
    npm, GitHub releases): no PR opens before the release is 7 days old
    (`minimumReleaseAge` with `internalChecksFilter: strict`), so a release
@@ -678,8 +692,9 @@ and the build broke with zero code changes to point at.
      the release commit before the tag moves; the constitution's is
      `container-release-canary.yml`.
    There is no per-repo version to keep current, so rule 2 has nothing to
-   update; Renovate offers only a new major tag, and that waits for a human
-   like any other. The preset never pins these to a digest.
+   update; a new major tag moves through `scripts/fleet-bump.py`, since
+   Renovate does not read workflows. The preset never pins a crunchtools image
+   to a digest.
 
 6. **uv projects scan with the fleet's dependency audit.** `security.yml` calls
    [`dependency-audit.yml`](.github/workflows/dependency-audit.yml) at `@v1`
@@ -726,20 +741,29 @@ and the build broke with zero code changes to point at.
    the reason beside it. The job is advisory until the fleet is clean: it
    never fails, and it is not a required check.
 
-Canonical files: [`renovate/default.json`](renovate/default.json), the
-policy, and [`renovate/org-inherited-config.json`](renovate/org-inherited-config.json),
-the canonical copy of the file in `crunchtools/renovate-config`. `ci.yml`
-validates both with Renovate's own code. The copy is synced by hand: a change
-to it here is copied to `crunchtools/renovate-config` in the same sitting, and
-`fleet-drift.py` goes red while the two differ. It rarely changes, since the
-policy lives in the preset. The preset ignores `crunchtools/constitution`: it
-is called at its major tag, and a new major moves through
-`scripts/fleet-bump.py`.
+Policy files: [`renovate/default.json`](renovate/default.json), the policy;
+[`renovate/org-inherited-config.json`](renovate/org-inherited-config.json),
+which every repo inherits; and [`renovate/self-hosted.json`](renovate/self-hosted.json),
+the run's global config. `ci.yml` validates all three with Renovate's own code,
+and a pull request that changes any of them runs `renovate.yml` as a dry run
+over the fleet. There is no copy to keep in sync: Renovate reads the inherited
+file from this repo's default branch. The preset ignores
+`crunchtools/constitution`: it is called at its major tag, and a new major
+moves through `scripts/fleet-bump.py`.
 
 **Transition.** Order matters. The `v1` tag must carry
-`renovate/default.json` before `crunchtools/renovate-config` is created, or
-every repo gets a Renovate config-error issue for a preset that does not
-exist. Then `scripts/fleet-bump.py --renovate` deletes each repo's
+`renovate/default.json` before Renovate runs for real, or every repo gets a
+Renovate config-error issue for a preset that does not exist. Renovate runs
+as its own App, renovate.crunchtools.com (key `RENOVATE_APP_KEY`, a repo secret;
+its client ID is not secret and sits in the workflow), with ordinary permissions
+only: contents, pull requests, issues and statuses write, checks and
+Dependabot alerts read. Without workflows permission the key is not
+sensitive, so dry and real runs share it. A dry run is the default and the
+only kind a pull request gets: its token is read-only (contents, pull
+requests, issues), and its log lists what every repo would get. A real run is
+a `workflow_dispatch` from main with `dry-run` off. Each run's first step
+reports what the App lacks (`renovate/app-permissions.json`). Forks are
+processed too: a forked MCP server is ours to keep current. Then `scripts/fleet-bump.py --renovate` deletes each repo's
 `.github/dependabot.yml` and Dependabot auto-merge caller in one auto-merged
 PR. Dependabot security updates are a repo and org setting, separate from
 `dependabot.yml`, and are turned off org-wide as part of the swap. A repo

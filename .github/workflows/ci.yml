@@ -30,7 +30,8 @@ jobs:
 
   # The fleet's Renovate policy (XV), checked by Renovate's own code at a pinned
   # release: the preset as repo config (--no-global, which is how Renovate reads
-  # a preset), and the canonical org-inherited config as inherited config.
+  # a preset), the self-hosted run's global config, and the org-inherited
+  # config as inherited config.
   renovate:
     name: Renovate preset
     runs-on: ubuntu-latest
@@ -49,6 +50,18 @@ jobs:
         run: >-
           "$RUNNER_TEMP/renovate/node_modules/.bin/renovate-config-validator"
           --strict --no-global renovate/default.json
+      - name: Validate the self-hosted global config
+        run: >-
+          "$RUNNER_TEMP/renovate/node_modules/.bin/renovate-config-validator"
+          --strict renovate/self-hosted.json
+      - name: The self-hosted run uses the Renovate validated here
+        run: |
+          validated=$(grep -o 'renovate@[0-9][0-9.]*' .github/workflows/ci.yml | sort -u | cut -d@ -f2)
+          runs=$(grep -o 'renovatebot/renovate:[0-9][0-9.]*' .github/workflows/renovate.yml | sort -u | cut -d: -f2)
+          [ "$validated" = "$runs" ] || {
+            echo "ERROR: ci.yml validates Renovate $validated, renovate.yml runs $runs"; exit 1; }
+      - name: App permission probe
+        run: node --test tests/renovate/app-permissions.test.mjs
       - name: Validate the org-inherited config
         run: >-
           node scripts/validate-renovate-inherited.mjs

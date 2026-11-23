@@ -1,0 +1,29 @@
+{
+  "description": [
+    "GitHub App permissions each kind of self-hosted Renovate run asks of",
+    "renovate.crunchtools.com; scripts/renovate-app-permissions.mjs reports what its",
+    "installation lacks. Renovate reads issues while opening every repo, so a dry run",
+    "needs issues read. No workflows permission: Renovate never touches .github/workflows."
+  ],
+  "dry-run": {
+    "app": "renovate.crunchtools.com",
+    "required": {
+      "metadata": "read",
+      "contents": "read",
+      "pull_requests": "read",
+      "issues": "read"
+    }
+  },
+  "real": {
+    "app": "renovate.crunchtools.com",
+    "required": {
+      "metadata": "read",
+      "contents": "write",
+      "pull_requests": "write",
+      "issues": "write",
+      "statuses": "write",
+      "checks": "read",
+      "vulnerability_alerts": "read"
+    }
+  }
+}

@@ -18,7 +18,8 @@ Usage:
 Run after tagging a release. Needs GH_TOKEN with contents, pull-requests and
 workflows write across the org. `--renovate` is the one-off Dependabot teardown (XV):
 in every repo it drops dependabot.yml and the auto-merge caller workflows. Renovate
-needs no per-repo file; it runs from the org config in crunchtools/renovate-config.
+needs no per-repo file; every repo inherits `renovate/org-inherited-config.json` from
+crunchtools/constitution through the self-hosted run (.github/workflows/renovate.yml).
 `--zizmor-callers` is the one-off that marks the triggers of each repo's Gatehouse and
 Ashigaru callers as reviewed for zizmor's dangerous-triggers audit (a860).
 """
@@ -371,10 +372,12 @@ RENOVATE = OneOff(
     "chore/renovate",
     "chore: drop Dependabot; Renovate runs from the org config",
     "Renovate now applies the fleet policy to every repo from "
-    "`crunchtools/renovate-config`'s `org-inherited-config.json`, which extends "
-    "`crunchtools/constitution` `renovate/default.json` (constitution XV), so the repo "
-    "needs no config of its own. Drops `.github/dependabot.yml` and the Dependabot "
-    "auto-merge caller. Opened by constitution/scripts/fleet-bump.py --renovate.",
+    "`renovate/org-inherited-config.json`, which every repo inherits from "
+    "`crunchtools/constitution` through the self-hosted Renovate run "
+    "(`.github/workflows/renovate.yml`) and which extends `renovate/default.json` "
+    "(constitution XV), so the repo needs no config of its own. Drops "
+    "`.github/dependabot.yml` and the Dependabot auto-merge caller. "
+    "Opened by constitution/scripts/fleet-bump.py --renovate.",
 )
 ZIZMOR_CALLERS = OneOff(
     "justify caller triggers",

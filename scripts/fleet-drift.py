@@ -17,10 +17,7 @@ Out of policy:
     bump); each bot is reported on its own, so a repo mid-migration shows both
 
 The org ruleset check needs a token that can read org rulesets; without one
-it is reported as a note and does not fail the run. The org Renovate config
-(crunchtools/renovate-config org-inherited-config.json) must match this
-checkout's renovate/org-inherited-config.json; a readable copy that differs
-fails the run, an unreadable one is a note.
+it is reported as a note and does not fail the run.
 
 Usage:
     fleet-drift.py [--stale-days 14] [--only repo,repo]
@@ -31,8 +28,6 @@ their own pinned validation.
 """
 
 import argparse
-import base64
-import json
 import os
 import sys
 import tempfile
@@ -44,16 +39,15 @@ from pathlib import Path
 from fleet_common import MANIFEST, ORG, clone, gh_json, load_validator, select_repos
 
 STALE_DAYS = 14  # constitution.md XV rule 4: bot PRs older than this are drift
-# (display name, `gh pr list --author` value); Renovate's login is renovate[bot]
-BOTS = (("Dependabot", "app/dependabot"), ("Renovate", "app/renovate"))
+# (display name, `gh pr list --author` value or None, head branch prefix). Renovate
+# PRs are known by their branch, whichever App opened them (renovate.crunchtools.com
+# today), so a renamed App or a hand-run Renovate still counts.
+BOTS = (("Dependabot", "app/dependabot", ""), ("Renovate", None, "renovate/"))
 AUDIT_WORKERS = 8  # concurrent clones; well under GitHub's secondary rate limits
 
 # XII (v1.31.0): the job name that must be a required check in every Python
 # repo. It is a job NAME, so renaming the job silently stops it gating.
 SDLC_CHECK = "sdlc ci"
-
-RENOVATE_CONFIG = "org-inherited-config.json"
-RENOVATE_CANONICAL = Path(__file__).resolve().parents[1] / "renovate" / RENOVATE_CONFIG
 
 REQUIRED_CHECKS = {
     "Protect workflows",
@@ -63,25 +57,30 @@ REQUIRED_CHECKS = {
 }
 
 
-def stale_bot_prs(name: str, days: int, author: str) -> int:
-    """Open PRs by `author` (a gh --author value) older than `days`."""
+def stale_bot_prs(name: str, days: int, author: str | None, prefix: str) -> int:
+    """Open PRs by `author` (a gh --author value; None for any) on a branch
+    starting with `prefix`, older than `days`."""
     cutoff = datetime.now(UTC) - timedelta(days=days)
+    by = ["--author", author] if author else []
     prs = (
         gh_json(
             "pr",
             "list",
             "-R",
             f"{ORG}/{name}",
-            "--author",
-            author,
+            *by,
             "--json",
-            "createdAt",
+            "createdAt,headRefName",
             "--limit",
             "200",
         )
         or []
     )
-    return sum(1 for pr in prs if datetime.fromisoformat(pr["createdAt"]) < cutoff)
+    return sum(
+        1
+        for pr in prs
+        if pr["headRefName"].startswith(prefix) and datetime.fromisoformat(pr["createdAt"]) < cutoff
+    )
 
 
 def ruleset_gaps() -> list[str] | None:
@@ -161,21 +160,6 @@ def sdlc_gate_gaps(rows: list[dict]) -> list[str] | None:
     ]
 
 
-def renovate_config_gaps() -> list[str] | None:
-    """Whether the org Renovate config matches the canonical copy; None if unreadable."""
-    found = gh_json("api", f"repos/{ORG}/renovate-config/contents/{RENOVATE_CONFIG}")
-    try:
-        live = json.loads(base64.b64decode(found["content"]))
-    except (TypeError, KeyError, ValueError):
-        return None  # unreadable is unknown, not clean
-    if live == json.loads(RENOVATE_CANONICAL.read_text()):
-        return []
-    return [
-        f"{ORG}/renovate-config {RENOVATE_CONFIG} differs from constitution "
-        f"renovate/{RENOVATE_CONFIG}; copy it there"
-    ]
-
-
 def audit_checkout(root: Path, row: dict, validator, latest: tuple) -> None:
     """Validate a fresh clone; the clone is deleted as soon as this returns."""
     name = row["repo"]
@@ -227,8 +211,8 @@ def audit(repo: dict, validator, latest: tuple, stale_days: int) -> dict:
     # repo; the workflow's own token sees it as absent. Absent is unknown, not off.
     if settings.get("allow_auto_merge") is False:
         row["problems"].append("allow_auto_merge off")
-    for bot, author in BOTS:
-        if stale := stale_bot_prs(name, stale_days, author):
+    for bot, author, prefix in BOTS:
+        if stale := stale_bot_prs(name, stale_days, author, prefix):
             row["problems"].append(f"{stale} {bot} PR(s) older than {stale_days}d")
     return row
 
@@ -255,13 +239,9 @@ def main() -> int:
     # not look" into "nothing wrong", which is the shape of failure this whole
     # report exists to catch.
     org_gaps: list[str] | None = []
-    renovate: list[str] | None = []
     if not args.only:
         checks, gates = ruleset_gaps(), sdlc_gate_gaps(rows)
         org_gaps = None if checks is None or gates is None else checks + gates
-        renovate = renovate_config_gaps()
-        if renovate:
-            org_gaps = (org_gaps or []) + renovate
 
     failing = [r for r in rows if r["problems"]]
     lines = [
@@ -281,8 +261,6 @@ def main() -> int:
             "",
             "Note: org rulesets not readable with this token; required checks not audited.",
         ]
-    if renovate is None:
-        lines += ["", f"Note: {ORG}/renovate-config {RENOVATE_CONFIG} not readable; not audited."]
     report = "\n".join(lines)
     print(report)
     if summary := os.environ.get("GITHUB_STEP_SUMMARY"):
