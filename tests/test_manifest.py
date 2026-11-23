@@ -1957,6 +1957,65 @@ def test_a_floating_repo_must_run_sdlc_ci(repo):
     assert "no CI job named `sdlc ci`" in found
 
 
+BOOT = "quay.io/crunchtools/sdlc-bootstrap@sha256:5f25b7968ff9f14e0fa363ea3c25e0df4f6159abf43549653fff74eb674de060"
+FLEET_CI = """name: CI
+on: [push, pull_request]
+permissions: {}
+jobs:
+  check:
+    name: sdlc / check (${{ github.event_name }})
+    if: contains(fromJSON('["push","pull_request"]'), github.event_name)
+    runs-on: ubuntu-latest
+    container: &boot { image: "IMAGE", volumes: ["/var/run/docker.sock:/var/run/docker.sock"] }
+    permissions: { contents: read }
+JOB    steps: &event [{ id: e, run: sdlc event }]
+  gate:
+    name: sdlc / gate (${{ github.event_name }})
+    runs-on: ubuntu-latest
+    container: *boot
+    steps: *event
+"""
+
+
+def fleet_ci(repo: Path, image: str = BOOT, job: str = "") -> None:
+    write(repo, ".github/workflows/ci.yml", FLEET_CI.replace("IMAGE", image).replace("JOB", job))
+
+
+def test_the_fleet_file_satisfies_the_ci_job(repo):
+    """sdlc's one ci.yml: `check` runs `sdlc event` in sdlc-bootstrap by digest."""
+    float_repo(repo)
+    fleet_ci(repo)
+    assert violations(repo) == []
+
+
+@pytest.mark.parametrize(
+    "image",
+    [
+        "quay.io/crunchtools/sdlc-bootstrap:0",
+        "quay.io/crunchtools/sdlc-bootstrap@sha256:" + "0" * 64,
+        "ghcr.io/attacker/sdlc-bootstrap@sha256:5f25b7968ff9f14e0fa363ea3c25e0df4f6159abf43549653fff74eb674de060",
+    ],
+    ids=["tag", "unlisted-digest", "other-registry"],
+)
+def test_the_fleet_check_runs_only_a_listed_bootstrap(repo, image):
+    """The bootstrap is the trust root: a repo must not name its own judge."""
+    float_repo(repo)
+    fleet_ci(repo, image=image)
+    assert any("not an sdlc-bootstrap release by digest" in v for v in violations(repo))
+
+
+def test_the_fleet_check_may_not_tolerate_failure(repo):
+    float_repo(repo)
+    fleet_ci(repo, job="    continue-on-error: true\n")
+    assert any("`continue-on-error`" in v for v in violations(repo))
+
+
+def test_a_fleet_check_running_something_else_is_no_ci_job(repo):
+    float_repo(repo)
+    write(repo, ".github/workflows/ci.yml", FLEET_CI.replace("IMAGE", BOOT).replace("JOB", "").replace("run: sdlc event", "run: sdlc event || true"))
+    assert any("no CI job named `sdlc ci`" in v for v in violations(repo))
+
+
 def test_a_dotted_launcher_path_counts(repo):
     float_repo(repo)
     write(repo, ".pre-commit-config.yaml", FLOATING.replace("entry: .sdlc", "entry: ./.sdlc"))

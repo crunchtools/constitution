@@ -82,6 +82,13 @@ sdlc_bootstrap_sha256 = [
   "6c4691c4aea0be66d6a6acd2efdf191a5038a1b3b8396b2fc60d14cd419eca72",  # python-sdlc#62 at a483867
   "fb2d76cfeed00f7df2e0bc992b62240c98a647ecf85a5377581c293612fdfbe4",  # sdlc#82 at 6a59496 (self-verify)
 ]
+# The sdlc-bootstrap images the fleet file's jobs may run in, by digest (since
+# 1.61.0). It verifies and runs the signed sdlc, so it is the trust root: a
+# repo naming any other image would choose its own judge. A new sdlc-bootstrap
+# release adds its digest here; old ones stay until the fleet has moved off.
+sdlc_bootstrap_images = [
+  "sha256:5f25b7968ff9f14e0fa363ea3c25e0df4f6159abf43549653fff74eb674de060",  # sdlc 0.12.1
+]
 
 # Container release (container-image VII, since 1.39.0, RT#1550): repos that
 # keep their own promote workflow instead of calling container-release.yml.

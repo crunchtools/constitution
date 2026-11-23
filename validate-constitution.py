@@ -441,7 +441,7 @@ def check_floating_wiring(repo_root: Path, config: dict, requirements: dict) -> 
         if stage not in stages:
             violations.append(f"XII: the `{hook_id}` hook does not run at `{stage}`")
     violations += check_install_hook_types(config)
-    violations += check_floating_ci(repo_root, launcher)
+    violations += check_floating_ci(repo_root, launcher, fleet.get("sdlc_bootstrap_images", []))
     return violations
 
 
@@ -452,14 +452,48 @@ def _always_runs(block: dict) -> bool:
     return condition in (True, "true") and tolerated in (False, "false")
 
 
-def check_floating_ci(repo_root: Path, launcher: str) -> list[str]:
-    """The `sdlc ci` job in the floating form: it runs the launcher, and only that.
+# sdlc's fleet file (sdlc docs/marketplace-free-ci.md): one ci.yml whose
+# required `check` job runs `sdlc event` inside sdlc-bootstrap, by digest.
+FLEET_CHECK = re.compile(r"sdlc / check \(")
+FLEET_IMAGE = re.compile(r"quay\.io/crunchtools/sdlc-bootstrap@(sha256:[0-9a-f]{64})")
+
+
+def _fleet_check(job: dict, where: str, images: list[str]) -> tuple[bool, list[str]]:
+    """(this job is the fleet's check, what is wrong with it).
+
+    The image is the trust root: it verifies the signed sdlc it runs, so it must
+    be a digest sdlc published, or a repo could judge itself with its own.
+    """
+    container = job.get("container")
+    image = str(container.get("image", "")) if isinstance(container, dict) else str(container or "")
+    steps = [step for step in job.get("steps") or [] if isinstance(step, dict)]
+    runs = [step for step in steps if str(step.get("run", "")).strip() == "sdlc event"]
+    if not runs:
+        return False, []
+    violations = []
+    pinned = FLEET_IMAGE.fullmatch(image.strip())
+    if not pinned or pinned.group(1) not in images:
+        violations.append(
+            f"XII: {where} runs in `{image or 'no container'}`, not an sdlc-bootstrap "
+            f"release by digest (copy sdlc's examples/ci.yml unchanged)"
+        )
+    tolerated = [b for b in (job, *runs) if b.get("continue-on-error", False) not in (False, "false")]
+    if tolerated:
+        violations.append(f"XII: {where} has `continue-on-error`")
+    return True, violations
+
+
+def check_floating_ci(repo_root: Path, launcher: str, images: list[str] | None = None) -> list[str]:
+    """The required CI job: the floating `sdlc ci` job, or the fleet file's `check`.
 
     The job is the required check, so anything that lets it go green without
     judging is a hole: a step that runs something else or swallows the exit
     (`|| true`), an `if:` that skips it (a skipped required check counts as
     passed), `continue-on-error`, or an image a pull request names itself.
     SDLC_IMAGE comes from the repository variable, which only an admin sets.
+    The fleet file's `check` (since 1.61.0) runs `sdlc event` in an
+    sdlc-bootstrap image sdlc published; its `if:` routes events, and sdlc's
+    cutover pins the file itself byte for byte.
     """
     wanted = {f"{launcher} ci", f"./{launcher} ci"}
     violations: list[str] = []
@@ -468,6 +502,11 @@ def check_floating_ci(repo_root: Path, launcher: str) -> list[str]:
         workflow = load_yaml(path) or {}
         jobs = workflow.get("jobs") if isinstance(workflow, dict) else None
         for job in (jobs or {}).values():
+            if isinstance(job, dict) and FLEET_CHECK.match(str(job.get("name", ""))):
+                fleet, wrong = _fleet_check(job, f"{path.name}: the `check` job", images or [])
+                found = found or fleet
+                violations += wrong
+                continue
             if not isinstance(job, dict) or job.get("name") != "sdlc ci":
                 continue
             steps = [step for step in job.get("steps") or [] if isinstance(step, dict)]
@@ -490,7 +529,8 @@ def check_floating_ci(repo_root: Path, launcher: str) -> list[str]:
                     )
     if not found:
         violations.append(
-            f"XII: no CI job named `sdlc ci` has a step whose run is exactly `{launcher} ci`"
+            f"XII: no CI job named `sdlc ci` has a step whose run is exactly `{launcher} ci`, "
+            f"and no `sdlc / check` job runs `sdlc event`"
         )
     return violations
 
