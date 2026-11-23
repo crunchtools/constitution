@@ -456,6 +456,22 @@ def _always_runs(block: dict) -> bool:
 # required `check` job runs `sdlc event` inside sdlc-bootstrap, by digest.
 FLEET_CHECK = re.compile(r"sdlc / check \(")
 FLEET_IMAGE = re.compile(r"quay\.io/crunchtools/sdlc-bootstrap@(sha256:[0-9a-f]{64})")
+# The check's `if:` routes events: a list of them, then optionally `|| ...`. An
+# `||` cannot unset a true first term, so a pull request always runs it.
+FLEET_ROUTE = re.compile(
+    r"contains\(fromJSON\('(\[[^\]]*\])'\), github\.event_name\)(?:\s*\|\|.*)?", re.DOTALL
+)
+
+
+def _runs_on_pull_request(condition: object) -> bool:
+    """A skipped required check counts as passed, so the routing must keep pull_request."""
+    if condition is None:
+        return True
+    route = FLEET_ROUTE.fullmatch(str(condition).strip())
+    try:
+        return bool(route) and "pull_request" in json.loads(route.group(1))
+    except ValueError:
+        return False
 
 
 def _fleet_check(job: dict, where: str, images: list[str]) -> tuple[bool, list[str]]:
@@ -480,6 +496,11 @@ def _fleet_check(job: dict, where: str, images: list[str]) -> tuple[bool, list[s
     tolerated = [b for b in (job, *runs) if b.get("continue-on-error", False) not in (False, "false")]
     if tolerated:
         violations.append(f"XII: {where} has `continue-on-error`")
+    if not _runs_on_pull_request(job.get("if")) or any("if" in step for step in runs):
+        violations.append(
+            f"XII: {where} has an `if:` that could skip it on a pull request; a skipped "
+            f"required check counts as passed"
+        )
     return True, violations
 
 
@@ -1276,13 +1297,14 @@ def check_gate_workflows(repo_root: Path, inherits: str, requirements: dict) -> 
         )
     # The fleet file's `sdlc event` runs all of these, and its gate job guards workflows.
     fleet_file = runs_fleet_ci(repo_root, requirements)
-    for calls, target, event, workflow_name, label in [] if fleet_file else required:
-        if not called(calls, target, event, workflow_name):
-            where = f" in the workflow named '{workflow_name}'" if workflow_name else ""
-            violations.append(
-                f"WORKFLOWS: no job calls {target}.yml on `{event}`{where} ({label}); "
-                f"copy it from the examples"
-            )
+    if not fleet_file:
+        for calls, target, event, workflow_name, label in required:
+            if not called(calls, target, event, workflow_name):
+                where = f" in the workflow named '{workflow_name}'" if workflow_name else ""
+                violations.append(
+                    f"WORKFLOWS: no job calls {target}.yml on `{event}`{where} ({label}); "
+                    f"copy it from the examples"
+                )
 
     violations += inline_gourmand_jobs(flows)
     violations += triage_review_result_violations(flows, inherits)

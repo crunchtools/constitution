@@ -2010,6 +2010,36 @@ def test_the_fleet_check_may_not_tolerate_failure(repo):
     assert any("`continue-on-error`" in v for v in violations(repo))
 
 
+@pytest.mark.parametrize(
+    "old, new",
+    [
+        ("    if: contains(", "    if: false && contains("),
+        ("'[\"push\",\"pull_request\"]'", "'[\"push\"]'"),
+        ("github.event_name)\n", "github.event_name) && false\n"),
+        ("{ id: e, run: sdlc event }", "{ id: e, if: false, run: sdlc event }"),
+    ],
+    ids=["job-false", "no-pull-request", "and-false", "step-if"],
+)
+def test_the_fleet_check_cannot_be_skipped_on_a_pull_request(repo, old, new):
+    """A skipped required check counts as passed."""
+    float_repo(repo)
+    fleet_ci(repo)
+    path = repo / ".github/workflows/ci.yml"
+    text = path.read_text()
+    assert old in text
+    path.write_text(text.replace(old, new, 1))
+    assert any("could skip it on a pull request" in v for v in violations(repo))
+
+
+def test_the_fleet_routing_may_add_alternatives(repo):
+    float_repo(repo)
+    fleet_ci(repo)
+    path = repo / ".github/workflows/ci.yml"
+    path.write_text(path.read_text().replace(
+        "github.event_name)\n", "github.event_name)\n      || github.event_name == 'push' && github.ref == 'refs/heads/main'\n", 1))
+    assert violations(repo) == []
+
+
 def test_a_fleet_check_running_something_else_is_no_ci_job(repo):
     float_repo(repo)
     write(repo, ".github/workflows/ci.yml", FLEET_CI.replace("IMAGE", BOOT).replace("JOB", "").replace("run: sdlc event", "run: sdlc event || true"))
