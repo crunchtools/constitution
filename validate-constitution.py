@@ -468,8 +468,10 @@ def _runs_on_pull_request(condition: object) -> bool:
     if condition is None:
         return True
     route = FLEET_ROUTE.fullmatch(str(condition).strip())
+    if route is None:
+        return False
     try:
-        return bool(route) and "pull_request" in json.loads(route.group(1))
+        return "pull_request" in json.loads(route.group(1))
     except ValueError:
         return False
 
@@ -493,7 +495,9 @@ def _fleet_check(job: dict, where: str, images: list[str]) -> tuple[bool, list[s
             f"XII: {where} runs in `{image or 'no container'}`, not an sdlc-bootstrap "
             f"release by digest (copy sdlc's examples/ci.yml unchanged)"
         )
-    tolerated = [b for b in (job, *runs) if b.get("continue-on-error", False) not in (False, "false")]
+    tolerated = [
+        b for b in (job, *runs) if b.get("continue-on-error", False) not in (False, "false")
+    ]
     if tolerated:
         violations.append(f"XII: {where} has `continue-on-error`")
     if not _runs_on_pull_request(job.get("if")) or any("if" in step for step in runs):
@@ -517,9 +521,9 @@ def runs_fleet_ci(repo_root: Path, requirements: dict) -> bool:
         workflow = load_yaml(path) or {}
         jobs = workflow.get("jobs") if isinstance(workflow, dict) else None
         for job in (jobs or {}).values():
-            if isinstance(job, dict) and FLEET_CHECK.match(str(job.get("name", ""))):
-                if _fleet_check(job, path.name, images) == (True, []):
-                    return True
+            named = isinstance(job, dict) and FLEET_CHECK.match(str(job.get("name", "")))
+            if named and _fleet_check(job, path.name, images) == (True, []):
+                return True
     return False
 
 
@@ -2360,7 +2364,9 @@ def check_container_release(repo_root: Path, inherits: str, requirements: dict) 
             "CONTAINER: custom release workflow never promotes with "
             "`skopeo copy --all --preserve-digests` (VII)"
         )
-    elif not custom and not unpublished and not calls and not runs_fleet_ci(repo_root, requirements):
+    elif (
+        not custom and not unpublished and not calls and not runs_fleet_ci(repo_root, requirements)
+    ):
         violations.append(
             "CONTAINER: a Containerfile is present but no workflow job calls "
             "crunchtools/constitution/.github/workflows/container-release.yml@v1 (VII, RT#1550)"

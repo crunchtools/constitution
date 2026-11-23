@@ -1957,7 +1957,8 @@ def test_a_floating_repo_must_run_sdlc_ci(repo):
     assert "no CI job named `sdlc ci`" in found
 
 
-BOOT = "quay.io/crunchtools/sdlc-bootstrap@sha256:5f25b7968ff9f14e0fa363ea3c25e0df4f6159abf43549653fff74eb674de060"
+BOOT_DIGEST = "sha256:5f25b7968ff9f14e0fa363ea3c25e0df4f6159abf43549653fff74eb674de060"
+BOOT = f"quay.io/crunchtools/sdlc-bootstrap@{BOOT_DIGEST}"
 FLEET_CI = """name: CI
 on: [push, pull_request]
 permissions: {}
@@ -1993,7 +1994,7 @@ def test_the_fleet_file_satisfies_the_ci_job(repo):
     [
         "quay.io/crunchtools/sdlc-bootstrap:0",
         "quay.io/crunchtools/sdlc-bootstrap@sha256:" + "0" * 64,
-        "ghcr.io/attacker/sdlc-bootstrap@sha256:5f25b7968ff9f14e0fa363ea3c25e0df4f6159abf43549653fff74eb674de060",
+        f"ghcr.io/attacker/sdlc-bootstrap@{BOOT_DIGEST}",
     ],
     ids=["tag", "unlisted-digest", "other-registry"],
 )
@@ -2014,7 +2015,7 @@ def test_the_fleet_check_may_not_tolerate_failure(repo):
     "old, new",
     [
         ("    if: contains(", "    if: false && contains("),
-        ("'[\"push\",\"pull_request\"]'", "'[\"push\"]'"),
+        ('\'["push","pull_request"]\'', "'[\"push\"]'"),
         ("github.event_name)\n", "github.event_name) && false\n"),
         ("{ id: e, run: sdlc event }", "{ id: e, if: false, run: sdlc event }"),
     ],
@@ -2035,21 +2036,39 @@ def test_the_fleet_routing_may_add_alternatives(repo):
     float_repo(repo)
     fleet_ci(repo)
     path = repo / ".github/workflows/ci.yml"
-    path.write_text(path.read_text().replace(
-        "github.event_name)\n", "github.event_name)\n      || github.event_name == 'push' && github.ref == 'refs/heads/main'\n", 1))
+    path.write_text(
+        path.read_text().replace(
+            "github.event_name)\n",
+            "github.event_name)\n"
+            "      || github.event_name == 'push' && github.ref == 'refs/heads/main'\n",
+            1,
+        )
+    )
     assert violations(repo) == []
 
 
 def test_a_fleet_check_running_something_else_is_no_ci_job(repo):
     float_repo(repo)
-    write(repo, ".github/workflows/ci.yml", FLEET_CI.replace("IMAGE", BOOT).replace("JOB", "").replace("run: sdlc event", "run: sdlc event || true"))
+    write(
+        repo,
+        ".github/workflows/ci.yml",
+        FLEET_CI.replace("IMAGE", BOOT)
+        .replace("JOB", "")
+        .replace("run: sdlc event", "run: sdlc event || true"),
+    )
     assert any("no CI job named `sdlc ci`" in v for v in violations(repo))
 
 
 def test_the_fleet_file_replaces_the_gate_workflows(repo):
     """`sdlc event` runs Gourmand, Gatehouse, the guard, validation and the image release."""
     float_repo(repo)
-    for name in ("gatehouse.yml", "gatehouse-retriage.yml", "gourmand.yml", "constitution.yml", "container.yml"):
+    for name in (
+        "gatehouse.yml",
+        "gatehouse-retriage.yml",
+        "gourmand.yml",
+        "constitution.yml",
+        "container.yml",
+    ):
         (repo / ".github/workflows" / name).unlink()
     fleet_ci(repo)
     assert violations(repo) == []
