@@ -1107,6 +1107,9 @@ def test_dependabot_holds_back_the_python_base_minor(repo):
     dependabot = repo / ".github/dependabot.yml"
     dependabot.write_text(dependabot.read_text() + DEPENDABOT_DOCKER)
     assert violations(repo) == []  # no Containerfile builds on Python
+    for other in ("quay.io/not-hummingbird/python:3.14", "quay.io/acme/hummingbird/python:3.14"):
+        (repo / "Containerfile").write_text(f"FROM {other}\n")
+        assert violations(repo) == [], other
     (repo / "Containerfile").write_text(
         "FROM --platform=linux/amd64 quay.io/hummingbird/python:3.14-builder@sha256:ab AS b\n"
     )

@@ -1366,7 +1366,10 @@ PYTHON_BASE = "hummingbird/python"
 
 def uses_python_base(repo_root: Path) -> bool:
     """A Containerfile or Dockerfile at the root builds FROM hummingbird/python."""
-    from_python = re.compile(rf"^\s*FROM\s+(?:--\S+\s+)*\S*{PYTHON_BASE}(?:[:@\s]|$)", re.M | re.I)
+    # The image as Dependabot names it, behind at most a registry host.
+    from_python = re.compile(
+        rf"^\s*FROM\s+(?:--\S+\s+)*(?:[^\s/]+/)?{PYTHON_BASE}(?:[:@\s]|$)", re.M | re.I
+    )
     return any(
         from_python.search(f.read_text(errors="replace"))
         for pattern in ("Containerfile*", "Dockerfile*")
