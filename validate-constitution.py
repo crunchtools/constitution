@@ -441,7 +441,7 @@ def check_floating_wiring(repo_root: Path, config: dict, requirements: dict) -> 
         if stage not in stages:
             violations.append(f"XII: the `{hook_id}` hook does not run at `{stage}`")
     violations += check_install_hook_types(config)
-    violations += check_floating_ci(repo_root, launcher)
+    violations += check_floating_ci(repo_root, launcher, fleet.get("sdlc_bootstrap_images", []))
     return violations
 
 
@@ -452,14 +452,92 @@ def _always_runs(block: dict) -> bool:
     return condition in (True, "true") and tolerated in (False, "false")
 
 
-def check_floating_ci(repo_root: Path, launcher: str) -> list[str]:
-    """The `sdlc ci` job in the floating form: it runs the launcher, and only that.
+# sdlc's fleet file (sdlc docs/marketplace-free-ci.md): one ci.yml whose
+# required `check` job runs `sdlc event` inside sdlc-bootstrap, by digest.
+FLEET_CHECK = re.compile(r"sdlc / check \(")
+FLEET_IMAGE = re.compile(r"quay\.io/crunchtools/sdlc-bootstrap@(sha256:[0-9a-f]{64})")
+# The check's `if:` routes events: a list of them, then optionally `|| ...`. An
+# `||` cannot unset a true first term, so a pull request always runs it.
+FLEET_ROUTE = re.compile(
+    r"contains\(fromJSON\('(\[[^\]]*\])'\), github\.event_name\)(?:\s*\|\|.*)?", re.DOTALL
+)
+
+
+def _runs_on_pull_request(condition: object) -> bool:
+    """A skipped required check counts as passed, so the routing must keep pull_request."""
+    if condition is None:
+        return True
+    route = FLEET_ROUTE.fullmatch(str(condition).strip())
+    if route is None:
+        return False
+    try:
+        return "pull_request" in json.loads(route.group(1))
+    except ValueError:
+        return False
+
+
+def _fleet_check(job: dict, where: str, images: list[str]) -> tuple[bool, list[str]]:
+    """(this job is the fleet's check, what is wrong with it).
+
+    The image is the trust root: it verifies the signed sdlc it runs, so it must
+    be a digest sdlc published, or a repo could judge itself with its own.
+    """
+    container = job.get("container")
+    image = str(container.get("image", "")) if isinstance(container, dict) else str(container or "")
+    steps = [step for step in job.get("steps") or [] if isinstance(step, dict)]
+    runs = [step for step in steps if str(step.get("run", "")).strip() == "sdlc event"]
+    if not runs:
+        return False, []
+    violations = []
+    pinned = FLEET_IMAGE.fullmatch(image.strip())
+    if not pinned or pinned.group(1) not in images:
+        violations.append(
+            f"XII: {where} runs in `{image or 'no container'}`, not an sdlc-bootstrap "
+            f"release by digest (copy sdlc's examples/ci.yml unchanged)"
+        )
+    tolerated = [
+        b for b in (job, *runs) if b.get("continue-on-error", False) not in (False, "false")
+    ]
+    if tolerated:
+        violations.append(f"XII: {where} has `continue-on-error`")
+    if not _runs_on_pull_request(job.get("if")) or any("if" in step for step in runs):
+        violations.append(
+            f"XII: {where} has an `if:` that could skip it on a pull request; a skipped "
+            f"required check counts as passed"
+        )
+    return True, violations
+
+
+def runs_fleet_ci(repo_root: Path, requirements: dict) -> bool:
+    """The repo runs sdlc's fleet file, with a sound `check` job.
+
+    `sdlc event` then does what the per-repo gate workflows did: Gourmand,
+    Gatehouse review and triage, the workflow guard, constitution validation,
+    and the image's build, gate and signed promote. The checks that look for
+    those workflows stand down for it.
+    """
+    images = requirements.get("fleet", {}).get("sdlc_bootstrap_images", [])
+    for path in workflow_files(repo_root):
+        workflow = load_yaml(path) or {}
+        jobs = workflow.get("jobs") if isinstance(workflow, dict) else None
+        for job in (jobs or {}).values():
+            named = isinstance(job, dict) and FLEET_CHECK.match(str(job.get("name", "")))
+            if named and _fleet_check(job, path.name, images) == (True, []):
+                return True
+    return False
+
+
+def check_floating_ci(repo_root: Path, launcher: str, images: list[str] | None = None) -> list[str]:
+    """The required CI job: the floating `sdlc ci` job, or the fleet file's `check`.
 
     The job is the required check, so anything that lets it go green without
     judging is a hole: a step that runs something else or swallows the exit
     (`|| true`), an `if:` that skips it (a skipped required check counts as
     passed), `continue-on-error`, or an image a pull request names itself.
     SDLC_IMAGE comes from the repository variable, which only an admin sets.
+    The fleet file's `check` (since 1.61.0) runs `sdlc event` in an
+    sdlc-bootstrap image sdlc published; its `if:` routes events, and sdlc's
+    cutover pins the file itself byte for byte.
     """
     wanted = {f"{launcher} ci", f"./{launcher} ci"}
     violations: list[str] = []
@@ -468,6 +546,11 @@ def check_floating_ci(repo_root: Path, launcher: str) -> list[str]:
         workflow = load_yaml(path) or {}
         jobs = workflow.get("jobs") if isinstance(workflow, dict) else None
         for job in (jobs or {}).values():
+            if isinstance(job, dict) and FLEET_CHECK.match(str(job.get("name", ""))):
+                fleet, wrong = _fleet_check(job, f"{path.name}: the `check` job", images or [])
+                found = found or fleet
+                violations += wrong
+                continue
             if not isinstance(job, dict) or job.get("name") != "sdlc ci":
                 continue
             steps = [step for step in job.get("steps") or [] if isinstance(step, dict)]
@@ -490,7 +573,8 @@ def check_floating_ci(repo_root: Path, launcher: str) -> list[str]:
                     )
     if not found:
         violations.append(
-            f"XII: no CI job named `sdlc ci` has a step whose run is exactly `{launcher} ci`"
+            f"XII: no CI job named `sdlc ci` has a step whose run is exactly `{launcher} ci`, "
+            f"and no `sdlc / check` job runs `sdlc event`"
         )
     return violations
 
@@ -604,7 +688,7 @@ def check_quality_gate_wiring(
         violations += check_standalone_hooks(hooks)
 
     triage = re.compile(r"uses:\s*(?:crunchtools/gatehouse|\.)/\.github/workflows/triage\.yml")
-    if not any(
+    if not runs_fleet_ci(repo_root, requirements) and not any(
         triage.search(strip_yaml_comments(f.read_text())) for f in workflow_files(repo_root)
     ):
         violations.append(
@@ -1215,19 +1299,22 @@ def check_gate_workflows(repo_root: Path, inherits: str, requirements: dict) -> 
         required.append(
             (constitution, "dependabot-automerge", "pull_request", None, "Dependabot auto-merge")
         )
-    for calls, target, event, workflow_name, label in required:
-        if not called(calls, target, event, workflow_name):
-            where = f" in the workflow named '{workflow_name}'" if workflow_name else ""
-            violations.append(
-                f"WORKFLOWS: no job calls {target}.yml on `{event}`{where} ({label}); "
-                f"copy it from the examples"
-            )
+    # The fleet file's `sdlc event` runs all of these, and its gate job guards workflows.
+    fleet_file = runs_fleet_ci(repo_root, requirements)
+    if not fleet_file:
+        for calls, target, event, workflow_name, label in required:
+            if not called(calls, target, event, workflow_name):
+                where = f" in the workflow named '{workflow_name}'" if workflow_name else ""
+                violations.append(
+                    f"WORKFLOWS: no job calls {target}.yml on `{event}`{where} ({label}); "
+                    f"copy it from the examples"
+                )
 
     violations += inline_gourmand_jobs(flows)
     violations += triage_review_result_violations(flows, inherits)
 
     gatehouse_workflow = [wf for wf in flows.files.values() if wf.get("name") == "Gatehouse"]
-    if not any(
+    if not fleet_file and not any(
         (job or {}).get("name") == "Protect workflows" and "steps" in (job or {})
         for wf in gatehouse_workflow
         for job in (wf.get("jobs") or {}).values()
@@ -2277,7 +2364,9 @@ def check_container_release(repo_root: Path, inherits: str, requirements: dict) 
             "CONTAINER: custom release workflow never promotes with "
             "`skopeo copy --all --preserve-digests` (VII)"
         )
-    elif not custom and not unpublished and not calls:
+    elif (
+        not custom and not unpublished and not calls and not runs_fleet_ci(repo_root, requirements)
+    ):
         violations.append(
             "CONTAINER: a Containerfile is present but no workflow job calls "
             "crunchtools/constitution/.github/workflows/container-release.yml@v1 (VII, RT#1550)"

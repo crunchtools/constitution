@@ -389,6 +389,18 @@ old image stays a signed mirror of the new one until the fleet has moved.
   `.github/workflows/`. Copy both from
   sdlc's `examples/`; `scripts/convert_repo.py` does the conversion.
   A repo in this form is judged by it alone, whatever its kind or `Inherits`.
+- sdlc's fleet file (`examples/ci.yml`, copied unchanged) also satisfies the
+  CI job: its `sdlc / check` job runs a step whose `run` is exactly
+  `sdlc event`, with no `continue-on-error`, in
+  `quay.io/crunchtools/sdlc-bootstrap@sha256:<digest>` where the digest is
+  listed in `[fleet] sdlc_bootstrap_images`. The bootstrap cosign-verifies the
+  sdlc release it runs, so it is the trust root, and a repo naming any other
+  image would choose its own judge. Its `if:` routes events by design; the
+  required check is `sdlc / check (pull_request)`, and sdlc's cutover pins the
+  file byte for byte. A repo running it needs none of the per-repo gate
+  workflows (Gourmand, Gatehouse review, triage and retriage, the `Protect
+  workflows` guard, constitution validation, `container-release.yml`):
+  `sdlc event` runs each of them.
 - Until the fleet has converted, the rev-pinned form is still accepted: a
   hook block from `https://github.com/crunchtools/sdlc` (or its old name,
   `sdlc_hooks_repo_renamed_from`) whose `rev:` names one exact release

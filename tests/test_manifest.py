@@ -1957,6 +1957,130 @@ def test_a_floating_repo_must_run_sdlc_ci(repo):
     assert "no CI job named `sdlc ci`" in found
 
 
+BOOT_DIGEST = "sha256:5f25b7968ff9f14e0fa363ea3c25e0df4f6159abf43549653fff74eb674de060"
+BOOT = f"quay.io/crunchtools/sdlc-bootstrap@{BOOT_DIGEST}"
+FLEET_CI = """name: CI
+on: [push, pull_request]
+permissions: {}
+jobs:
+  check:
+    name: sdlc / check (${{ github.event_name }})
+    if: contains(fromJSON('["push","pull_request"]'), github.event_name)
+    runs-on: ubuntu-latest
+    container: &boot { image: "IMAGE", volumes: ["/var/run/docker.sock:/var/run/docker.sock"] }
+    permissions: { contents: read }
+JOB    steps: &event [{ id: e, run: sdlc event }]
+  gate:
+    name: sdlc / gate (${{ github.event_name }})
+    runs-on: ubuntu-latest
+    container: *boot
+    steps: *event
+"""
+
+
+def fleet_ci(repo: Path, image: str = BOOT, job: str = "") -> None:
+    write(repo, ".github/workflows/ci.yml", FLEET_CI.replace("IMAGE", image).replace("JOB", job))
+
+
+def test_the_fleet_file_satisfies_the_ci_job(repo):
+    """sdlc's one ci.yml: `check` runs `sdlc event` in sdlc-bootstrap by digest."""
+    float_repo(repo)
+    fleet_ci(repo)
+    assert violations(repo) == []
+
+
+@pytest.mark.parametrize(
+    "image",
+    [
+        "quay.io/crunchtools/sdlc-bootstrap:0",
+        "quay.io/crunchtools/sdlc-bootstrap@sha256:" + "0" * 64,
+        f"ghcr.io/attacker/sdlc-bootstrap@{BOOT_DIGEST}",
+    ],
+    ids=["tag", "unlisted-digest", "other-registry"],
+)
+def test_the_fleet_check_runs_only_a_listed_bootstrap(repo, image):
+    """The bootstrap is the trust root: a repo must not name its own judge."""
+    float_repo(repo)
+    fleet_ci(repo, image=image)
+    assert any("not an sdlc-bootstrap release by digest" in v for v in violations(repo))
+
+
+def test_the_fleet_check_may_not_tolerate_failure(repo):
+    float_repo(repo)
+    fleet_ci(repo, job="    continue-on-error: true\n")
+    assert any("`continue-on-error`" in v for v in violations(repo))
+
+
+@pytest.mark.parametrize(
+    "old, new",
+    [
+        ("    if: contains(", "    if: false && contains("),
+        ('\'["push","pull_request"]\'', "'[\"push\"]'"),
+        ("github.event_name)\n", "github.event_name) && false\n"),
+        ("{ id: e, run: sdlc event }", "{ id: e, if: false, run: sdlc event }"),
+    ],
+    ids=["job-false", "no-pull-request", "and-false", "step-if"],
+)
+def test_the_fleet_check_cannot_be_skipped_on_a_pull_request(repo, old, new):
+    """A skipped required check counts as passed."""
+    float_repo(repo)
+    fleet_ci(repo)
+    path = repo / ".github/workflows/ci.yml"
+    text = path.read_text()
+    assert old in text
+    path.write_text(text.replace(old, new, 1))
+    assert any("could skip it on a pull request" in v for v in violations(repo))
+
+
+def test_the_fleet_routing_may_add_alternatives(repo):
+    float_repo(repo)
+    fleet_ci(repo)
+    path = repo / ".github/workflows/ci.yml"
+    path.write_text(
+        path.read_text().replace(
+            "github.event_name)\n",
+            "github.event_name)\n"
+            "      || github.event_name == 'push' && github.ref == 'refs/heads/main'\n",
+            1,
+        )
+    )
+    assert violations(repo) == []
+
+
+def test_a_fleet_check_running_something_else_is_no_ci_job(repo):
+    float_repo(repo)
+    write(
+        repo,
+        ".github/workflows/ci.yml",
+        FLEET_CI.replace("IMAGE", BOOT)
+        .replace("JOB", "")
+        .replace("run: sdlc event", "run: sdlc event || true"),
+    )
+    assert any("no CI job named `sdlc ci`" in v for v in violations(repo))
+
+
+def test_the_fleet_file_replaces_the_gate_workflows(repo):
+    """`sdlc event` runs Gourmand, Gatehouse, the guard, validation and the image release."""
+    float_repo(repo)
+    for name in (
+        "gatehouse.yml",
+        "gatehouse-retriage.yml",
+        "gourmand.yml",
+        "constitution.yml",
+        "container.yml",
+    ):
+        (repo / ".github/workflows" / name).unlink()
+    fleet_ci(repo)
+    assert violations(repo) == []
+
+
+def test_an_unsound_fleet_file_replaces_nothing(repo):
+    float_repo(repo)
+    (repo / ".github/workflows/gourmand.yml").unlink()
+    fleet_ci(repo, image="quay.io/crunchtools/sdlc-bootstrap:0")
+    assert any("gourmand.yml" in v for v in violations(repo))
+
+
 def test_a_dotted_launcher_path_counts(repo):
     float_repo(repo)
     write(repo, ".pre-commit-config.yaml", FLOATING.replace("entry: .sdlc", "entry: ./.sdlc"))

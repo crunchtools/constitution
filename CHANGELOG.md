@@ -10,6 +10,15 @@ Entries through 1.14.0 are derived from the Ratification History table in
 ## [Unreleased]
 
 ### Added
+- XII accepts sdlc's fleet file as the CI job: a `sdlc / check` job whose
+  step runs exactly `sdlc event`, without `continue-on-error`, in an
+  sdlc-bootstrap image by a digest listed in the new `[fleet]
+  sdlc_bootstrap_images` (today sdlc 0.12.1's). Any other image, a tag, or an
+  unlisted digest is a violation. The `sdlc ci` form is still accepted. Needed
+  before sdlc's cutover can convert its first repos (mcp-wordpress,
+  ubi10-core). A repo with a sound fleet file no longer needs the per-repo
+  Gourmand, Gatehouse, guard, validation or container-release workflows;
+  `sdlc event` runs them.
 - Self-hosted Renovate (a1007). The Mend Renovate app was never installed and
   `crunchtools/renovate-config` never existed, so XV's update path ran nowhere.
   `.github/workflows/renovate.yml` runs Renovate's image (44.221.0 by digest,
