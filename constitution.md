@@ -660,6 +660,14 @@ and the build broke with zero code changes to point at.
    any other ecosystem, with digest refreshes and pins riding along — is
    handed to GitHub's auto-merge and lands when the required checks pass.
    Majors, and anything not classified as minor or patch, wait for a human.
+   A `hummingbird/python` base image is the exception: its minor and major
+   tag bumps are never proposed, because a Python minor is a runtime
+   migration (a uv lock is solved per interpreter and compiled wheels ship
+   per minor; 3.14 → 3.15 broke every trentina build). Its digest and patch
+   bumps flow as usual; the next minor moves by hand with its lock. A repo
+   still on Dependabot ignores `version-update:semver-minor` and
+   `semver-major` for the image in its `docker` block, and the validator
+   checks it.
    Only Acquacotta, Trentina and ROTV have users besides us, so the required
    checks are the gate, not a person reading a green diff. Renovate and
    Dependabot PRs left open more than 14 days show up in the drift report.

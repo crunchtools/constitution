@@ -1085,6 +1085,53 @@ def test_dependabot_must_cover_profile_ecosystem(repo):
     assert violations(repo) == ["FILES: .github/dependabot.yml does not cover `uv` (XV)"]
 
 
+DEPENDABOT_DOCKER = """\
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+"""
+HOLD_PYTHON_MINOR = """\
+    ignore:
+      - dependency-name: "hummingbird/python"
+        update-types:
+          - "version-update:semver-minor"
+          - "version-update:semver-major"
+"""
+
+
+def test_dependabot_holds_back_the_python_base_minor(repo):
+    """XV: a docker block over a FROM hummingbird/python ignores its minor and major
+    tag bumps (#874), and only then; digest bumps are not ignored."""
+    add_dependabot(repo)
+    dependabot = repo / ".github/dependabot.yml"
+    dependabot.write_text(dependabot.read_text() + DEPENDABOT_DOCKER)
+    assert violations(repo) == []  # no Containerfile builds on Python
+    (repo / "Containerfile").write_text(
+        "FROM --platform=linux/amd64 quay.io/hummingbird/python:3.14-builder@sha256:ab AS b\n"
+    )
+    assert any("hummingbird/python" in v for v in violations(repo))
+    dependabot.write_text(dependabot.read_text() + HOLD_PYTHON_MINOR)
+    assert violations(repo) == []
+    dependabot.write_text(
+        dependabot.read_text().replace('          - "version-update:semver-major"\n', "")
+    )
+    assert any("hummingbird/python" in v for v in violations(repo))
+
+
+def test_the_dependabot_template_holds_back_the_python_base_minor(repo):
+    """The commented docker block in the canonical template passes the check."""
+    add_dependabot(repo)
+    template = (ROOT / ".github/dependabot.yml").read_text()
+    block = template[template.index('  # - package-ecosystem: "docker"') :]
+    docker = "\n".join(line.replace("  # ", "  ", 1) for line in block.splitlines())
+    dependabot = repo / ".github/dependabot.yml"
+    dependabot.write_text(dependabot.read_text() + docker + "\n")
+    (repo / "Containerfile").write_text("FROM quay.io/hummingbird/python:3.14\n")
+    assert V.ignores_python_minor(V.load_yaml(dependabot))
+    assert violations(repo) == []
+
+
 def drop_dependabot(root: Path) -> None:
     """What fleet-bump.py --renovate does: Renovate runs from the org config instead."""
     (root / ".github/dependabot.yml").unlink()

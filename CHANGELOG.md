@@ -32,6 +32,15 @@ Entries through 1.14.0 are derived from the Ratification History table in
   extends). An App that rewrites every workflow in the org is the credential
   worth stealing; workflow pins move with `fleet-bump.py` or by hand while the
   fleet moves to one sdlc-only `ci.yml`. Reaches the fleet when `v1` moves.
+- XV rule 4: `hummingbird/python` base images never get minor or major tag
+  bumps (a1119). A Python minor is a runtime migration: a uv lock is solved
+  per interpreter and onnxruntime had no cp315 wheels, so 3.14 → 3.15 broke
+  every trentina build (trentina#874, fixed there alone by trentina#923).
+  The Renovate preset disables `minor` and `major` for `**/hummingbird/python`
+  after the minor-and-patch group, keeping digest and patch bumps. The
+  canonical `dependabot.yml` carries a commented `docker` block with the
+  matching `ignore`, and the validator fails a Dependabot `docker` block that
+  lacks it in a repo whose Containerfile builds `FROM hummingbird/python`.
 - XV describes the self-hosted run in place of the org Renovate app.
   `fleet-drift.py` drops the `crunchtools/renovate-config` sync check and
   knows Renovate PRs by their `renovate/` branch.

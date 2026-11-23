@@ -14,7 +14,12 @@ SELF_HOSTED = json.loads((ROOT / "renovate" / "self-hosted.json").read_text())
 
 
 def rules_for(update_type: str) -> list[dict]:
-    return [r for r in PRESET["packageRules"] if update_type in r.get("matchUpdateTypes", [])]
+    """The fleet-wide rules for an update type; per-package exceptions are tested on their own."""
+    return [
+        r
+        for r in PRESET["packageRules"]
+        if update_type in r.get("matchUpdateTypes", []) and "matchPackageNames" not in r
+    ]
 
 
 def test_no_pr_before_a_release_is_a_week_old():
@@ -80,6 +85,18 @@ def test_crunchtools_floats_at_its_major_tag():
         for name in r["matchPackageNames"]
     }
     assert "quay.io/crunchtools/**" in unpinned
+
+
+def test_python_base_images_never_change_minor():
+    """A Python minor is a runtime migration (uv locks are per interpreter, #874):
+    hummingbird/python minor and major tag bumps are off, digests and patches flow."""
+    (rule,) = [r for r in PRESET["packageRules"] if r.get("enabled") is False]
+    assert rule["matchDatasources"] == ["docker"]
+    assert rule["matchPackageNames"] == ["**/hummingbird/python"]
+    assert set(rule["matchUpdateTypes"]) == {"minor", "major"}
+    # Later rules win: it must come after the group that would pull the minor in.
+    rules = PRESET["packageRules"]
+    assert rules.index(rule) > rules.index(rules_for("minor")[0])
 
 
 def test_the_self_hosted_run_covers_the_fleet_from_this_repo():

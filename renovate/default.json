@@ -93,6 +93,26 @@
         "quay.io/crunchtools/**"
       ],
       "pinDigests": false
+    },
+    {
+      "description": [
+        "A new Python minor is a runtime migration, not a base refresh: a uv lock is",
+        "solved for one interpreter and compiled wheels ship per minor, so",
+        "hummingbird/python 3.14 -> 3.15 failed every trentina build (#874). Minor and",
+        "major tag bumps of the image are off; digest refreshes and patch bumps within",
+        "the tag still flow. The next minor moves by hand, with its lock."
+      ],
+      "matchDatasources": [
+        "docker"
+      ],
+      "matchPackageNames": [
+        "**/hummingbird/python"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "major"
+      ],
+      "enabled": false
     }
   ]
 }

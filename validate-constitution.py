@@ -1303,9 +1303,10 @@ def dependabot_violations(
 
     Renovate runs on every repo from the org-inherited config, so a repo needs
     no update config of its own. Before the cut-off a `.github/dependabot.yml`
-    is accepted and checked as before (ecosystem coverage and the constitution
-    ignore; check_gate_workflows wants its auto-merge caller). From it, the file
-    and any auto-merge caller fail: scripts/fleet-bump.py --renovate deletes both.
+    is accepted and checked as before (ecosystem coverage, the constitution
+    ignore, and the Python base image's minor held back; check_gate_workflows
+    wants its auto-merge caller). From it, the file and any auto-merge caller
+    fail: scripts/fleet-bump.py --renovate deletes both.
     """
     dependabot = repo_root / ".github" / "dependabot.yml"
     until = version_tuple(fleet.get("dependabot_until"))
@@ -1351,7 +1352,40 @@ def dependabot_violations(
             "FILES: dependabot.yml must ignore crunchtools/constitution; it is called "
             "at its major tag, and a new major moves through scripts/fleet-bump.py"
         )
+    if "docker" in covered and uses_python_base(repo_root) and not ignores_python_minor(doc):
+        violations.append(
+            "FILES: dependabot.yml must ignore semver-minor and semver-major for "
+            "hummingbird/python in its docker updates; a Python minor is a runtime "
+            "migration the uv lock cannot follow (XV)"
+        )
     return violations
+
+
+PYTHON_BASE = "hummingbird/python"
+
+
+def uses_python_base(repo_root: Path) -> bool:
+    """A Containerfile or Dockerfile at the root builds FROM hummingbird/python."""
+    from_python = re.compile(rf"^\s*FROM\s+(?:--\S+\s+)*\S*{PYTHON_BASE}(?:[:@\s]|$)", re.M | re.I)
+    return any(
+        from_python.search(f.read_text(errors="replace"))
+        for pattern in ("Containerfile*", "Dockerfile*")
+        for f in repo_root.glob(pattern)
+        if f.is_file()
+    )
+
+
+def ignores_python_minor(doc) -> bool:
+    """Some docker update ignores the base image's minor and major tag bumps."""
+    wanted = {"version-update:semver-minor", "version-update:semver-major"}
+    return any(
+        fnmatch.fnmatch(PYTHON_BASE, i.get("dependency-name", ""))
+        and wanted <= set(i.get("update-types") or [])
+        for u in (doc or {}).get("updates", [])
+        if isinstance(u, dict) and u.get("package-ecosystem") == "docker"
+        for i in u.get("ignore", []) or []
+        if isinstance(i, dict)
+    )
 
 
 def check_dependency_updates(
