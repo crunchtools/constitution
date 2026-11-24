@@ -2,12 +2,24 @@
 
 Org-level governance for all [crunchtools](https://github.com/crunchtools) software projects.
 
+**[constitution.md](constitution.md) (2.0.0) is the constitution.** It states what must be
+true of every repository and why, as principles with stable IDs. It holds no tools,
+versions or workflow shapes: those are decisions, and they live in the sdlc image, which
+enforces the constitution. A repository declares its kinds in its sdlc config and puts
+what makes it different in a README section titled "What's different here".
+
+Until every repository has converted, repositories that still carry a
+`.specify/memory/constitution.md` are judged by v1: `v1/constitution.md`, `profiles/`,
+`validate-constitution.py` and the `v1` major tag. Everything below describes v1.
+
+# v1 (legacy)
+
 ## Architecture
 
 A **universal core** defines principles that apply to every project. **Subsystem profiles** add requirements specific to each project type.
 
 ```
-constitution.md              Universal core (all projects)
+v1/constitution.md           Universal core (all projects)
 profiles/
   mcp-server.md              MCP server requirements
   container-image.md         Container image requirements

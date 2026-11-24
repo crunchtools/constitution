@@ -9,6 +9,34 @@ Entries through 1.14.0 are derived from the Ratification History table in
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-11-24
+
+### Changed
+- The constitution now states intent only: what must be true of every
+  Crunchtools repository, and why (RT #1666). Tools, versions, digests,
+  workflow shapes and thresholds are decisions, and they move to the sdlc
+  image, which enforces this document. 4,000 lines of constitution and
+  profiles become one 190-line document of principles with stable IDs
+  (`C3`, `S2`), each a positively framed behaviour with its reason, following
+  C3AI (Kyrychenko et al., WWW '25).
+- The fifteen profiles fold into one-line kinds (section K). A repository
+  declares its kinds in its sdlc config.
+
+### Removed
+- Per-repository constitutions (G1). A converted repository carries none;
+  its machine-checkable settings live in its sdlc config, and its differences
+  live in a README section titled "What's different here". Use those instead
+  of `.specify/memory/constitution.md`.
+- The constitution as the place for tool and version rules (G3). Use the sdlc
+  image's documentation and config instead.
+
+### Migration
+- v1 stays in force for any repository that still carries
+  `.specify/memory/constitution.md`: its text moved to `v1/constitution.md`,
+  and `profiles/`, `validate-constitution.py` and the `v1` major tag are
+  unchanged. Each repository moves to v2 when sdlc converts it; the v1
+  material is removed once the whole fleet has moved.
+
 ## [1.61.0] - 2026-11-23
 
 ### Added

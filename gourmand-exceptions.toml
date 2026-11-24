@@ -103,3 +103,9 @@ path = "scripts/container_release.py"
 item = "_object"
 justification = "GitHub._object has five callers (tree, parent, changed, tip, on_branch), not one; it is the one place a non-object API answer is refused."
 classification = "gourmand_bug"
+
+[[exceptions]]
+check = "CH008-summary_litter"
+path = "v1/constitution.md"
+justification = "The v1 constitution text, kept at this path so repositories still on v1 are judged by it until they convert to 2.0.0 (RT #1666). Removed when the fleet has moved."
+classification = "by_design"
