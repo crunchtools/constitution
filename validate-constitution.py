@@ -539,17 +539,19 @@ def _top_level_and_terms(condition: str) -> list[str]:
     for i, char in enumerate(text):
         if char == "'":
             quote = not quote
-        elif quote:
             continue
-        elif char == "(":
-            depth += 1
-        elif char == ")":
-            depth -= 1
-        elif depth == 0 and text.startswith("||", i):
-            return []
-        elif depth == 0 and text.startswith("&&", i):
-            terms.append(text[start:i].strip())
-            start = i + 2
+        if quote:
+            continue
+        match (char, depth, text[i : i + 2]):
+            case ("(", _, _):
+                depth += 1
+            case (")", _, _):
+                depth -= 1
+            case (_, 0, "||"):
+                return []
+            case (_, 0, "&&"):
+                terms.append(text[start:i].strip())
+                start = i + 2
     return [*terms, text[start:].strip()]
 
 
