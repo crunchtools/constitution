@@ -54,7 +54,7 @@ testpaths = ["tests"]
 #     GATE CANNOT RUN: cannot clone the constitution at v1.31.0:
 #     fatal: Remote branch v1.31.0 not found in upstream origin
 #
-# Skipping it loses nothing, because ci.yml validates this repo's own manifest
+# Skipping it loses nothing, because validator-tests.yml validates this repo's own manifest
 # with the CANDIDATE validator from the working tree -- which is strictly
 # better than judging a manifest that declares v1.31.0 with v1.30.0's rules.
 # That is the same reasoning the manifest already records for the required
