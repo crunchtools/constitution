@@ -60,3 +60,6 @@ testpaths = ["tests"]
 # That is the same reasoning the manifest already records for the required
 # check: "a PR is never judged by the validator it changes".
 skip = ["semgrep", "constitution"]
+
+[tool.sdlc]
+repo-kinds = ["governance"]
