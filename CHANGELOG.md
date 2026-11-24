@@ -9,6 +9,17 @@ Entries through 1.14.0 are derived from the Ratification History table in
 
 ## [Unreleased]
 
+### Changed
+- XII and VII accept crunchtools/sdlc's own `ci.yml`, the fleet file's
+  stated exception, as its whole pipeline. sdlc builds the image
+  sdlc-bootstrap runs, so its `sdlc / check` runs `scripts/self.sh` on every
+  pull request, and its `sign` job signs with sdlc's key and promotes in
+  `sdlc-signing`. Only the repo `[fleet] sdlc_self` names qualifies, and only
+  while its `ci.yml` holds that check, the fleet `gate` in a listed
+  sdlc-bootstrap, and that `sign` job. sdlc leaves `container_release_custom`,
+  so its legacy `container.yml` is now a violation: from this release it
+  carries `ci.yml` and nothing else (RT #1664, constitution#219).
+
 ## [1.61.0] - 2026-11-23
 
 ### Added

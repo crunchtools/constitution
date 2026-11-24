@@ -2622,3 +2622,83 @@ def test_an_untagged_env_name_is_not_a_run_but_a_tagged_one_is(repo, env, flagge
     write(repo, ".github/workflows/w.yml", f"env:\n  {env}\njobs:\n  j:\n    steps:\n{steps}")
     found = V.check_floating_images(repo, "1.45.0", V.load_requirements())
     assert bool(found) is flagged
+
+
+SDLC_OWN_CI = f"""name: CI
+on: [push, pull_request, pull_request_target]
+permissions: {{}}
+jobs:
+  test:
+    name: sdlc / check (${{{{ github.event_name }}}})
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions: {{ contents: read }}
+    steps: [{{ run: scripts/self.sh }}]
+  gate:
+    name: sdlc / gate (${{{{ github.event_name }}}})
+    runs-on: ubuntu-latest
+    container: {{ image: "{BOOT}" }}
+    steps: [{{ run: sdlc event }}]
+  sign:
+    runs-on: ubuntu-latest
+    environment: sdlc-signing
+    steps: [{{ run: scripts/self.sh }}]
+"""
+
+
+def sdlc_own_ci(repo: Path, old: str = "", new: str = "") -> None:
+    """crunchtools/sdlc: its own ci.yml and nothing else, as `fleet.sdlc_self`."""
+    V.load_requirements()["fleet"]["sdlc_self"] = repo.name
+    float_repo(repo)
+    for name in (
+        "gatehouse.yml",
+        "gatehouse-retriage.yml",
+        "gourmand.yml",
+        "constitution.yml",
+        "container.yml",
+    ):
+        (repo / ".github/workflows" / name).unlink()
+    assert old in SDLC_OWN_CI
+    write(repo, ".github/workflows/ci.yml", SDLC_OWN_CI.replace(old, new, 1))
+
+
+def test_sdlc_own_ci_replaces_every_other_workflow(repo):
+    """sdlc builds what sdlc-bootstrap runs, so its ci.yml is the stated exception."""
+    sdlc_own_ci(repo)
+    assert violations(repo) == []
+
+
+def test_sdlc_own_ci_is_sdlc_only(repo):
+    """Another repo with sdlc's file is judged as one without the fleet file."""
+    sdlc_own_ci(repo)
+    V.load_requirements()["fleet"]["sdlc_self"] = "sdlc"
+    assert any("Gatehouse" in v for v in violations(repo))
+
+
+@pytest.mark.parametrize(
+    ("old", "new"),
+    [
+        ("if: github.event_name == 'pull_request'", "if: github.event_name == 'push'"),
+        (
+            "steps: [{ run: scripts/self.sh }]\n  gate",
+            "steps: [{ run: scripts/self.sh || true }]\n  gate",
+        ),
+        ("    if: github.event_name", "    continue-on-error: true\n    if: github.event_name"),
+        (BOOT, "quay.io/crunchtools/sdlc-bootstrap:0"),
+        ("run: sdlc event", "run: sdlc event || true"),
+        ("environment: sdlc-signing", "environment: registry"),
+        ("name: sdlc / gate", "name: sdlc / review"),
+    ],
+    ids=[
+        "check-not-on-pr",
+        "check-runs-else",
+        "check-tolerates-failure",
+        "gate-unlisted-image",
+        "gate-runs-else",
+        "sign-without-key",
+        "no-gate",
+    ],
+)
+def test_sdlc_own_ci_must_hold_check_gate_and_sign(repo, old, new):
+    sdlc_own_ci(repo, old, new)
+    assert violations(repo) != []

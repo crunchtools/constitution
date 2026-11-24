@@ -93,7 +93,12 @@ sdlc_bootstrap_images = [
 # Container release (container-image VII, since 1.39.0, RT#1550): repos that
 # keep their own promote workflow instead of calling container-release.yml.
 # Still checked: skopeo --preserve-digests, no `imagetools create`, no GHCR.
-container_release_custom = ["sdlc", "python-sdlc"]
+container_release_custom = ["python-sdlc"]
+# The repo whose own ci.yml is the fleet file's stated exception: it builds and
+# signs the sdlc that sdlc-bootstrap runs, so its check runs scripts/self.sh
+# and its sign job promotes in sdlc-signing. It counts as running fleet CI
+# only when that file holds those jobs (validate-constitution.py _sdlc_own_ci).
+sdlc_self = "sdlc"
 # Repos whose Containerfile is a reference or local build that crunchtools
 # never publishes (claude-agent: "build your own"). No release workflow is
 # required; publishing anyway is still checked (GHCR, imagetools, pushes).

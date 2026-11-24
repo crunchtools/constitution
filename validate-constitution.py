@@ -441,7 +441,8 @@ def check_floating_wiring(repo_root: Path, config: dict, requirements: dict) -> 
         if stage not in stages:
             violations.append(f"XII: the `{hook_id}` hook does not run at `{stage}`")
     violations += check_install_hook_types(config)
-    violations += check_floating_ci(repo_root, launcher, fleet.get("sdlc_bootstrap_images", []))
+    if not _sdlc_own_ci(repo_root, requirements):
+        violations += check_floating_ci(repo_root, launcher, fleet.get("sdlc_bootstrap_images", []))
     return violations
 
 
@@ -508,14 +509,76 @@ def _fleet_check(job: dict, where: str, images: list[str]) -> tuple[bool, list[s
     return True, violations
 
 
+FLEET_GATE = re.compile(r"sdlc / gate \(")
+
+
+def _bootstrap_image(job: dict) -> str:
+    """The sdlc-bootstrap digest a job runs in, or "" for any other image."""
+    container = job.get("container")
+    image = str(container.get("image", "")) if isinstance(container, dict) else str(container or "")
+    pinned = FLEET_IMAGE.fullmatch(image.strip())
+    return pinned.group(1) if pinned else ""
+
+
+SELF_SH = "scripts/self.sh"
+
+
+def _sdlc_own_ci(repo_root: Path, requirements: dict) -> bool:
+    """crunchtools/sdlc's own ci.yml, the fleet file's one stated exception.
+
+    sdlc builds the image sdlc-bootstrap runs, so its check and release cannot
+    run from sdlc-bootstrap (sdlc docs/marketplace-free-ci.md, "sdlc's own
+    workflow"). Only the repo `fleet.sdlc_self` names qualifies, and only when
+    its ci.yml has all three: the required `sdlc / check` running
+    `scripts/self.sh` on every pull request (its `if:` is exactly that event)
+    and never tolerating failure, the
+    fleet's `gate` running `sdlc event` in a listed sdlc-bootstrap, and a
+    `sign` job in `sdlc-signing` running `scripts/self.sh`, which signs with
+    sdlc's key and promotes by `skopeo copy --all --preserve-digests`.
+    """
+    fleet = requirements.get("fleet", {})
+    if not fleet.get("sdlc_self") or repo_name(repo_root) != fleet["sdlc_self"]:
+        return False
+    path = repo_root / ".github" / "workflows" / "ci.yml"
+    workflow = (load_yaml(path) or {}) if path.is_file() else {}
+    jobs = workflow.get("jobs") if isinstance(workflow, dict) else None
+    jobs = [job for job in (jobs or {}).values() if isinstance(job, dict)]
+
+    def runs(job: dict, command: str) -> list[dict]:
+        steps = [step for step in job.get("steps") or [] if isinstance(step, dict)]
+        return [step for step in steps if str(step.get("run", "")).strip() == command]
+
+    def sound_check(job: dict) -> bool:
+        found = runs(job, SELF_SH)
+        return bool(
+            FLEET_CHECK.match(str(job.get("name", "")))
+            and found
+            and str(job.get("if", "")).strip() == "github.event_name == 'pull_request'"
+            and not any("if" in step for step in found)
+            and all(b.get("continue-on-error", False) in (False, "false") for b in (job, *found))
+        )
+
+    images = fleet.get("sdlc_bootstrap_images", [])
+    gate = any(
+        FLEET_GATE.match(str(job.get("name", "")))
+        and runs(job, "sdlc event")
+        and _bootstrap_image(job) in images
+        for job in jobs
+    )
+    sign = any(_environment(job) == "sdlc-signing" and runs(job, SELF_SH) for job in jobs)
+    return gate and sign and any(sound_check(job) for job in jobs)
+
+
 def runs_fleet_ci(repo_root: Path, requirements: dict) -> bool:
     """The repo runs sdlc's fleet file, with a sound `check` job.
 
     `sdlc event` then does what the per-repo gate workflows did: Gourmand,
     Gatehouse review and triage, the workflow guard, constitution validation,
     and the image's build, gate and signed promote. The checks that look for
-    those workflows stand down for it.
+    those workflows stand down for it, and for sdlc's own ci.yml.
     """
+    if _sdlc_own_ci(repo_root, requirements):
+        return True
     images = requirements.get("fleet", {}).get("sdlc_bootstrap_images", [])
     for path in workflow_files(repo_root):
         workflow = load_yaml(path) or {}
