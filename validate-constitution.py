@@ -521,6 +521,36 @@ def _bootstrap_image(job: dict) -> str:
 
 
 SELF_SH = "scripts/self.sh"
+# The sign job's `if:` must hold this, so a pull request, a fork's included,
+# never reaches the key; `sdlc-signing`'s deployment rules hold it again.
+DEFAULT_BRANCH_ONLY = (
+    "github.ref == format('refs/heads/{0}', github.event.repository.default_branch)"
+)
+
+
+def _top_level_and_terms(condition: str) -> list[str]:
+    """The terms an `if:` ANDs at its top level, or [] if it ORs there.
+
+    Every term must hold for the job to run, so one of them can be a guard;
+    a top-level `||` could bypass any of them.
+    """
+    terms, depth, start, quote = [], 0, 0, False
+    text = condition.strip()
+    for i, char in enumerate(text):
+        if char == "'":
+            quote = not quote
+        elif quote:
+            continue
+        elif char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+        elif depth == 0 and text.startswith("||", i):
+            return []
+        elif depth == 0 and text.startswith("&&", i):
+            terms.append(text[start:i].strip())
+            start = i + 2
+    return [*terms, text[start:].strip()]
 
 
 def _sdlc_own_ci(repo_root: Path, requirements: dict) -> bool:
@@ -533,13 +563,17 @@ def _sdlc_own_ci(repo_root: Path, requirements: dict) -> bool:
     `scripts/self.sh` on every pull request (its `if:` is exactly that event)
     and never tolerating failure, the
     fleet's `gate` running `sdlc event` in a listed sdlc-bootstrap, and a
-    `sign` job in `sdlc-signing` running `scripts/self.sh`, which signs with
-    sdlc's key and promotes by `skopeo copy --all --preserve-digests`.
+    `sign` job in `sdlc-signing`, on the default branch only, whose steps are
+    all `run:` and end in `scripts/self.sh`, which signs with sdlc's key and
+    promotes by `skopeo copy --all --preserve-digests`. ci.yml must be the
+    repo's only workflow: nothing else stands down with it.
     """
     fleet = requirements.get("fleet", {})
     if not fleet.get("sdlc_self") or repo_name(repo_root) != fleet["sdlc_self"]:
         return False
     path = repo_root / ".github" / "workflows" / "ci.yml"
+    if [p.name for p in workflow_files(repo_root)] != ["ci.yml"]:
+        return False
     workflow = (load_yaml(path) or {}) if path.is_file() else {}
     jobs = workflow.get("jobs") if isinstance(workflow, dict) else None
     jobs = [job for job in (jobs or {}).values() if isinstance(job, dict)]
@@ -565,7 +599,18 @@ def _sdlc_own_ci(repo_root: Path, requirements: dict) -> bool:
         and _bootstrap_image(job) in images
         for job in jobs
     )
-    sign = any(_environment(job) == "sdlc-signing" and runs(job, SELF_SH) for job in jobs)
+
+    def sound_sign(job: dict) -> bool:
+        steps = job.get("steps") or []
+        return bool(
+            _environment(job) == "sdlc-signing"
+            and DEFAULT_BRANCH_ONLY in _top_level_and_terms(str(job.get("if", "")))
+            and steps
+            and all(isinstance(step, dict) and "uses" not in step for step in steps)
+            and str(steps[-1].get("run", "")).strip() == SELF_SH
+        )
+
+    sign = any(sound_sign(job) for job in jobs)
     return gate and sign and any(sound_check(job) for job in jobs)
 
 

@@ -2640,9 +2640,10 @@ jobs:
     container: {{ image: "{BOOT}" }}
     steps: [{{ run: sdlc event }}]
   sign:
+    if: always() && github.ref == format('refs/heads/{{0}}', github.event.repository.default_branch)
     runs-on: ubuntu-latest
     environment: sdlc-signing
-    steps: [{{ run: scripts/self.sh }}]
+    steps: [{{ run: git init -q . }}, {{ run: scripts/self.sh }}]
 """
 
 
@@ -2688,6 +2689,8 @@ def test_sdlc_own_ci_is_sdlc_only(repo):
         ("run: sdlc event", "run: sdlc event || true"),
         ("environment: sdlc-signing", "environment: registry"),
         ("name: sdlc / gate", "name: sdlc / review"),
+        ("if: always() && github.ref", "if: always() || github.ref"),
+        ("[{ run: git init -q . }", "[{ uses: actions/checkout@v4 }"),
     ],
     ids=[
         "check-not-on-pr",
@@ -2697,8 +2700,17 @@ def test_sdlc_own_ci_is_sdlc_only(repo):
         "gate-runs-else",
         "sign-without-key",
         "no-gate",
+        "sign-off-main",
+        "sign-runs-an-action",
     ],
 )
 def test_sdlc_own_ci_must_hold_check_gate_and_sign(repo, old, new):
     sdlc_own_ci(repo, old, new)
+    assert violations(repo) != []
+
+
+def test_sdlc_own_ci_must_be_the_only_workflow(repo):
+    """Nothing else stands down with it: another workflow is judged as usual."""
+    sdlc_own_ci(repo)
+    write(repo, ".github/workflows/extra.yml", "on: push\njobs: {}\n")
     assert violations(repo) != []
