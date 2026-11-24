@@ -1,0 +1,1118 @@
+# CrunchTools Constitution
+
+> **Version:** 1.61.0
+> **Ratified:** 2026-11-04
+> **Status:** Active
+
+This constitution establishes the universal principles that govern all software projects in the [crunchtools](https://github.com/crunchtools) organization. Every repo inherits these rules. Subsystem-specific requirements are defined in profiles.
+
+---
+
+## I. License
+
+All crunchtools software is licensed under **AGPL-3.0-or-later**.
+
+Every repository MUST include a `LICENSE` file containing the full AGPL-3.0-or-later text.
+
+---
+
+## II. Semantic Versioning
+
+All projects follow [Semantic Versioning 2.0.0](https://semver.org/) strictly.
+
+**MAJOR** (breaking changes — consumers must update):
+- Removed or renamed public interfaces
+- Changed parameter names or types
+- Changed default behavior of existing functionality
+
+**MINOR** (new functionality — backwards compatible):
+- New features or capabilities added
+- New optional parameters on existing interfaces
+
+**PATCH** (fixes — no functional change):
+- Bug fixes
+- Security patches (dependency updates)
+- Test additions or improvements
+
+**No version bump required** (infrastructure, not shipped):
+- CI/CD changes (workflows, config files)
+- Documentation (README, CLAUDE.md, SECURITY.md)
+- Issue templates, pre-commit config
+- Governance files (.specify/)
+
+**Version bump happens at release time, not per-commit.** Multiple commits can accumulate between releases.
+
+### Git Workflow
+
+All projects follow trunk-based development with short-lived branches:
+
+1. **Branch** — Create a feature or fix branch from `main`. Branch names should be descriptive (e.g., `fix-html-sanitizer-crash`, `add-scan-tool`).
+2. **Commit** — Make focused commits on the branch. Follow commit message conventions from Section V.
+3. **Push & PR** — Push the branch and open a Pull Request against `main`. All CI gates must pass before merge.
+4. **Merge** — Squash-merge or merge commit into `main`. Delete the branch after merge.
+5. **Release** — When ready to release, create a git tag (`vX.Y.Z`) on `main`. The tag triggers release workflows (PyPI publish, container push, GitHub Release).
+
+**One change, one pull request per repo.** A change ships as a single PR in each repo it touches, with one commit per step; it is never split into a PR per part. Split only where the change truly lives in another repo. Every extra PR is another CI run and another review for the same change (a872).
+
+Direct pushes to `main` are acceptable for single-commit fixes but SHOULD use a PR when the change touches multiple files or affects behavior.
+
+### GitHub Releases
+
+**A GitHub Release MUST be created for every version bump in a distribution-bearing repo.** The release tag is the trigger for downstream distribution (PyPI publishing, RPM builds, registry pushes). Without a GitHub Release, merged code in such a repo is not distributed.
+
+**A repo is distribution-bearing when its CI publishes an artifact on a *release* event** — that is, it has a workflow triggered by `on: release:`. This is a property of the repo's wiring, not of its profile, so it stays true as wiring changes.
+
+- **Tag format:** `vX.Y.Z` (e.g., `v0.2.0`, `v1.0.0`)
+- **Release title:** `vX.Y.Z`
+- **The release's tag name MUST carry the `v`.** A release created against a bare `0.4.0` tag does not satisfy this clause, and leaves a malformed tag behind in the repo.
+- **Release notes:** Summary of changes since the previous release, generated from the `CHANGELOG.md` entry for that version. Use `gh release create` or the GitHub UI.
+- **Automation:** Release-triggered CI workflows handle PyPI publishing, RPM builds, container builds, and registry pushes. Manual artifact uploads are not required.
+
+**Repos whose tags are deploy markers rather than distribution events are exempt.** A continuously deployed web application tags to mark what went to production; nothing downstream consumes that tag. Such repos MUST still maintain a `CHANGELOG.md`, and their container builds still fire on `on: push: tags` — the exemption is from the release, not from the record.
+
+**This clause applies to tags created on or after its ratification. Historical tags are not backfilled.** Creating a release against an old tag re-triggers distribution *from that tag*: release-triggered workflows check out the release ref, so a backfilled release builds and ships stale code. That is the failure this clause exists to prevent, and manufacturing releases to satisfy an audit would cause it deliberately. Where an old tag represents code that genuinely never shipped, releasing it is a fix on its own merits — judged per repo, not as a backfill.
+
+### Changelog
+
+Every project MUST maintain a `CHANGELOG.md` in the repo root following the [Keep a Changelog](https://keepachangelog.com/) convention.
+
+**Required sections** (use only those that apply per release):
+- `Added` — new features
+- `Changed` — changes to existing functionality
+- `Deprecated` — features marked for future removal
+- `Removed` — features removed in this release
+- `Fixed` — bug fixes
+- `Security` — vulnerability patches
+
+**Rules:**
+- Every version tag MUST have a corresponding entry in `CHANGELOG.md`.
+- The `[Unreleased]` section at the top tracks changes since the last release.
+- GitHub Release notes SHOULD be generated from the `CHANGELOG.md` entry for that version.
+
+### Version Declarations
+
+**Every file that states the project's version MUST state the version of the newest released `CHANGELOG.md` entry.** A release moves all of them in one commit: `pyproject.toml`, `__version__`, `server.json`, the Containerfile `version=` label, a `version=` literal in `server.py`, `package.json`. Better still, state it once and import it. The validator checks the files listed in `profiles/requirements.toml` (`version_files`) for repos inheriting v1.28.0 or later. A profile whose tags are deploy markers turns the check off. mcp-github's 2.0.0 was bumped by hand in two of its five places and could not be tagged, and a fleet scan found eight more repos with a stale label or `server.json`.
+
+---
+
+## III. Container Registry
+
+Container images are published to one registry. GHCR was dropped on 2026-11-11
+(RT#1550): nothing pulls from it, and a second registry was a second build.
+
+| Registry | Image Pattern | Purpose |
+|----------|---------------|---------|
+| Quay.io | `quay.io/crunchtools/<name>` | The only distribution |
+
+### Release CI: build once, promote what was tested
+
+Every repo with a Containerfile calls the reusable workflow
+`crunchtools/constitution/.github/workflows/container-release.yml` at its
+major tag, `@v1` (copy `examples/container.yml`, XV rule 5), unless it is listed in
+`container_release_custom` in `profiles/requirements.toml`. Since 1.39.0 the
+validator checks this. One build per change: the pull request builds its head
+commit and gates that digest; the merge promotes the PR's digest without
+rebuilding; a release tag copies main's digest. The rules the workflow keeps are
+in the Container Image profile, VII.
+
+The one push outside it is a build artifact image: a hand-dispatched or
+scheduled job pushing a run- or commit-keyed tag that a reviewed PR pins by
+digest. Container Image VII has the rule; no list entry is needed.
+
+### Fresh builds
+
+A release build runs on a fresh runner with `--pull=always`, so no stale base
+image and no cached layer can reach an image; schedule, dispatch and pull
+request builds are all built from nothing. The 2026-10-22 rotv image shipped
+without PostgreSQL because a cached package layer outlived an EPEL outage.
+
+### OCI Labels
+
+All container images MUST include these OCI labels:
+
+```
+org.opencontainers.image.source=https://github.com/crunchtools/<name>
+org.opencontainers.image.description=<description>
+org.opencontainers.image.licenses=AGPL-3.0-or-later
+```
+
+`container-release.yml` also sets `org.opencontainers.image.revision` to the commit the image was built from.
+
+---
+
+## IV. Container Conventions
+
+- Use **Containerfile** (not Dockerfile) as the build file name.
+- Base images: **UBI** (`registry.access.redhat.com/ubi10/*`) for system-level images, **Hummingbird** (`quay.io/hummingbird/*`) for application-level images.
+- **Before building on Hummingbird images**, always check the upstream examples at https://gitlab.com/redhat/hummingbird/containers for current best practices, Containerfile patterns, and supported image variants.
+- Always `dnf clean all` after package installs.
+- Required LABELs: `maintainer`, `description`, plus OCI labels from Section III.
+
+---
+
+## V. GitHub Organization
+
+### Repository Naming
+
+All repositories live under the `crunchtools` GitHub organization: `crunchtools/<name>`.
+
+### Commit Standards
+
+- Follow Semantic Versioning 2.0.0 for all releases.
+- AI-assisted commits MUST include the `Co-Authored-By` trailer:
+  ```
+  Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>
+  ```
+
+---
+
+## VI. Testing
+
+Every project MUST have automated tests appropriate to its profile. The specific testing requirements are defined by the project's declared subsystem profile.
+
+At minimum, every project must have CI that runs on pull requests and prevents merging broken code.
+
+---
+
+## VII. Subsystem Declaration
+
+Every repository MUST carry a manifest constitution at `.specify/memory/constitution.md`. It declares which profile(s) the repo follows and which constitution release it is judged by, then holds only the rules that are unique to that repo:
+
+```markdown
+# <project-name> Constitution
+
+> **Version:** X.Y.Z
+> **Ratified:** YYYY-MM-DD
+> **Status:** Active
+> **Inherits:** [crunchtools/constitution](https://github.com/crunchtools/constitution) vX.Y.Z
+> **Profile:** <Profile Name>[, <Profile Name>]
+
+## <What is unique to this repo>
+
+[Invariants, external contracts, and decisions no other repo shares.]
+```
+
+Valid profiles:
+- **MCP Server** — see `profiles/mcp-server.md`
+- **Container Image** — see `profiles/container-image.md`
+- **Bootc Image** — see `profiles/bootc-image.md`
+- **Claude Skill** — see `profiles/claude-skill.md`
+- **Autonomous Agent** — see `profiles/autonomous-agent.md`
+- **Forked MCP Server** — see `profiles/forked-mcp-server.md`
+- **Web Application** — see `profiles/web-application.md`
+- **CLI Tool** — see `profiles/cli-tool.md`
+- **Host Config** — see `profiles/host-config.md`
+- **Governance** — see `profiles/governance.md`
+- **Package Repository** — see `profiles/package-repository.md`
+- **Data Archive** — see `profiles/data-archive.md`
+- **Security Gateway** — see `profiles/security-gateway.md`
+- **Workflow Automation** — see `profiles/workflow-automation.md`
+- **Host Tool** — see `profiles/host-tool.md`
+
+Every repo in the organization has a profile. There are no exemptions: a repo that fits none gets a new profile. A project MAY declare multiple profiles if it spans subsystems.
+
+**Rules (since 1.18.0):**
+- **Reference, don't restate.** The manifest MUST NOT carry a section whose title is a numbered section of this constitution or of a declared profile. Restated copies are what drifted (#22): commands, job names and pins changed upstream while dozens of copies kept the old ones. The validator fails on a restated section.
+- **`Inherits` is the version; the call floats.** `.github/workflows/constitution.yml` (copy [`examples/constitution.yml`](../examples/constitution.yml)) calls `crunchtools/constitution/.github/workflows/validate.yml@v1`, the major tag each release moves (XV rule 5). That workflow runs the validator, profiles and [`profiles/requirements.toml`](../profiles/requirements.toml) from the release the tag points at, never HEAD. A repo is judged by the rules of the version its `Inherits` names: a check a release adds MUST apply only to repos inheriting that release or later, so moving the tag never fails a repo that has not adopted it. An `Inherits` newer than the validator fails. `scripts/fleet-bump.py` moves `Inherits` after each release. Until 1.45.0 the call named the exact release and moved with `Inherits`; that bump was manual, and every repo sat at v1.41.0 three releases later.
+- **The repo is judged by its files, not its prose.** From 1.18.0 the validator checks the real workflows, `.pre-commit-config.yaml`, Renovate and Dependabot config, LICENSE and profile files against `requirements.toml`. Rules that cannot be checked mechanically are listed as prose-only in the validator's verbose output.
+- **Drift is reported.** `scripts/fleet-drift.py` (workflow `Fleet Drift`, triggered weekly by Hermes) audits every repo and goes red when one is out of policy: pre-manifest, failing validation, more than one minor release behind, auto-merge off, or Renovate or Dependabot PRs older than 14 days.
+
+Repos inheriting a version before 1.18.0 are validated by the older rules until they adopt the manifest.
+
+---
+
+## VIII. Amendment Process
+
+1. Create a PR against this repository with proposed changes.
+2. Document rationale in the PR description.
+3. Require maintainer approval.
+4. Bump the constitution version upon merge (semver rules apply).
+5. Tag the release (`vX.Y.Z`) and publish a GitHub Release. Every version is tagged. Publishing moves `v1` to it (`major-tag.yml`), which delivers the release to every repo; the commit already passed CI and the container-release canary on main.
+6. Run `scripts/fleet-bump.py` to open the `Inherits` PR in every manifest repo, adopting the new rules. A bump auto-merges when the repo passes them; otherwise it waits for a fix in that repo.
+
+---
+
+## IX. Deprecation Policy
+
+Removing features without warning breaks downstream consumers. All deprecations follow a warn-then-remove cycle.
+
+**Rules:**
+
+1. **Warn first.** Deprecated features MUST emit a runtime warning for at least one MINOR release before removal in the next MAJOR release.
+2. **Warning format:** `[DEPRECATED] <thing> will be removed in vX.0.0. Use <replacement> instead.`
+3. **Documentation.** Deprecated features MUST be marked in CLAUDE.md, CHANGELOG.md, and tool descriptions with the `[DEPRECATED]` tag.
+4. **No silent removal.** Removing a feature without a prior deprecation warning is a constitution violation.
+5. **Grace period.** The deprecation warning MUST be present in at least one published release before the feature is removed.
+
+---
+
+## X. Runtime Warnings
+
+Warnings nudge users toward best practices without breaking existing setups.
+
+**When to warn:**
+- Insecure file permissions (e.g., token file not `0600`)
+- Deprecated environment variables or configuration patterns
+- Missing recommended configuration
+
+**Rules:**
+
+1. **Format:** `[WARNING] <description>. <recommendation>.` printed to stderr.
+2. **Never fail on warnings.** Warnings MUST NOT cause the program to exit non-zero. They are advisory.
+3. **Suppressible.** Warnings SHOULD be suppressible via `--quiet` flag or `<TOOL>_QUIET=1` environment variable for CI and automation contexts.
+
+---
+
+## XI. Documentation
+
+Every project MUST maintain a capability-indexed documentation set. The README provides a brief overview; dedicated doc pages cover each capability in depth. Documentation MUST be updated alongside the code that changes a capability — not deferred to a separate PR.
+
+### README Structure
+
+The README is a scannable overview, not an exhaustive manual:
+
+1. **Project summary** — one paragraph, what the project does and why
+2. **Capabilities** — numbered list of capabilities, each with a 2-3 sentence summary and a link to its dedicated doc page in `docs/`
+3. **Quick Start** — install commands and minimal configuration
+4. **Documentation table** — full index of `docs/` pages with one-line descriptions
+5. **Development** — build, lint, test, container commands
+6. **License** — AGPL-3.0-or-later
+
+### Dedicated Doc Pages
+
+Each capability gets its own file in `docs/`. Every doc page follows the same template:
+
+| Section | Content |
+|---------|---------|
+| **Title** | Capability name as H1 |
+| **Opening paragraph** | What it does — 2-3 sentences |
+| **Why it matters** | The problem it solves |
+| **How it works** | Technical explanation with real config examples |
+| **Example** | Real config snippet, command output, or deployment pattern |
+| **Related** | Links to other relevant doc pages |
+
+**Rules:**
+
+1. **Real examples, not hypothetical.** Config snippets should be drawn from actual deployments with secrets and personal data replaced by generic placeholders (`user@example.com`, `your-token`).
+2. **Include real data when available.** Performance numbers, benchmark results, reduction percentages — concrete evidence over vague claims.
+3. **Keep pages scannable.** Under 300 lines per doc page. If it's longer, split it.
+4. **Cross-link liberally.** Every doc page should link to related pages. Readers enter from different directions.
+5. **Internal docs go in `docs/internal/`.** Design documents, architecture decision records, and contributor-facing docs live in `docs/internal/` and are linked from user-facing docs as "for contributors."
+
+### Documentation Maintenance
+
+Documentation MUST be updated in the same commit or PR that changes a capability. A feature PR that adds or modifies functionality without updating the corresponding doc page is incomplete.
+
+**Triggers for doc updates:**
+- New capability added → new doc page + README capability entry
+- Existing capability behavior changed → update the corresponding doc page
+- Configuration schema changed → update config examples in all affected docs
+- Capability removed → remove doc page + README entry
+
+**What does NOT require doc updates:**
+- Bug fixes that don't change documented behavior
+- Dependency updates
+- CI/CD changes
+- Test additions
+
+---
+
+## XII. Code Quality Gates
+
+Every project MUST run **Gourmand** (AI slop detection) and **Gatehouse** (AI code review) as CI gates on every pull request AND as pre-commit hooks on every commit. Both tools MUST be run from their official container images — never compiled from source in CI, never installed from a package index locally.
+
+Canonical drop-in workflow files are maintained in [`crunchtools/gatehouse/examples/`](https://github.com/crunchtools/gatehouse/tree/master/examples):
+
+| File | Purpose |
+|------|---------|
+| [`gourmand.yml`](https://github.com/crunchtools/gatehouse/blob/master/examples/gourmand.yml) | Gourmand CI job — add to your test/CI workflow |
+| [`gatehouse.yml`](https://github.com/crunchtools/gatehouse/blob/master/examples/gatehouse.yml) | Gatehouse review + triage workflow — add as `.github/workflows/gatehouse.yml` |
+| [`pre-commit.yaml`](https://github.com/crunchtools/gatehouse/blob/master/examples/pre-commit.yaml) | Gourmand and Gatehouse pre-commit hooks — merge into `.pre-commit-config.yaml` |
+| [`gatehouse-retriage.yml`](https://github.com/crunchtools/gatehouse/blob/master/examples/gatehouse-retriage.yml) | Re-runs triage when a finding gets a reply — add as `.github/workflows/gatehouse-retriage.yml` |
+
+These files are the fleet-owned wiring: copy them unchanged. They call Gatehouse at its major tag (`@v0`), which each Gatehouse release moves once its images are pushed, so a release reaches every repo with no pull request there. A repo MAY name an exact release (`@vX.Y.Z`) to hold itself back during an incident; a branch or a commit is not accepted. The same holds for a Workflow Automation repo's caller file (`crunchtools/ashigaru` at `@v2`) and for every other crunchtools reference (XV rule 5). What this gives up is a per-repo trial of each release; what it buys is that no repo runs a stale gate, and a bad release is undone by moving one tag back. A single bundled reusable workflow was considered and rejected (#22): the gates need different triggers (`pull_request` for Gourmand, `pull_request_target` for review and triage, `workflow_run` for retriage), and nesting renames the check names that branch rules and retriage look up.
+
+Required checks, set once in the organization ruleset: `Protect workflows`, `Gatehouse triage / Gatehouse triage`, `Code Quality (Gourmand) / Code Quality (Gourmand)` and `Constitution / Validate constitution`.
+
+### Host contract
+
+Requiring two gates to run from containers said nothing about the rest. On a freshly installed laptop one repo's ESLint hook ran `npm` on the host, its ruff hook called a host `ruff`, and its test runner skipped three gates with a warning and printed the other results as if that were a pass (#40). Every tool a gate quietly expects on the host is a gate that only runs on the machine it was written on.
+
+**Rules:**
+- A developer machine needs `git`, `podman`, `pre-commit` and `gh`, plus `~/.config/mcp-env/gatehouse.env`. A repo MUST NOT assume anything else is installed.
+- Linters, test runners and review tools MUST run from container images or pre-commit-managed environments (a hook's upstream repo, such as `astral-sh/ruff-pre-commit`, or `language: python`/`node` with `additional_dependencies`), never from host `npm`, `pip`, `uv` or `cargo` installs.
+- A `language: system` hook's `entry` MUST start only the four tools above or a script in the repo, named with a path (`./run.sh lint`). The list is `host_tools` in `requirements.toml`.
+- A local runner (`run.sh test`, `make test`) MUST exit non-zero when a gate cannot run. It MUST NOT skip the gate with a warning, and MUST NOT tell the user to install a tool on the host.
+- A checkout MUST NOT live under a directory a file-sync client manages (pCloud, Dropbox, Google Drive, iCloud). A sync client replaced tracked files, `.git/HEAD` and `.git/config` with "[conflicted]" copies in the middle of a commit.
+
+### Pre-commit hooks
+
+A CI gate that only fires after the push finds problems once they are already someone else's review burden. Both gates therefore also run locally, before the commit exists.
+
+**Rules:**
+- Every repo SHOULD wire both gates through the floating sdlc launcher (below), Python or not. Until the fleet has converted, a Python repo MAY instead pin sdlc, and any other repo's `.pre-commit-config.yaml` MUST otherwise carry a hook with `id: gourmand` running `quay.io/crunchtools/gourmand` and a hook with `id: gatehouse` running `quay.io/crunchtools/gatehouse` with `--stdin` over `git diff --cached`, both from their container images. Copy them from `examples/pre-commit.yaml`.
+- Both hooks block the commit: Gourmand on any violation, Gatehouse on critical/high findings (exit `1`). The Gatehouse hook mounts the repo read-only so its Constitution agent reads the repo's own constitution. Its key comes from `~/.config/mcp-env/gatehouse.env`.
+- `SKIP=gatehouse` (in a Python repo, `SDLC_SKIP=gatehouse`) is the escape hatch for a false positive. It does not make the finding go away: the same finding reappears on the PR and MUST be answered there (see Triage).
+
+### Python repos: sdlc
+
+Every Python repo needs the same checks, and each one used to install and pin
+them itself. Across 35 Python repos that produced nine ruff versions, 15 repos
+with no type checker, and 17 dependency scans written so they could not fail.
+And a laptop and CI that install their tools separately disagree: trentina's
+laptop ran a two-week-old Gatehouse while CI ran a fresh one.
+
+So a Python repo runs its checks from one image,
+[`quay.io/crunchtools/sdlc`](https://github.com/crunchtools/sdlc),
+on the laptop and in CI alike. The repo was `crunchtools/python-sdlc` and the
+image `quay.io/crunchtools/python-sdlc`; GitHub redirects the old repo, and the
+old image stays a signed mirror of the new one until the fleet has moved.
+
+**Rules:**
+- A repo with a `pyproject.toml` is a Python repo. It MUST run its checks
+  through sdlc. Any repo MAY, and every repo SHOULD.
+- **The floating form is preferred, for every repo kind.** The repo commits
+  sdlc's `bin/sdlc-bootstrap` as `.sdlc/bin/sdlc`, unchanged:
+  executable, not a symlink, and with a sha256 listed in
+  `sdlc_bootstrap_sha256`. The image floats; the file the gate trusts does
+  not, or a repo could commit a script that passes itself. Both hooks are `repo: local`, `language: system`, with
+  `entry: .sdlc/bin/sdlc commit` and `entry: .sdlc/bin/sdlc push`, and the push
+  hook runs at `pre-push`. There is no `rev:`: the bootstrap asks the image for
+  its own launcher, so the launcher and every tool float on `latest` together
+  (XV rule 5). The CI job `sdlc ci` runs that file, and nothing
+  else can make it green: the step's `run` is exactly `.sdlc/bin/sdlc ci`
+  (no `|| true`, no second line), neither the job nor the step carries an
+  `if:` that could be false or a `continue-on-error`, and `SDLC_IMAGE` is
+  unset or exactly `${{ vars.SDLC_IMAGE }}` at every `env:` level, because a
+  pull request must not choose the image that judges it. The `Protect
+  workflows` guard rejects fork changes under `.sdlc/` as well as
+  `.github/workflows/`. Copy both from
+  sdlc's `examples/`; `scripts/convert_repo.py` does the conversion.
+  A repo in this form is judged by it alone, whatever its kind or `Inherits`.
+- sdlc's fleet file (`examples/ci.yml`, copied unchanged) also satisfies the
+  CI job: its `sdlc / check` job runs a step whose `run` is exactly
+  `sdlc event`, with no `continue-on-error`, in
+  `quay.io/crunchtools/sdlc-bootstrap@sha256:<digest>` where the digest is
+  listed in `[fleet] sdlc_bootstrap_images`. The bootstrap cosign-verifies the
+  sdlc release it runs, so it is the trust root, and a repo naming any other
+  image would choose its own judge. Its `if:` routes events by design; the
+  required check is `sdlc / check (pull_request)`, and sdlc's cutover pins the
+  file byte for byte. A repo running it needs none of the per-repo gate
+  workflows (Gourmand, Gatehouse review, triage and retriage, the `Protect
+  workflows` guard, constitution validation, `container-release.yml`):
+  `sdlc event` runs each of them.
+- Until the fleet has converted, the rev-pinned form is still accepted: a
+  hook block from `https://github.com/crunchtools/sdlc` (or its old name,
+  `sdlc_hooks_repo_renamed_from`) whose `rev:` names one exact release
+  (`vX.Y.Z`), because pre-commit never refetches a moved tag:
+
+  | Command | Runs | Config block in `pyproject.toml` |
+  |---|---|---|
+  | `sdlc commit` | the `sdlc-commit` pre-commit hook | `[tool.sdlc.commit]` |
+  | `sdlc push` | the `sdlc-push` pre-push hook | `[tool.sdlc.push]` |
+  | `sdlc ci` | the CI job named `sdlc ci` | `[tool.sdlc.ci]` |
+
+- **Commit** takes seconds, works offline and costs nothing: formatting, lint
+  fixes, and Gourmand's structural review. **Push** renders the verdicts —
+  types, tests, Gourmand, Gatehouse, Semgrep, the dependency audit, this
+  validator, CodeQL — once, over `origin/<default-branch>...HEAD`, and never
+  builds a container. **CI** runs push's checks except Gourmand and Gatehouse,
+  which CI runs through their own workflows (below), plus the repo's own
+  checks, such as building and testing its image.
+- Every check exits `0` passed, `1` found a problem, or `2` could not run.
+  `2` is never treated as a pass and is never worked around.
+- `3` means could not run, deferred to CI. Not a pass, not a refusal: it
+  prints loudly, names `sdlc ci` as the judge of that commit, and is recorded
+  in `last-push.json`. sdlc grants it per check — never a tool's own
+  status, and today only CodeQL has it — and only when every one of these
+  holds: the tier is `push`, the run is outside CI, that check is also in
+  `[tool.sdlc.ci]`, the repo's CI actually runs `sdlc ci` (a workflow line
+  that runs `bin/sdlc ci`, not a comment or job name), and the tool itself
+  broke. A configuration error stays `2`. Anywhere else, `3` is `2`. A check
+  that defers more than rarely is a bug to fix, not a tier.
+- The image carries tools, never a repo's rules. Rulesets, thresholds, ignore
+  files and query packs stay in the repo. A repo's own checks are named in its
+  config block with a `kind` the image implements — never a shell command. A
+  repo that needs something new gets a new kind in the image.
+- `default_install_hook_types` MUST name `pre-commit` and `pre-push`, so
+  `pre-commit install` wires both hooks.
+- **`sdlc ci` MUST be a required status check on the default branch**, through
+  an org ruleset rather than per-repo. A check that reports and cannot block is
+  not a gate: auto-merge — both Dependabot's and sdlc's own
+  version-bump pull requests — merges on required checks alone, so an advisory
+  `sdlc ci` lets every future bump land whatever its verdict. The ruleset names
+  its repos, so the list is something that can drift: `scripts/fleet-drift.py`
+  checks it against the repos this section applies to, in both directions. A
+  Python repo missing from it has a gate that cannot block; a repo in it that
+  is not a Python repo has a required check that will never report, which
+  blocks every merge there instead.
+- A release of Gourmand or Gatehouse triggers an sdlc release, which
+  moves `latest`, and every Python repo runs it on its next push and CI run,
+  with no pull request there. The laptop runs the reviewer CI runs. In the
+  rev-pinned form only, a change to the launcher, `bin/sdlc`, needs a `rev:`
+  bump; the floating form never does.
+- Exempt from requiring it: `gourmand` and `sdlc`, which build what
+  the image contains.
+  The list is `sdlc_exempt` in `requirements.toml`. Gatehouse is not exempt:
+  sdlc runs its last release, so it reviews its own changes the way the
+  standalone hook did.
+- What stays in workflow YAML, because it is not a check: publishing,
+  uploading results to GitHub's security tab, Gatehouse's PR review and
+  triage, and Gourmand's reusable CI job.
+
+### Gourmand
+
+Gourmand detects AI-generated code quality issues: generic variable names, single-use helpers, magic numbers, verbose comments, and other slop patterns.
+
+**Rules:**
+- The CI job MUST use `container: quay.io/crunchtools/gourmand:main` — never `cargo install` from
+  source, and never `:latest`. Gourmand cuts no releases, so under constitution 1.33.0 `:latest`
+  is the newest release and would hold the gate at v1.0.0 for good. This is the same break RT #1482
+  already caused once from the other direction, when tagging v1.0.0 moved `:latest` backwards and
+  the Code Quality gate failed in every repo pinned to it. `:main` is what the gate has always
+  actually tracked; it now says so.
+- The command is `gourmand check --full .` (full scan, not incremental).
+- CI job name: `Code Quality (Gourmand)`.
+- Gourmand is a **blocking gate** — PRs MUST NOT be merged with violations unless excepted in `gourmand-exceptions.toml` with justification.
+
+### Gatehouse
+
+Gatehouse is a multi-agent AI code reviewer that posts findings as PR review comments. It runs under `pull_request_target` for fork safety — the PR diff is piped as data, never checked out or executed.
+
+**Rules:**
+- The review job MUST use the `crunchtools/gatehouse` reusable workflow, which runs `quay.io/crunchtools/gatehouse` internally — never a local install.
+- CI workflow name: `Gatehouse`. Job names: `Protect workflows` (guard) and `Gatehouse review` (review).
+- Gatehouse is an **advisory gate** — findings are posted as PR review comments for the maintainer to triage; the reviewer's verdict never blocks merge. What blocks merge is an unanswered finding (see Triage).
+- **The review job is advisory by construction and MUST NOT be a required status check.** An LLM reviewer is non-deterministic and hallucinates findings; giving it merge authority forces maintainers to either bypass branch protection or "fix" non-bugs. The reusable workflow exits `0` regardless of findings by default. Blocking behavior is opt-in only (the workflow's `blocking: true` input), and even when enabled the review job MUST NOT be added to branch protection as a required check.
+- The `guard` job is a **blocking gate** — PRs from non-members that modify `.github/workflows/` MUST be rejected. It, not the review job, is the one to mark required.
+- The `OPENROUTER_API_KEY` secret (Gatehouse 0.9.0+; an org-level secret in crunchtools) MUST be scoped to the reusable workflow when possible.
+
+### Triage
+
+"Advisory" was read as "optional", and findings were merged past unanswered — one PR drew 40 findings (21 high) and merged five minutes later with no reply to any of them. Advisory means the LLM has no vote. It does not mean nobody reads it.
+
+**Rules:**
+- Before merge, every Gatehouse finding on the PR MUST have a reply in its thread: `fixed in <sha>` or `not a bug: <reason>`. A reason is a sentence a reviewer could check, not "false positive".
+- The workflow MUST run the `triage` job from `crunchtools/gatehouse/.github/workflows/triage.yml` (job name `Gatehouse triage`), after the review and again on every `pull_request_review_comment` event.
+- Since v1.52.0, the triage job MUST pass the review job's result: `needs: review`, `if: always()`, and `with: review_result: ${{ needs.review.result }}`, at Gatehouse v0.32.0 or the `@v0` tag (gatehouse `examples/gatehouse.yml`). Without it, triage cannot tell a review that died before posting from one that found nothing, and passes both. With it, a PR that carries no Gatehouse review passes only if the review job succeeded.
+- A finding written against a commit that is no longer on the PR MUST NOT block. A force-push that rebuilds the branch — Ashigaru does this when a conflicted branch is rebuilt on the new default branch — orphans both the reviewed code and every `fixed in <sha>` answer naming it, and no answer can ever satisfy the gate again. The review of the new head is the one that applies. A commit that Gatehouse lists as carried, when it skips re-reviewing a rebase whose patch is unchanged, counts as on the PR, so its findings still block and an answer naming it still answers them. A finding whose original commit cannot be determined still MUST be answered: unprovable is not the same as orphaned.
+- `Gatehouse triage` is deterministic — it never judges code, only whether each finding was answered — so, unlike `Gatehouse review`, it SHOULD be marked a required status check.
+
+---
+
+## XIII. Centralized Logging
+
+Container logs are lost when a container restarts or crashes. Every crunchtools
+service MUST emit its logs somewhere the central collector
+(`syslog.crunchtools.com`, `crunchtools/syslog`) can reach, so that logs survive
+the container, live under one retention policy, and can be read by an agent
+diagnosing a failure.
+
+**Log to stdout/stderr, never to a file inside the container.**
+Podman captures the container's console via conmon into the host journal, and the
+collector reads the journal. A log written to a path inside the container is
+invisible to the collector and gone at the next restart.
+
+**Do not override the log driver.** Podman's `journald` driver is the default and
+is what makes the fleet-wide tap work. A unit that sets `--log-driver=none` or
+`k8s-file` removes that service from centralized logging entirely.
+
+> Note for anyone porting Docker habits: podman has **no** `syslog` log driver —
+> only `k8s-file`, `journald`, `none` and `passthrough`. Per-container
+> `--log-opt syslog-address=` does not exist. The journal *is* the tap, which is
+> also why no per-container configuration is required.
+
+**systemd-based containers MUST forward their internal journal.**
+When PID 1 is `/sbin/init`, conmon only sees systemd's own console output — the
+logs of services running *inside* the container never reach the host journal.
+These containers MUST set `ForwardToSyslog=yes` and ship to
+`syslog.crunchtools.com:514`. This is the one case that needs explicit
+configuration.
+
+**Program identifier.** The collector keys each log stream on the container name
+(`CONTAINER_NAME`, set by conmon) and falls back to the syslog program name.
+Network senders MUST use a tag that matches their container or service name.
+
+**Compliance is verified against the running fleet, not the source tree.**
+Whether a service actually reaches the collector depends on its systemd unit and
+its runtime behaviour, neither of which a repo-level grep can see.
+`check_syslog_coverage.sh` in `crunchtools/syslog` audits every running container
+and alerts through Nagios on any that are not reaching the collector.
+
+---
+
+## XIV. Configuration Placement
+
+Configuration MUST NOT be baked into an image unless it is genuinely necessary.
+An image is a build artifact, shared across hosts and rebuilt on a slow cycle.
+Configuration is host-specific and changes on an operational cycle. Burying the
+second inside the first means a one-line tuning change needs a full image build
+and a reboot, and it hides the running configuration from anyone reading the
+host to find out why it behaves the way it does.
+
+**bootc hosts: configuration lives in `/etc`.**
+Image mode already performs a three-way merge on `/etc` across upgrades, so
+host config placed there survives `bootc upgrade` while staying readable and
+editable in place. The Containerfile carries packages, unit enablement, and
+anything that must exist before first boot. Everything else — sysctls, systemd
+drop-ins, `*.conf.d/` overrides, tuning of any kind — goes in `/etc`.
+
+**Container images: configuration lives in `/srv/<service>/config/` on the
+host**, bind-mounted into the container read-only. Secrets are the exception
+to the path, not the rule: their only committed form is encrypted, so the unit
+reads them from `/run/srv-secrets/<service>/`, where they are put on tmpfs at
+unit start (XVII):
+
+```
+-v /srv/postiz.crunchtools.com/config/temporal/config.yaml:/etc/temporal/config.yaml:ro,Z
+--env-file /run/srv-secrets/postiz.crunchtools.com/postiz.env
+```
+
+**On a user's own machine the same tree lives in that user's home.** A
+workstation or laptop (Dolza, Breetai) runs its services rootless as the user,
+so the tree is `~/Projects/<host>-services/<service>/` instead of
+`/srv/<service>/`, with the same `config/` and `data/` layout, and secrets on
+`$XDG_RUNTIME_DIR/srv-secrets/<service>/`. `~/Projects` is what the user's
+backup covers; regenerable caches, models, runtime sockets and any plaintext
+credential are excluded from it by the backup's filter, because secrets are
+restored from OpenBao, never from a copy.
+
+This keeps the image generic and reusable across deployments, and keeps secrets
+and per-deployment values out of image layers, where they would persist in the
+registry and in every derived image.
+
+**The exception is narrow.** Configuration MAY be baked into an image only when
+the image cannot boot or function without it, or when it is genuinely invariant
+across every deployment of that image — repository definitions, GPG keys, a
+default that is part of the image's identity. Convenience is not a reason, and
+neither is "it is only one file." When in doubt it goes in `/etc` or
+`/srv/<service>/config/`.
+
+---
+
+## XV. Dependency Lockfiles
+
+An unpinned build is not reproducible. If CI resolves dependencies fresh on
+every run instead of reading a committed lockfile, the exact set of code
+running in production can change with no commit, no PR, and no diff to
+review — a new linter rule, a breaking minor release, or a compromised
+package can enter the build invisibly. This happened to `mcp-gitlab` on
+2026-09-17: `uv.lock` was gitignored, CI silently resolved a newer `ruff`
+than any developer had locally, a rule graduated from preview to stable,
+and the build broke with zero code changes to point at.
+
+**Rules:**
+
+1. **Lockfiles MUST be committed.** `uv.lock`, `package-lock.json` /
+   `pnpm-lock.yaml`, `Cargo.lock`, `go.sum`, `Gemfile.lock` — whatever the
+   ecosystem produces. Never add a lockfile to `.gitignore`.
+2. **Pinned versions MUST have an automated update path.** A committed
+   lockfile with no update mechanism just trades one failure mode
+   (invisible drift) for another (silent staleness — security patches and
+   bugfixes never arrive). [Renovate](https://docs.renovatebot.com/) updates
+   every repo from one policy, [`renovate/default.json`](../renovate/default.json).
+   Renovate is self-hosted:
+   [`renovate.yml`](../.github/workflows/renovate.yml) runs Renovate's image
+   over every `crunchtools/*` repo, with
+   [`renovate/self-hosted.json`](../renovate/self-hosted.json) as its global
+   config, which has every repo inherit
+   [`renovate/org-inherited-config.json`](../renovate/org-inherited-config.json)
+   from this repo's default branch before its own config; that file turns off
+   onboarding, makes a repo config optional, and extends the preset at the
+   major tag (`github>crunchtools/constitution//renovate/default#v1`). A repo carries no
+   update config at all, so a policy change is one commit here that reaches the
+   fleet when `v1` moves; under Dependabot, which cannot include shared config,
+   the same change was an edit in some 60 repos. The preset covers every
+   ecosystem the profiles use outside `.github/workflows` — uv and pip,
+   Containerfile images, pre-commit and npm. Renovate never touches
+   `.github/workflows`: the preset turns the `github-actions` manager off and
+   ignores the path, and Renovate's App, renovate.crunchtools.com, holds no
+   workflows permission, so a repo that turns the manager back on gets only
+   rejected pushes. A workflow is code that runs with the repo's token, and an
+   App that can rewrite every workflow in the org is the one credential worth
+   stealing. The fleet is moving to one `ci.yml` per repo that only runs the
+   sdlc container, whose tool versions live in the sdlc repo as ordinary
+   files that Renovate bumps there; the pins left in workflows move with
+   `scripts/fleet-bump.py` or by hand. A third-party `uses:` still names a full
+   40-character commit SHA, with its version as a comment
+   (`actions/checkout@<sha> # v7.0.1`); a `docker://` step names an image
+   digest. A tag
+   can be moved under every caller at once, and a SHA cannot. Our own
+   `crunchtools/*` workflows float at their major tag instead (rule 5), and a
+   `./` path is the repo's own code. The validator reports each unpinned
+   reference as a warning; `third_party_pins` in `requirements.toml` turns that
+   into a failure once the fleet is migrated.
+3. **Updates land as PRs, gated by the same CI as any other change.**
+   Renovate runs weekly, matching the weekly CVE scan (Hermes dispatches
+   `renovate.yml`). A non-security update
+   waits a week where the registry publishes release times (Docker Hub, PyPI,
+   npm, GitHub releases): no PR opens before the release is 7 days old
+   (`minimumReleaseAge` with `internalChecksFilter: strict`), so a release
+   yanked or compromised in its first week never reaches the work pile, and
+   nothing sits there waiting for its age to pass. Where the source gives no
+   release time (quay, ghcr and Red Hat registries, git tags and refs, Python
+   versions) it waits for the weekly window instead; those are vendor
+   registries and our own. A vulnerability fix skips the wait. Minor and patch
+   updates come as one grouped PR per repo; silently disabling or ignoring an
+   ecosystem is not fine. A repo may add its own Renovate config for what is
+   unique to it, and it merges on top of the inherited one, but it MUST NOT
+   set `minimumReleaseAge`, `minimumReleaseAgeBehaviour`,
+   `internalChecksFilter` or the old `stabilityDays`, at the top or in a
+   `packageRule`, nor extend a preset that sets them (`config:best-practices`,
+   `security:minimumReleaseAge*`): the cooldown is fleet policy
+   (machine-checked, `renovate_locked` and `renovate_locked_presets` in
+   `requirements.toml`; `ci.yml` fails if a Renovate release adds a built-in
+   preset the list misses). Third-party presets (`github>`, `local>` and the
+   like) are not inspected: extending one that sets a cooldown is the same
+   violation, caught only in review.
+
+4. **Minor and patch updates merge themselves, in every ecosystem.** Every
+   repo has `allow_auto_merge` on, and the preset sets `automerge` with
+   `platformAutomerge`: a green minor/patch PR — github-actions, uv, npm or
+   any other ecosystem, with digest refreshes and pins riding along — is
+   handed to GitHub's auto-merge and lands when the required checks pass.
+   Majors, and anything not classified as minor or patch, wait for a human.
+   A `hummingbird/python` base image is the exception: its minor and major
+   tag bumps are never proposed, because a Python minor is a runtime
+   migration (a uv lock is solved per interpreter and compiled wheels ship
+   per minor; 3.14 → 3.15 broke every trentina build). Its digest and patch
+   bumps flow as usual; the next minor moves by hand with its lock. A repo
+   still on Dependabot ignores `version-update:semver-minor` and
+   `semver-major` for the image in its `docker` block, or a `versions` range
+   that blocks the next minor and major, and the validator checks it.
+   Only Acquacotta, Trentina and ROTV have users besides us, so the required
+   checks are the gate, not a person reading a green diff. Renovate and
+   Dependabot PRs left open more than 14 days show up in the drift report.
+
+5. **Crunchtools refers to crunchtools at a moving tag.** Exact pins between
+   our own repos cost more than the breakage they prevented. On 2026-11-17
+   every repo called the constitution's workflows at v1.41.0, three releases
+   behind; Gatehouse's review ran its own not-yet-pushed image and failed
+   every review, twice; python-sdlc's own hook ran Gatehouse 0.23.0 and
+   failed locally with a 401.
+   - A call to a crunchtools reusable workflow (constitution, gatehouse,
+     ashigaru, sdlc) names its major tag: `@v1`, `@v0`, `@v2`. Each
+     repo's release moves that tag, forward only (`major-tag.yml`). An exact
+     release (`@vX.Y.Z`) is accepted to hold a repo back during an incident; a
+     branch or a commit is not.
+   - A crunchtools tool image in a hook or a CI job names the tag its
+     releases move: `:latest`, or `:main` for Gourmand, which cuts none (XII).
+     The list is `floating_images` in `requirements.toml`. A hook runs it with
+     `--pull=newer`, or podman keeps the first copy it pulled. A Containerfile
+     `FROM` that bundles a tool into an image is a build input, not a
+     reference, and keeps its version.
+   - A pre-commit `rev:` stays an exact release: pre-commit never refetches a
+     moved tag. A hook repo floats by what it runs (sdlc's image), not
+     by its rev.
+   - Third-party actions and images stay pinned by commit SHA or digest
+     (rule 2). That is the supply-chain boundary, and it does not move.
+   - Rollback is moving the major tag back one release (the command is in
+     `major-tag.yml`), or copying `rollback-latest` back over `latest` for an
+     image (Container Image profile). Where a repo has a canary, it passes on
+     the release commit before the tag moves; the constitution's is
+     `container-release-canary.yml`.
+   There is no per-repo version to keep current, so rule 2 has nothing to
+   update; a new major tag moves through `scripts/fleet-bump.py`, since
+   Renovate does not read workflows. The preset never pins a crunchtools image
+   to a digest.
+
+6. **uv projects scan with the fleet's dependency audit.** `security.yml` calls
+   [`dependency-audit.yml`](../.github/workflows/dependency-audit.yml) at `@v1`
+   (copy [`examples/security.yml`](../examples/security.yml)). It
+   fails a pull request with a vulnerable dependency and keeps one alert issue
+   on the default branch: rewritten while anything is vulnerable, closed by
+   the first clean scan. Fifteen per-repo copies had drifted: twelve counted
+   every report as clean, none closed its issue, and gatehouse#96 stayed open
+   five days after its fix merged.
+
+7. **A container installs its Python dependencies from the committed lock.**
+   `pip install .` reads only `pyproject.toml`, whose floors carry no upper
+   bound, so the image ships whatever the index held at build time — a
+   dependency set no test, no lockfile and no PR ever saw. Rules 1–3 pin and
+   audit `uv.lock`, and CI and pre-commit install from it, but the artifact
+   that actually runs is the least-pinned thing the repo produces. On
+   2026-11-07 `mcp-gemini` shipped `google-genai` 3.0.0 while its lock and CI
+   held 2.34.0; 3.0 had inverted its HTTP dependency, every tool failed, and
+   every check stayed green. A Containerfile that resolves Python dependencies
+   (installs `.`, `-e .`, `.[extra]`, a path, or `-r <file>`) MUST install them
+   from the lock — export it with `uv export --frozen`, `uv sync --frozen`, or `uv sync --locked`,
+   and pass `--no-deps` on the install so pip cannot re-resolve past the pinned
+   set. This is machine-checked (RT#1564): fleet-drift runs the latest
+   validator against every repo regardless of its pin, so a Containerfile that
+   resolves dependencies outside the lock is reported fleet-wide, and a repo at
+   this release or later fails its own `sdlc constitution`.
+
+8. **Workflows are audited by zizmor.** A workflow is code that runs with the
+   repo's token and secrets, and its supply chain (actions, triggers,
+   permissions, template expressions) is what an attacker reaches for first:
+   a `pull_request_target` that checks out a fork, an action tag moved under
+   every caller, a token scoped to the whole org. The `zizmor` job in
+   [`validate.yml`](../.github/workflows/validate.yml) runs
+   [zizmor](https://docs.zizmor.sh/), installed by hash from
+   [`requirements/zizmor.txt`](../requirements/zizmor.txt), against every repo
+   that calls it at `@v1`, with the fleet policy [`zizmor.yml`](../zizmor.yml)
+   as its only config: third-party actions pinned by SHA (rule 2), ours at
+   their major tag (rule 5). It uploads SARIF to code scanning under the
+   category `zizmor`, which needs the caller to grant `security-events: write`
+   ([`examples/constitution.yml`](../examples/constitution.yml)); a caller that
+   does not, a private repo without Advanced Security, or a fork's pull
+   request keeps the findings in the job log instead. A finding that is right
+   for the repo is suppressed on its line (`# zizmor: ignore[<audit>]`) with
+   the reason beside it. The job is advisory until the fleet is clean: it
+   never fails, and it is not a required check.
+
+Policy files: [`renovate/default.json`](../renovate/default.json), the policy;
+[`renovate/org-inherited-config.json`](../renovate/org-inherited-config.json),
+which every repo inherits; and [`renovate/self-hosted.json`](../renovate/self-hosted.json),
+the run's global config. `ci.yml` validates all three with Renovate's own code,
+and a pull request that changes any of them runs `renovate.yml` as a dry run
+over the fleet. There is no copy to keep in sync: Renovate reads the inherited
+file from this repo's default branch. The preset ignores
+`crunchtools/constitution`: it is called at its major tag, and a new major
+moves through `scripts/fleet-bump.py`.
+
+**Transition.** Order matters. The `v1` tag must carry
+`renovate/default.json` before Renovate runs for real, or every repo gets a
+Renovate config-error issue for a preset that does not exist. Renovate runs
+as its own App, renovate.crunchtools.com (key `RENOVATE_APP_KEY`, a repo secret;
+its client ID is not secret and sits in the workflow), with ordinary permissions
+only: contents, pull requests, issues and statuses write, checks and
+Dependabot alerts read. Without workflows permission the key is not
+sensitive, so dry and real runs share it. A dry run is the default and the
+only kind a pull request gets: its token is read-only (contents, pull
+requests, issues), and its log lists what every repo would get. A real run is
+a `workflow_dispatch` from main with `dry-run` off. Each run's first step
+reports what the App lacks (`renovate/app-permissions.json`). Forks are
+processed too: a forked MCP server is ours to keep current. Then `scripts/fleet-bump.py --renovate` deletes each repo's
+`.github/dependabot.yml` and Dependabot auto-merge caller in one auto-merged
+PR. Dependabot security updates are a repo and org setting, separate from
+`dependabot.yml`, and are turned off org-wide as part of the swap. A repo
+inheriting a release before v1.60.0 may still carry the Dependabot files,
+judged as before; from v1.60.0 they fail validation, and the deprecated
+`dependabot-automerge.yml` goes with them.
+
+---
+
+## XVI. Monitoring Checks
+
+Monitoring keeps sprawling across schedulers, and each new check adds a new
+credential, a new dependency, or a new agent turn if nobody pushes back. This
+section makes the pushback a rule instead of a one-off argument, following
+the same 2026-09-17 backup-freshness check (`check_backup_freshness.sh`,
+`crunchtools/nagios`) that first established the pattern below.
+
+### Scheduling
+
+Scheduled operations work MUST use **Nagios** (interval-based detection) or
+**Hermes** (agent/script jobs) — nothing else. That covers monitoring checks
+and their remediations, and every recurring host job: backups, data
+collection, certificate renewals, pruning, OS and container updates. No host
+cron. The only systemd timers on a host are the ones its OS image ships
+(fstrim, logrotate, sysstat and the like). A job that needs host privileges
+keeps its `.service` on the host, and a Hermes monitor-mode job starts it
+through the systemd MCP tools: Hermes owns the clock, a stable script output
+keeps healthy runs free, and a failed run wakes the agent to investigate
+instead of waiting for a human. This is the same rule as
+Section XIII's centralized logging and exists for the same reason: a third
+scheduler is a third place to look during an incident and a third thing that
+silently stops working.
+
+A scheduled Hermes job that does work MUST use monitor mode
+(`--monitor-script`): a script runs every tick with no model call and prints
+one stable line (no timestamps or run ids), and the agent wakes only when that
+line changes, so it can diagnose, retry or roll back. `--no-agent` is only for
+a job whose whole purpose is to report, where there is nothing for an agent to
+fix. A plain agent job (a prompt on every tick) pays for a model call each run
+and is not used for scheduling. See the Autonomous Agent profile for how a Hermes job
+that reacts to a check (rather than polling on its own timer) fits this rule.
+
+### Standalone Checks
+
+Every Nagios check MUST be a self-contained plugin (a shell or Python script)
+that a human can run directly — via `check_nrpe` from the Nagios server, the
+same way it's tested — and get the same result Nagios gets. A check MUST NOT
+depend on an MCP server, an LLM agent, or any other orchestration layer to
+produce its OK/WARNING/CRITICAL verdict. This keeps the failure surface of
+the monitoring system smaller than the failure surface of the thing it
+monitors: if the MCP gateway is down, a check built on top of it goes blind
+at the exact moment it might be needed.
+
+### Avoid Tokens
+
+Prefer a credential-free signal — a local file's mtime, a Unix socket, a
+direct database read — over an API call that needs a token. When a
+credential is genuinely unavoidable (e.g. `rclone`/pCloud for backup
+freshness), it MUST be read-only, scoped to the minimum needed, and never
+echoed into check output or logs.
+
+When the thing being checked lives inside another container and the nrpe
+user has no filesystem access to it (the common case for distroless
+services), reach it over the **podman exec socket** instead of a credential:
+have the check ask the target container to answer for itself, the same way
+`check_postiz_tokens.sh` and `check_google_oauth.sh` do. This is not a
+token — it's the same access the container already has to itself — and it
+avoids bind-mounting another container's SELinux-labeled data into the
+nagios-agent container, which risks relabeling it out from under the
+original service.
+
+### Deterministic Code
+
+A check MUST decide OK/WARNING/CRITICAL with deterministic logic — a stat
+call, a date comparison, a plain conditional. It MUST NOT ask an LLM to make
+that call. Non-determinism belongs in *remediation*, not detection: a Hermes
+job MAY react to a Nagios alert by taking an agentic action, but the alert
+itself must fire the same way every time given the same inputs. A flaky
+detector is worse than no detector — it trains the operator to ignore it.
+
+### Slow or Remote Reads: Collector and Status File
+
+A check whose read can be slow — an outside API, remote storage, anything
+that can approach the NRPE timeout — MUST NOT make that read inline on every
+run. A timed-out read reports nothing about the thing being watched; it only
+reports that the network was slow, and it does so as an UNKNOWN that looks
+like a problem. Split it in two:
+
+- A **collector** script does the reads with a generous budget and a timeout
+  per item, keeps an item's last good answer when one read fails, and writes a
+  status file atomically (temp file, then rename) under the agent's data
+  directory.
+- The **check** judges that file with the same thresholds the live check used.
+  When the file is older than a kick interval, the check starts the collector
+  itself, detached. It reports UNKNOWN "collector stale" only when the file is
+  missing or older than a few check intervals.
+
+The check still decides deterministically and still runs by hand via
+`check_nrpe`. The collector is started by the check, never by a timer, so
+Nagios stays the only clock (see Scheduling above).
+
+### Pool Membership
+
+Every service that runs through an NRPE daemon MUST use that daemon's pool
+template (`nrpe-fast-service` for `check_nrpe_command`, `nrpe-ctr-service`
+for `check_nrpe_ctr`, `-slow` variants for longer intervals). The template
+carries the servicegroup the daemon's liveness dependency covers, so an agent
+restart is one alert instead of one per check. Pools are never a hand-kept
+members list; one drifted 32 checks behind before this rule.
+
+### Drift Grace
+
+A check that compares deployed state to its source of truth (git, a released
+image, a registry) MUST tolerate the in-between state of a deploy: OK while
+the drift is younger than a grace period (default 4h), measured statelessly
+from file or image timestamps, and WARNING after.
+
+### Planned Work
+
+An agent or person about to make checks fail on purpose — a deploy, a
+restart, a long work session — MUST schedule Nagios downtime on the affected
+host or services first, with a comment naming who and why (`Josui: deploying
+<repo> <version> (<ticket>)`), and cancel it when the work is verified. Planned
+work then neither pages nor counts as noise in reports, and a reader can tell
+an intended outage from a real one.
+
+### Reference Implementations
+
+- `check_backup_freshness.sh` + `backup-freshness-collect.sh`
+  (`crunchtools/nagios-agent` 7.0.0) — the collector and status-file pattern
+  for remote reads (pCloud via rclone).
+- `check_git_drift.sh` (`crunchtools/nagios-agent`) — stateless drift age with
+  a grace period.
+- `check_syslog_source_freshness.sh` (`crunchtools/syslog`) — per-source log
+  staleness, deterministic, standalone.
+- `check_postiz_tokens.sh` / `check_google_oauth.sh` (`crunchtools/nagios`) —
+  the podman-exec-socket pattern for reading another container's state
+  without a token or a bind mount.
+
+---
+
+## XVII. Secrets, PII and Real-World Names in Public Repositories
+
+Most crunchtools repositories are public. Operational configuration written
+for one host tends to carry values that are fine on that host and wrong in a
+public repo — account identifiers, mail addresses, usernames, internal paths.
+These leak by accident, in the ordinary act of committing a working config,
+and once pushed they are in the git history and in every clone whether or not
+a later commit removes them.
+
+**Public repositories MUST NOT contain identifiable data, usernames or
+credentials.** Specifically, none of the following belong in a public repo:
+
+- Credentials of any kind — passwords, API tokens, private keys, session
+  cookies, connection strings with embedded auth.
+- Mail addresses and usernames belonging to real people.
+- Account-scoped identifiers — Cloudflare zone IDs, cloud account numbers,
+  project IDs, tenant IDs, billing references. These are not credentials, but
+  they map infrastructure to an owner and there is no benefit to publishing
+  them.
+- Private hostnames, internal IP ranges and credential file paths that embed
+  any of the above.
+- Names of real people, other than the published maintainer identity below —
+  in fixtures, examples, docs, comments and test data alike.
+- Personally identifiable information about anyone: phone numbers, home
+  addresses, personal mail addresses, chat handles, dates of birth, government
+  identifiers.
+- Private deployment names — the names of private hosts, agents, profiles and
+  internal services — and the topology that connects them: ports, which agent
+  reaches which backend, which one is isolated from what. A single name is
+  harmless; an example config that lists them all is a map of the fleet.
+- An employer's or a third party's confidential information, including using a
+  real organization as the illustrative "secret" in an example. An example
+  that shows how to withhold a named company's material from a named agent
+  discloses both.
+
+Public hostnames of public services are **not** covered by this rule. A check
+that monitors `rt.fatherlinux.com` names it, because the name is already in
+public DNS and redacting it would make the config unreadable. The test is
+whether publishing the value tells a reader something they could not already
+learn from the service itself.
+
+### Fictional data for examples and tests
+
+Examples and tests need names, and a real one is the easiest to reach for. Use
+this roster instead, so that fictional data is recognizable as fictional:
+
+- **People:** Alice, Bob, Carol, and so on; mail at `example.com`,
+  `example.org` or `example.net` (RFC 2606); chat handles such as
+  `@alice:example.org`.
+- **Organizations:** "Example Corp". Confidential projects get a neutral
+  codename, such as `NIGHTJAR`.
+- **Hosts and addresses:** `host01`, `*.example.net`; IPs from RFC 5737
+  (`192.0.2.0/24`, `198.51.100.0/24`, `203.0.113.0/24`) or RFC 3849 for IPv6.
+- **Phone numbers:** 555-0100 through 555-0199.
+- **Agents and profiles:** `agent1`, `agent2`, `agent3`, never the names of a
+  real deployment.
+
+Test data captured from a real system — log lines, API responses, chat events
+— MUST be rewritten to this roster before it is committed.
+
+### Where the values live
+
+Real values live in host configuration under `/srv/<service>/config/`,
+bind-mounted read-only into the container, exactly as Section XIV requires for
+configuration generally; a secret among them is committed encrypted and
+mounted from `/run/srv-secrets/<service>/`. This section adds where the *repository* copy goes:
+
+1. **The public repo carries the shape, not the values.** Commit a
+   `<name>.conf.example` alongside the consuming code, documenting the file
+   format, its deploy path and its mount point, with placeholder values.
+2. **The real file is committed to a private repository, encrypted.** Host
+   config is still config: it needs review, history and a copy that survives
+   the host. "It has secrets in it" is a reason to put it in a *private* repo,
+   not a reason to leave it untracked on one machine — and since 1.37.0 a
+   secret in it is committed encrypted, never as plaintext, because a private
+   repo is still read by every agent and tool with access to it. On
+   Crunchtools hosts that is sops with an age key per host: the committed file
+   is `<name>.sops.<ext>`, and the plaintext exists only on tmpfs, decrypted at
+   unit start. A service reads it there, or through a `*_FILE` path.
+3. **Code and config reference an opaque key, never the value.** A check takes
+   a domain or an account key and resolves the identifier host-side from its
+   own config file. This keeps the consuming config publishable by
+   construction, rather than by remembering to redact it each time.
+
+### Exception: published maintainer identity
+
+Section IV requires a `maintainer` LABEL on every image, and Section III
+requires OCI source labels. These are deliberate publishing identities, not
+leaked data, and are exempt. Prefer a role address
+(`maintainer@crunchtools.com`) over a personal one where the registry and
+tooling allow it.
+
+### Enforcement
+
+Scan before the first push of any config captured off a host, not after. A
+value removed in a later commit is still in the history, and scrubbing it means
+a force-push and rotating whatever leaked. When a value does reach a public
+repo, treat it as disclosed: rotate the credential, and do not rely on deleting
+the commit.
+
+**No plaintext secret in any committed file, public or private (1.37.0).** A
+credential reaches a service as a `*_FILE` path or through a runtime decrypt
+(sops + age to tmpfs on Crunchtools hosts), never as a value in a committed
+file. This is machine-checked: the `Refuse plaintext secrets` step of the
+required `Code Quality (Gourmand)` job (`crunchtools/gatehouse`
+`gourmand.yml@v0`) fails any change that ADDS a line carrying a known
+credential shape (Google, Anthropic, OpenRouter, GitHub, GitLab, AWS, Slack
+keys and bare JWTs), naming the file, line and key, never the value. A test
+fixture line that must carry such a shape is marked `gatehouse: allow-secret`
+on that line; disabling the step for a repo is an emergency measure, not an
+exception. It lives in the shared job rather than per repo because a rule
+copied into one repo does not propagate: trentina#79 became RT#1564 and a full
+outage that way.
+
+The list of private terms to scan for is itself private data — it names the
+hosts, agents and people this section protects — so it MUST NOT be committed to
+a public repository. Keep it host-side (for example
+`~/.config/crunchtools/private-terms`) and scan against it before pushing.
+
+---
+
+## Ratification History
+
+| Version | Date | Changes |
+|---------|------|---------|
+| 1.0.0 | 2026-03-03 | Initial constitution — universal core + 3 profiles |
+| 1.1.0 | 2026-03-05 | Added Autonomous Agent profile for AI agent deployments |
+| 1.2.0 | 2026-03-10 | Added mandatory build caching, git workflow, GitHub Releases, gourmand container |
+| 1.3.0 | 2026-03-10 | Added Web Application profile for stateful web apps (acquacotta, rotv) |
+| 1.4.0 | 2026-03-16 | Added Forked MCP Server profile for containerized third-party MCP servers |
+| 1.5.0 | 2026-04-04 | Added CLI Tool profile for standalone Python CLI tools (gatehouse, etc.) |
+| 1.6.0 | 2026-04-06 | Added Deprecation Policy (IX), Runtime Warnings (X), Changelog requirement (II), file-based credential loading in MCP Server and CLI Tool profiles |
+| 1.7.0 | 2026-06-24 | Added Documentation standard (XI) — capability-indexed README + dedicated doc pages, docs updated alongside code |
+| 1.8.0 | 2026-07-02 | Added Code Quality Gates (XII) — Gourmand and Gatehouse from container images, standard job naming |
+| 1.9.0 | 2026-07-06 | Strengthened XII: Gatehouse review job is advisory by construction and MUST NOT be a required status check; blocking is opt-in and still never required |
+| 1.10.0 | 2026-08-23 | Added Centralized Logging (XIII) — log to stdout/stderr, do not override the journald log driver, systemd containers forward their internal journal to syslog.crunchtools.com; compliance audited against the running fleet (RT #1460) |
+| 1.11.0 | 2026-09-03 | Added Configuration Placement (XIV) — config is not baked into images except when necessary; `/etc` for bootc hosts, `/srv/<service>/config/` bind-mounted for container images |
+| 1.12.0 | 2026-09-17 | Added Dependency Lockfiles (XV) — lockfiles MUST be committed, Dependabot MUST be configured for every ecosystem including github-actions; prompted by mcp-gitlab's CI silently breaking due to a gitignored uv.lock |
+| 1.13.0 | 2026-09-19 | Added Monitoring Checks (XVI) — scheduling lives in Nagios or Hermes only (no new systemd timers), checks MUST be standalone/reproducible via check_nrpe, avoid tokens (prefer local signals or the podman-exec-socket pattern), and decide OK/WARNING/CRITICAL deterministically, never via an LLM; codifies the pattern established by RT #1470 (mcp-feeds freshness) and the 2026-09-17 backup-freshness check |
+| 1.14.0 | 2026-09-19 | Added Secrets and Identifiable Data in Public Repositories (XVII) — no credentials, mail addresses, usernames or account-scoped identifiers in public repos; real values live in `/srv/<service>/config/` and are committed to a PRIVATE repo, public repos carry `.conf.example` shape only, and consuming code references an opaque key rather than the value; prompted by RT #1459 finding Cloudflare zone IDs and two mail addresses inline in an nrpe.cfg about to be committed to a public repo |
+| 1.15.0 | 2026-09-19 | Scoped the Section II GitHub Release requirement to distribution-bearing repos — those whose CI publishes an artifact on a `release` event. Repos whose tags are deploy markers (continuously deployed web apps, skill repos) are exempt and keep only the `CHANGELOG.md` requirement; the clause applies to tags created on or after ratification, because a release against an old tag re-triggers distribution from that tag and ships stale code. Also requires the release's tag name to carry the `v`. Prompted by RT #1485 auditing 178 tags with no release and finding 166 of them to be deploy markers, 2 to be genuinely undistributed code, and 1 to be a malformed tag name |
+| 1.16.0 | 2026-09-22 | Extended XVII (retitled Secrets, PII and Real-World Names in Public Repositories) — public repos MUST NOT carry names of real people other than the maintainer identity, PII of anyone, private deployment names or the topology connecting them, or employer/third-party confidential information (including a real organization used as the illustrative secret); adds a fictional roster for examples and tests (Alice/Bob/Carol, RFC 2606 domains, Example Corp, RFC 5737 IPs, 555-01xx, agent1/agent2/agent3) and requires captured test data be rewritten to it; the private-terms scan list is itself private and stays host-side. Prompted by RT #1504 finding real agent names, fleet topology and personal addresses in the public mcp-trentina repo |
+| 1.17.0 | 2026-09-24 | Strengthened XII: Gourmand and Gatehouse MUST also run as pre-commit hooks from their container images (Gatehouse over the staged diff, blocking on critical/high), and every Gatehouse finding MUST be answered in its thread before merge, enforced by the deterministic `Gatehouse triage` job, which SHOULD be a required check while the review stays advisory. The validator enforces both for repos inheriting v1.17.0 or later. Prompted by a PR merged five minutes after 40 unanswered findings |
+| 1.18.0 | 2026-10-02 | Manifest constitutions (#22): the per-repo file declares profile and pinned version and holds only repo-unique rules, and restating a fleet section fails validation. Validation runs from the reusable `validate.yml` at the pinned tag (never HEAD) and checks the repo's real workflows, hooks, Dependabot config, LICENSE and profile files against `profiles/requirements.toml`. Every release is tagged (v1.7.0–v1.16.0 backfilled). Adds Bootc Image, Host Config, Governance, Package Repository and Data Archive profiles so no repo is exempt, Dependabot auto-merge for GitHub Actions minor/patch (XV), `scripts/fleet-bump.py` for pin bumps and the weekly `scripts/fleet-drift.py` report. Prompted by a 2026-09-23 survey that found 33 of 51 repos declaring v1.0.0 while all were validated at HEAD |
+| 1.19.0 | 2026-10-06 | Added the Security Gateway profile for software that decides what reaches an AI agent (Trentina): image-only distribution with no PyPI package, a judging path that fails closed, delivery of exactly what was judged, a versioned perimeter, declared coverage with gaps held open by tests, detector changes that ship with their measurement, and hostile parsers in limited child processes. The manifest must carry Threat Model, Layer Contract, Known Gaps and Instance. Prompted by Trentina outgrowing the MCP Server profile, whose naming and PyPI distribution no longer described it |
+| 1.19.1 | 2026-10-06 | Fix (#42): `validate.yml` checks out the release it belongs to, written as a literal ref and held to this file's version by a test. It read `github.job_workflow_sha`, which is empty in a called workflow, so every pinned repo had been validated against main; that went unseen while main and the only pin were both v1.18.0, and failed the required check across the fleet when v1.19.0 was released. The validator no longer fails a manifest for inheriting an older release than the validator, since repos pinned to v1.18.0 and v1.19.0 still reach main's |
+| 1.20.0 | 2026-10-06 | Strengthened XII with a host contract (#40): a developer machine needs only git, podman, pre-commit and gh plus the Gatehouse key file; linters, test runners and review tools run from container images or pre-commit-managed environments; a local runner fails instead of skipping a gate it cannot run; a checkout does not live under a file-sync client. The validator fails a `language: system` pre-commit hook that starts anything but those four tools or a script in the repo, for repos inheriting v1.20.0 or later. Prompted by a fresh laptop on which rotv's ESLint and ruff hooks needed host installs, its runner skipped three gates with a warning, and pCloud replaced `.git/HEAD` with a conflicted copy mid-commit |
+| 1.21.0 | 2026-10-08 | Added Honeypot Agents (X) to the Autonomous Agent profile (1.3.0): an agent that reads hostile content on purpose is allowed when it holds nothing real. Its gateway profile is one the gateway refuses to load with a real backend, its credentials are fake and known to the gateway, its model key stays at the gateway, the runtime's own tools are disabled, it has a network and a memory no other agent shares, and what it reads is kept as evidence, never as a log or a fixture. The clauses on P/Q separation, scoring, human approval, credentials and incident response are restated for it, and a seventh quality gate checks that it holds nothing real. Prompted by planning the first honeypot deployment and finding that the profile had no class of agent at all, so every rule that makes a normal agent safe forbade it |
+| 1.22.0 | 2026-10-10 | MCP Server profile 1.7.0 (#35): a tool that only reads MUST be registered with `readOnlyHint`, where read-only means it changes nothing observable through the backend or on the server's disk, runs no caller-supplied code and costs no more than an ordinary API request; tests MUST pin every registered tool into a `READ_ONLY` or a `WRITES` set. The validator fails an MCP Server repo with no test naming `readOnlyHint`, for repos inheriting v1.22.0 or later. Prompted by mcp-trentina 0.53.0, which drops an invalid optional argument only on a tool annotated read-only and refuses the call otherwise, while 18 of 19 crunchtools servers published no annotations and had their reads refused |
+| 1.22.1 | 2026-10-10 | MCP Server profile 1.7.1: the partition-test snippet reads the annotation through `model_dump(by_alias=True)` (FastMCP 4 deprecates the attribute), and upkeep every tool performs alike (token refresh, session login, first-call initialisation) is not a tool's effect. `fleet-bump.py` moves the pre-commit hook rev with the pin (#52) |
+| 1.23.0 | 2026-10-10 | Added the Workflow Automation profile for repos whose product is reusable GitHub Actions workflows that act on other repos (Ashigaru v2): consumers pin release tags, a step that runs an LLM holds no write credential, writes are made by deterministic steps, no LLM holds merge authority, content from accounts without write access never reaches an agent unattended, and the switch, turn, round and per-run limits are tested. Manifests carry Authority Split and Configured Limits |
+| 1.24.0 | 2026-10-11 | Repos call Gatehouse and Workflow Automation workflows at the major tag (`@v0`, `@v2`), which each release moves, instead of an exact release Dependabot bumps per repo (XII, XV rule 5, Workflow Automation profile 1.1.0). The validator accepts a major tag at or above the supported major; an exact release is still accepted, a branch or commit is not. `fleet-bump.py` rewrites the calls in the same PR that moves `Inherits`. Prompted by 2026-10-10: Ashigaru released 2.3.0, 2.4.0 and 2.5.0 in one day, repos sat one and two releases behind within the hour, and since minor and patch bumps merged themselves the pin delayed a release without reviewing it. The constitution's own pin is unchanged: there the pin is the version a repo is judged by |
+| 1.26.0 | 2026-10-14 | Autonomous Agent profile 1.4.0: an agent reaches a code forge only through the gateway (MCP tools for the API, the git route for clone and push), with no forge CLI, credential or egress host in its container; the gateway limits repositories and pushable branches and refuses the default branch, tags and deletes. Prompted by moving Josui Prime's GitHub access off `gh` and the tunnel onto Trentina, with a token that can bypass the org's rulesets |
+| 1.25.0 | 2026-10-11 | Web Application profile 1.2.0: Hosted Dev Sites (XII). A dev deployment that runs a git checkout holds no agent, editor, source-control client or credential; the agent that edits it runs in its own container with the site's directory mounted, and drives it through files: a save takes effect on its own where the stack allows, touching `control/<name>` restarts the units behind a closed set of names, and `logs/<unit>.log` is a capped copy of each unit's journal. Deploys from such a session go through an audited tool that can restart the production unit, never a host login. Section III adds that a path two containers mount uses `:z` in every unit that mounts it. Prompted by moving the agent out of rotv's dev container, where a second container mounting the site's tree made `:Z` relabel it out from under whichever started first |
+| 1.28.0 | 2026-10-31 | Added Version Declarations to II: every file that states the version states the newest released one, checked by the validator from `version_files` in requirements.toml (Web Application opts out; its tags are deploy markers). Added XV rule 6: uv projects call the reusable `dependency-audit.yml`, which fails vulnerable PRs and keeps one self-closing alert issue. Prompted by the 2026-10-31 weekend report: mcp-github 2.0.0 untaggable, twelve silent CVE gates, gatehouse#96 open after its fix |
+| 1.27.0 | 2026-10-26 | Extended Monitoring Checks (XVI): slow or remote reads use a collector that writes a status file and a check that judges it and starts the collector itself; NRPE checks join their pool by template; drift checks carry a stateless grace period; planned work schedules Nagios downtime first. Also Container Image profile 1.5.0 and Web Application profile 1.3.0 (test the digest you promote). Prompted by the 2026-10-24/25 weekend, when planned work on mcp-trove and Trentina buried the Weekend Report's Infrastructure Health section |
+| 1.29.0 | 2026-11-03 | Security Gateway profile 1.1.0: the rule that nothing is built from a workstation becomes a rule that nothing is PUBLISHED from one, and a local build is named as a gate the host SHOULD run. Trentina's `scripts/gates.sh pr` builds, verifies and scans the image before the push, which the old wording forbade while CI built the same image three times per pull request. The credential that once made the build CI-only went with gated Prompt Guard 2 |
+| 1.32.0 | 2026-11-06 | XII triage: a finding written against a commit no longer on the pull request MUST NOT block, while one whose original commit cannot be determined still MUST be answered. Prompted by ashigaru#131, which could never go green: both findings were answered, the branch was then rebuilt on a moved default branch, and the answers named a commit that existed in no repository. Every repo whose default branch moves during a fix round hits this, which is every repo under Dependabot |
+| 1.33.0 | 2026-11-07 | `latest` means the newest RELEASE, not the newest build of the default branch, and `main` is the tag for the default branch (Container Image profile 1.6.0, Web Application profile 1.4.0). A repo that cuts no releases points its units at `main`, so its weekly errata rebuild still reaches production. Prompted by RT#1559: unreleased trentina 6.11.0 reached production at 02:01 through `podman-auto-update` because `:latest` tracked main, climbed to the unit's 4g cap and was SIGKILLed. 44 units across gloval pull `:latest`, and every one of their authors meant "the newest release". The Gourmand gate moves to `quay.io/crunchtools/gourmand:main`, which is what it has always actually tracked |
+| 1.34.0 | 2026-11-07 | Container Image profile 1.7.0 names the one exception to 1.33.0's rule: a cascade image (`ubi10-*`, `*-base`) cuts no release, so its `latest` tracks the default branch and MUST, because the root's weekly rebuild plus `parent-image-updated` is how a base erratum reaches every child. The exception is bounded by the CONSUMER: a cascade image MUST also publish the branch tag, and a systemd unit running one directly MUST name that tag or pin a digest. Prompted by auditing 1.33.0's blast radius — `FROM quay.io/crunchtools/ubi10-core:latest` appears in factory, immich, postiz, rotv, proxy, rt, spanish and the whole ubi10 chain, and flipping those would have frozen the base every child builds on |
+| 1.35.0 | 2026-11-08 | XII adds exit `3`, could not run, deferred to CI, narrowed: granted per check by python-sdlc (today only CodeQL), push tier only, outside CI, only when the check is also in `[tool.sdlc.ci]`, the repo's CI runs `sdlc ci`, and the tool itself broke. Anywhere else `3` is `2`. Prompted by python-sdlc#33: the only way past a broken gate was `--no-verify`, which drops every local gate. |
+| 1.36.0 | 2026-11-08 | MCP Server profile 1.8.0 states the outbound HTTP contract (Layer 3): a client MUST send `User-Agent: <dist>/<version> (+<repo url>)` with the version read from package metadata, MUST read a response body with a byte ceiling enforced while reading rather than from the optional `content-length` header, and MUST raise an error that names the method, URL, status, content-type and a body snippet. `http_client = true` checks the first two, that an error names the full URL, and the tests behind them, in any repo that imports an HTTP client; the content-type and the snippet stay prose. Prompted by RT#1596: 16 of 18 HTTP-speaking servers went out as `python-httpx/<version>`, Cloudflare's bot protection answered that with a challenge page instead of the WordPress REST API, and the error named neither the site nor the body, so it read as a parse error. The same audit found every existing cap reading `content-length` alone — including mcp-wordpress, whose own constitution promised "responses above 10 MB are rejected" |
+| 1.37.0 | 2026-11-09 | XVII: no plaintext secret in any committed file, public or private. A credential arrives as a `*_FILE` path or a runtime decrypt (sops + age to tmpfs on Crunchtools hosts), and host config commits its secrets encrypted. Machine-checked by the `Refuse plaintext secrets` step in the required `Code Quality (Gourmand)` job (gatehouse 0.25.0), which every repo already calls at `@v0`; fixtures opt out per line with `gatehouse: allow-secret`. Container Image profile 1.8.0 states the runtime half. Prompted by crunchtools/trentina#766/#769: three credential leaks in six weeks, every one from a plaintext value in a committed or host config file |
+| 1.40.0 | 2026-11-11 | Vulnerability scanning leaves the image build. `container-release.yml` no longer runs the advisory Trivy step, and the Container Image (1.9.0), Web Application (1.5.0), Forked MCP Server (1.3.0) and Autonomous Agent (1.5.0) profiles stop asking for a per-build scan. Build time audits dependencies (XV, pip-audit through python-sdlc); published images are scanned on a schedule by the fleet CVE check (grype + Nagios), which pages only on a new fixable Critical. Prompted by RT #1551: the per-build scan ran with `continue-on-error` and exit code 0, so it could not fail a build and nobody read it, and it said nothing about an image after the day it was built |
+| 1.41.0 | 2026-11-12 | The MCP Server profile (1.10.0) HTTP client check stops passing a streamed read with no ceiling: the function that streams a body must compare against a `MAX_*_SIZE` / `MAX_*_BYTES` limit, and a repo with no Python under `src/` is reported as skipped instead of passing silently. Repos pinned below 1.41.0 keep passing at their own pin. Prompted by crunchtools/constitution#109, found reviewing RT #1601 |
+| 1.42.0 | 2026-11-14 | New Host Tool profile (1.0.0) for Python tools that run from a git checkout on named hosts as systemd units and need the host itself (D-Bus, NetworkManager, polkit): no Containerfile (new `forbid_files` manifest key), stdlib-first, `install.sh`, secrets as `*_FILE` on srv-secrets. vpn-relay is the first. Prompted by crunchtools/vpn-relay#1 (crunchtools/constitution#134) |
+| 1.43.0 | 2026-11-17 | On a user's machine the service tree lives in `~/Projects/<host>-services/<service>/`, backed up with `~/Projects`. Gatehouse leaves `sdlc_exempt`: python-sdlc runs its last release, as the standalone hook did, so it wires `sdlc-commit`, `sdlc-push` and `sdlc ci` like any Python repo once it pins this release. The XII `sdlc ci` job check accepts a quoted command. Prompted by crunchtools/gatehouse#133 (crunchtools/constitution#137) |
+| 1.44.0 | 2026-11-17 | `container-release.yml` takes an opt-in `sign: true`: promote signs the gated digest with cosign v2 (`--tlog-upload=false`) in the `cosign-signing` environment before any tag moves, verified against `keys/crunchtools-bootc.pub`. Without it nothing changes. Prompted by crunchtools/rhel10-bootc-server#47: signing after promote left tags briefly unsigned and did not scale past the two bootc repos (crunchtools/constitution#142) |
+| 1.45.0 | 2026-11-17 | Crunchtools refers to crunchtools at a moving tag (XV rule 5): the constitution's workflows are called at `@v1`, which `major-tag.yml` moves to each published release on main, as Gatehouse's `@v0` and Ashigaru's `@v2` already were; crunchtools tool images in hooks and CI name `:latest` (Gourmand `:main`) and a hook pulls with `--pull=newer`; pre-commit `rev:` and third-party pins stay exact. `Inherits` alone is the version a repo is judged by, so the validator accepts an older `Inherits` and new checks stay version-gated. Governance profile 1.1.0. Also: `container_release.py` refuses an off-branch `v*` tag before signing (#146). Prompted by every repo calling the constitution at v1.41.0 three releases behind, Gatehouse's review running its own unpushed image, and python-sdlc's hook running Gatehouse 0.23.0 (crunchtools/constitution#149) |
+| 1.46.0 | 2026-11-17 | Floating sdlc launcher, no rev pin (Scott). XII prefers one wiring for every repo, Python or not: a committed `.sdlc/bin/sdlc` (python-sdlc's bootstrap, pinned by sha256 in `sdlc_bootstrap_sha256`) run by `repo: local` `sdlc-commit` and `sdlc-push` hooks with no `rev:`, and the `sdlc ci` job running exactly `.sdlc/bin/sdlc ci`, with no `if:`, no `continue-on-error`, and the image only from `vars.SDLC_IMAGE`. The image prints its own launcher, so hooks and CI float with it and no repo ever needs a `rev:` bump. The rev-pinned python-sdlc hook and the standalone Gourmand and Gatehouse hooks are still accepted until the fleet has converted. Accepting a form is not a new requirement, so it applies at any `Inherits`. `sdlc_launcher` in requirements.toml; `sdlc` joins `floating_images`. Also: XV rule 2 third-party pin report (#151). Prompted by crunchtools/python-sdlc#62, whose pilots (josui, mcp-nagios, syslog) failed `sdlc ci` on the constitution alone |
+| 1.46.1 | 2026-11-17 | Fix (a227): XV rule 5's image check read the tag of `${IMAGE:-quay.io/crunchtools/gatehouse:latest}` as `latest}`, and of `(...:latest).` as `latest).`, so a floating reference failed. A tag is now a registry tag or a shell or Actions expression that becomes one (`:${version}` is still a pin), and whatever closes it is not part of it. Prompted by gatehouse#151 |
+| 1.47.0 | 2026-11-18 | The reusable workflows run their build and gate jobs on the organization's own runners when it names them (a273): `validate`, `audit`, and `container-release.yml`'s `gates` unless `free-disk` is set. A caller's same-repository, non-Dependabot pull request runs on `vars.CACHED_RUNNER_LABEL`; its push, schedule, manual run, release or merge queue on `vars.UNCACHED_RUNNER_LABEL`; every other event, `pull_request_target` included, and every fork or Dependabot pull request stays on `ubuntu-latest`, and clearing a variable is the kill switch. Jobs holding a registry credential, signing key or App key stay on `ubuntu-latest`. Prompted by Exedore's self-hosted runners and every repo calling these workflows on GitHub-hosted machines |
+| 1.48.0 | 2026-11-18 | Private repos run on the organization's runners (a308): GitHub-hosted jobs there have no minutes. `container-release.yml`'s `resolve`, `build`, `mark` and `promote`, and `gates` when `free-disk` is set, run on `vars.UNCACHED_RUNNER_LABEL` in a private repo, judged by `github.repository_visibility` so a `schedule` rebuild routes too. A credential-holding job never runs on `vars.CACHED_RUNNER_LABEL` and keeps registry logins in the job's temp directory; public repos keep those jobs on `ubuntu-latest`. Container Image profile 1.10.0 (IX). Also: `validate.yml` runs on our runners without `setup-python`, which has no build for their Fedora. Prompted by the organization's hosted minutes running out with a $0 limit, which failed every required check in josui-skills, openbao and rhel10-bootc-workstation |
+| 1.49.0 | 2026-11-18 | Autonomous Agent profile 1.6.0 (V, X): a seat MAY hold one credential besides its gateway token, its Ashigaru Desk key. It is seat-role only (it cannot mint keys and writes only its own items), a `0600` file on tmpfs read through `ASHIGARU_API_KEY_FILE` and never in argv, an env file or config, rotated with the gateway token and revoked at the Desk without redeploying the seat. A honeypot agent holds none. Records what every seat and Josui Prime already run. Prompted by Gatehouse flagging the Desk key as a second credential outside Layer 5 on crunchtools/developer#74; decided in crunchtools/developer#75 |
+| 1.50.0 | 2026-11-18 | container-release.yml refuses a `v*` promote whose image `version` label (normalised; `org.opencontainers.image.version` as fallback) names a different release of the same repo, before signing or moving any tag. Inherited base-image labels pass. Prompted by memory v1.2.0 shipping labelled 1.1.2 and newsletter v1.0.2 labelled 1.0.1 (#171, #172) |
+| 1.61.0 | 2026-11-23 | XII accepts sdlc's fleet `ci.yml` (sdlc docs/marketplace-free-ci.md) as the required CI job: a `sdlc / check` job runs exactly `sdlc event`, with no `continue-on-error` and no `if:` that could skip it on a pull request, in an sdlc-bootstrap image by a digest listed in `[fleet] sdlc_bootstrap_images` (today sdlc 0.12.1's). A repo running it needs none of the per-repo gate workflows (Gourmand, Gatehouse review, triage and retriage, the `Protect workflows` guard, constitution validation, `container-release.yml`): `sdlc event` runs each. The `sdlc ci` form is still accepted. Also: self-hosted Renovate in dry run (a1007), and the Unreleased fixes since 1.60.0. Prompted by sdlc's cutover, whose first pilots failed XII (#217) |
+| 1.60.0 | 2026-11-22 | Every published image is signed and attested (Container Image IX, profile 1.16.0; sdlc#88). From this release a `container-release.yml` call MUST pass `sign: true`, every repo that publishes MUST be in `cosign_signers` (now all 64 image repos), and a custom release workflow MUST promote in a job of the `cosign-signing` environment. With `sign: true`, promote attests a syft SPDX SBOM (#203) and SLSA v1 provenance naming the run that built the digest (#204) with the fleet key, before any tag moves, each scanned or written in a step that holds no key. `scripts/provision-cosign-env.py` is the one way the key reaches a signer: it writes and verifies the gate (environment branch rules, a `cosign release tags` ruleset bypassed only by the Ashigaru App, protected default branch) before setting the key (a925, a938). XII: crunchtools/python-sdlc is now crunchtools/sdlc; the old hooks URL and bootstrap still pass, and sdlc#82's self-verifying bootstrap is accepted. `fleet-bump.yml` runs fleet rollouts from the pipeline (a867). Prompted by the a976 audit: 50 of 70 images key-signed outside any gate, 20 unsigned, none attested |
+| 1.59.0 | 2026-11-21 | One change, one pull request per repo (Git Workflow): a change ships as one PR in each repo it touches, one commit per step, never a PR per part; it splits only where it truly lives in another repo. Also: `fleet-bump.py --zizmor-callers` justifies the dangerous triggers in each repo's Gatehouse and Ashigaru callers (a860). Prompted by a seat planning three PRs for one fix (a872) |
+| 1.58.0 | 2026-11-21 | zizmor audits every repo's GitHub Actions workflows (XV rule 8): a job in `validate.yml`, so every repo calling it at `@v1` gets it with no edit, runs zizmor 1.32.0 under the fleet policy `zizmor.yml` and uploads SARIF to code scanning. Advisory: it never fails and is not required. A caller must grant `security-events: write` for the upload (`examples/constitution.yml`); without it, or on a private repo without Advanced Security, the findings stay in the log. The constitution's own workflows are clean: third-party actions pinned by SHA, the downstream dispatch token scoped to its repos, the `pull_request_target` and `workflow_run` triggers justified inline (Gatehouse checks out no pull request; Ashigaru's `fix.yml` checks out only its own app-authored `ashigaru/` branch in the same repo). Prompted by RT#1662 (a854) |
+| 1.57.0 | 2026-11-21 | Dependency updates move from Dependabot to Renovate under one policy (XV): `renovate/default.json`, versioned by `v1` and applied org-wide through `crunchtools/renovate-config` (canonical copy `renovate/org-inherited-config.json`), so a policy change is one commit here. Non-security updates wait 7 days where the registry publishes release times, otherwise the weekly window; vulnerability fixes skip the wait. A repo may not shorten the cooldown (`minimumReleaseAge`, `stabilityDays`, `config:best-practices`, `security:minimumReleaseAge*` are rejected). Dependabot config is accepted until 1.60.0. `fleet-bump.py --renovate` deletes Dependabot config, cutting only the auto-merge job from mixed workflows. Prompted by RT#1662 (a851, #195) |
+| 1.56.0 | 2026-11-20 | `container-release.yml` input `outside-image`: a pull request, merge or tag that changes only files the Containerfile never COPYs (VERSION, CHANGELOG.md) reuses its base's gated digest instead of building, so a release is a tag move and a feature costs one build; a change under `.github/` and the old path of a rename always build. Prompted by the bootc images spending 12-14 minutes rebuilding identical bytes on every release (RT#1660, #193) |
+| 1.55.0 | 2026-11-20 | `container-release.yml` builds an `rhsm: true` image on a Dependabot pull request without the RHSM secrets, which GitHub withholds from Dependabot runs, instead of failing, and never pushes that unsubscribed build, so the merge rebuilds with the subscription. Every other run with `rhsm: true` and no key still fails. Prompted by every Dependabot PR in RHSM repos failing `container/build`, so green minor/patch bumps never auto-merged (a805, #191) |
+| 1.54.0 | 2026-11-19 | Dependabot auto-merge (XV rule 4) covers every ecosystem: any green minor or patch bump is queued for auto-merge; majors and unclassified updates still wait for a human (a709, #189) |
+| 1.53.1 | 2026-11-19 | Fix: `container-release.yml` keys its promote concurrency group and its failed-schedule alert issue on the image, not the repo, so two images in one repo (trentina and trentina-demo) no longer cancel each other or close each other's alert (#187) |
+| 1.53.0 | 2026-11-19 | Container Image VII (profile 1.15.0): a build artifact image may be pushed outside `container-release.yml` when the workflow is dispatch/schedule only; the job's `if:` requires `github.ref == 'refs/heads/main'`; every tag is a literal around `github.sha` or `github.run_id` on a literally spelled `quay.io/crunchtools/<name>`; and a `FROM` line in the repo pins it by digest. Fails closed. XII: commits Gatehouse carries over an unchanged-patch rebase count as on the PR. Prompted by trentina's L2 model image (trentina#842) |
+| 1.52.1 | 2026-11-19 | `trentina` leaves `container_release_custom` and calls `container-release.yml` like the rest of the fleet |
+| 1.52.0 | 2026-11-19 | XII Triage: in a repo inheriting v1.52.0 or later, the Gatehouse triage job MUST have `needs: review`, `if: always()` and pass `review_result: ${{ needs.review.result }}`, and pin triage.yml at v0.32.0 or later, so a PR whose review job died before posting is held (gatehouse#161). Container Image profile 1.14.0 (IX): `examples/container.yml` signs, an image a bootc host runs MUST sign, and the `cosign-signing` environment MUST be provisioned before `sign: true` (rhel10-bootc-server#47) |
+| 1.51.1 | 2026-11-19 | Fixes: a floating major tag push (`v4`) no longer starts a refused container promote; examples trigger on `v*.*.*` (#176). `claude-supervisor` exempt beside `claude-agent` in `container_release_unpublished` ahead of the rename. |
+| 1.51.0 | 2026-11-18 | container-release.yml gains an `alert` job (continue-on-error): a failed scheduled release opens one `container-release` issue, a repeat comments on it, and a passing run closes it. Callers grant `issues: write` to the calling job to get the issue; without it the job only warns. |
+| 1.31.0 | 2026-11-04 | `sdlc ci` MUST be a required status check on the default branch, through an org ruleset rather than per-repo, and `fleet-drift.py` audits that ruleset's repo list against the repos XII applies to in both directions. Prompted by the v1.30.0 rollout: the conversion left the check advisory in all 33 repos, and auto-merge — Dependabot's and python-sdlc's own bump pull requests — merges on required checks alone, so a red `sdlc ci` would have landed every future bump. The reverse gap is as bad and had a live example: acquacotta's branch protection still required a `Python Tests` check the conversion had deleted, so a check that could never report again blocked every merge until it was found |
+| 1.30.0 | 2026-11-04 | Python repos run their checks through python-sdlc (XII): one image, pinned at one release, three commands — `sdlc commit` at pre-commit, `sdlc push` at pre-push, `sdlc ci` in CI — each configured by the `pyproject.toml` block of the same name. Commit is seconds and offline; push renders the verdicts and never builds a container; CI runs push's checks except the two reviewers it gets from their own workflows, plus the repo's own. Repo checks are named kinds, never shell. Non-Python repos keep the standalone Gourmand and Gatehouse hooks. The validator requires the shape for repos inheriting v1.30.0, so a Python repo takes this version in the same pull request that converts it. Prompted by an audit of 35 Python repos (nine ruff versions, 15 with no type checker, 17 dependency scans that could not fail) and trentina's laptop running a two-week-old Gatehouse while CI ran a fresh one |

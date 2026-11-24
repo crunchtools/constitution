@@ -1037,8 +1037,8 @@ MAJOR_TAG = re.compile(r"^v(\d+)$")
 
 
 def own_version() -> str | None:
-    """The constitution version this validator ships with (constitution.md header)."""
-    source = CONSTITUTION_DIR / "constitution.md"
+    """The constitution version this validator ships with (v1/constitution.md header)."""
+    source = CONSTITUTION_DIR / "v1" / "constitution.md"
     if not source.is_file():
         return None
     # The first header line: parse_header keeps the last, which is VII's template.
@@ -1072,7 +1072,7 @@ def fleet_section_titles(profiles: list[str]) -> dict[str, str]:
     unnumbered headings inside it are not fleet-owned.
     """
     owned: dict[str, str] = {}
-    sources = [CONSTITUTION_DIR / "constitution.md"] + [
+    sources = [CONSTITUTION_DIR / "v1" / "constitution.md"] + [
         CONSTITUTION_DIR / "profiles" / f"{p.lower().replace(' ', '-')}.md" for p in profiles
     ]
     for source in sources:
