@@ -7,7 +7,7 @@ set -euo pipefail
 prefix=${RENOVATE_PREFIX:-/opt/renovate}
 bin=$prefix/node_modules/.bin
 pkg=$prefix/node_modules/renovate
-RENOVATE=$(node -p "require('$pkg/package.json').version")
+RENOVATE_VERSION=$(node -p "require('$pkg/package.json').version")
 
 echo "=== The preset ==="
 "$bin/renovate-config-validator" --strict --no-global renovate/default.json
@@ -19,8 +19,8 @@ echo "=== The self-hosted global config ==="
 if [ -f .github/workflows/renovate.yml ]; then
   echo "=== The self-hosted run uses the Renovate validated here ==="
   runs=$(grep -o 'renovatebot/renovate:[0-9][0-9.]*' .github/workflows/renovate.yml | sort -u | cut -d: -f2)
-  [ "$RENOVATE" = "$runs" ] || {
-    echo "ERROR: sdlc's gate validates with Renovate $RENOVATE, renovate.yml runs $runs; move renovate.yml to it"
+  [ "$RENOVATE_VERSION" = "$runs" ] || {
+    echo "ERROR: sdlc's gate validates with Renovate $RENOVATE_VERSION, renovate.yml runs $runs; move renovate.yml to it"
     exit 1
   }
 fi
