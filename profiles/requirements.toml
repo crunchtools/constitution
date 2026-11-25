@@ -81,6 +81,7 @@ sdlc_launcher = ".sdlc/bin/sdlc"
 sdlc_bootstrap_sha256 = [
   "6c4691c4aea0be66d6a6acd2efdf191a5038a1b3b8396b2fc60d14cd419eca72",  # python-sdlc#62 at a483867
   "fb2d76cfeed00f7df2e0bc992b62240c98a647ecf85a5377581c293612fdfbe4",  # sdlc#82 at 6a59496 (self-verify)
+  "c5c1a58c199741c6b713ab204e4ddaf15957c4d3a2dbcda76fac55f79da0d302",  # sdlc 0.15.8 at d80c2bc (trusts sdlc's own release key, sdlc#189)
 ]
 # The sdlc-bootstrap images the fleet file's jobs may run in, by digest (since
 # 1.61.0). It verifies and runs the signed sdlc, so it is the trust root: a
