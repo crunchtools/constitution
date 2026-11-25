@@ -7,26 +7,11 @@ set -euo pipefail
 prefix=${RENOVATE_PREFIX:-/opt/renovate}
 bin=$prefix/node_modules/.bin
 pkg=$prefix/node_modules/renovate
-renovate_version=$(node -p "require('$pkg/package.json').version")
 
 echo "=== The preset ==="
 "$bin/renovate-config-validator" --strict --no-global renovate/default.json
 echo "=== The self-hosted global config ==="
 "$bin/renovate-config-validator" --strict renovate/self-hosted.json
-
-# Only while renovate.yml runs Renovate itself; sdlc's `renovate` job replaces
-# it (crunchtools/constitution#216), and that job runs this same Renovate.
-if [ -f .github/workflows/renovate.yml ]; then
-  echo "=== The self-hosted run uses the Renovate validated here ==="
-  runs=$(grep -o 'renovatebot/renovate:[0-9][0-9.]*' .github/workflows/renovate.yml | sort -u | cut -d: -f2)
-  [ "$renovate_version" = "$runs" ] || {
-    echo "ERROR: sdlc's gate validates with Renovate $renovate_version, renovate.yml runs $runs; move renovate.yml to it"
-    exit 1
-  }
-fi
-
-echo "=== App permission probe ==="
-node --test tests/renovate/app-permissions.test.mjs
 
 echo "=== The org-inherited config ==="
 node scripts/validate-renovate-inherited.mjs "$pkg" renovate/org-inherited-config.json

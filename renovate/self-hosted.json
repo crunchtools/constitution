@@ -1,6 +1,6 @@
 {
   "description": [
-    "Global config for the self-hosted Renovate run (.github/workflows/renovate.yml).",
+    "Global config for the self-hosted Renovate run (the sdlc fleet ci.yml renovate job).",
     "Every crunchtools/* repo inherits renovate/org-inherited-config.json from this",
     "repo's default branch, which turns off onboarding, makes a repo config optional",
     "and extends renovate/default.json at v1. Forks are processed: a forked MCP server",

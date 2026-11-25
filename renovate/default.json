@@ -3,7 +3,7 @@
   "description": [
     "Crunchtools dependency policy (constitution XV). Every repo gets it from",
     "renovate/org-inherited-config.json, which the self-hosted run",
-    "(.github/workflows/renovate.yml) has each repo inherit, and which extends this at the v1 tag.",
+    "(the sdlc fleet ci.yml renovate job) has each repo inherit, and which extends this at the v1 tag.",
     "Renovate never touches .github/workflows: the github-actions manager is off and the",
     "path is ignored (ignorePaths replaces config:recommended's list, so it is restated here).",
     "A policy change here is one commit, and reaches every repo when v1 moves."
