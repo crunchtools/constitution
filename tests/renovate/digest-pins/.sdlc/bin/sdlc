@@ -1,0 +1,4 @@
+# A repo's copy of the launcher: hashed against released bootstraps, so not extracted.
+# cosign v2.6.5, the signer's version: v3 keeps signatures where podman and
+# bootc cannot read them. The index digest, so every architecture gets it.
+COSIGN=ghcr.io/sigstore/cosign/cosign@sha256:ad281047f85c5e1fc6ffbc30c2b55be3b07b4032bef715a12122ce5829619aca

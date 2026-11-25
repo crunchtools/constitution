@@ -9,6 +9,17 @@ Entries through 1.14.0 are derived from the Ratification History table in
 
 ## [Unreleased]
 
+### Added
+- **The Renovate preset updates the digest pins the fleet carries outside
+  Containerfiles** (#223). Three regex `customManagers`: `image = "<repo>@sha256:..."  # <tag>`
+  and `image = "<repo>:<tag>[@sha256:...]"` in `sdlc.toml` and `pyproject.toml`'s
+  `[tool.sdlc.*]` tables, and the cosign pin in crunchtools/sdlc's
+  `bin/sdlc-bootstrap`. A repo's `.sdlc/bin/sdlc` is left alone: it must hash to
+  a released bootstrap, so it moves with sdlc's releases. cosign is held below v3,
+  whose signatures podman and bootc cannot read. `tests/renovate/validate.sh`
+  checks with Renovate's own extractor, offline, what the managers find in
+  `tests/renovate/digest-pins/` and what they skip.
+
 ### Changed
 - This repo's own CI is the fleet `ci.yml`. The `validate` and `renovate` jobs
   are `sdlc ci` checks (`tests/validate-fixtures.sh`, `tests/renovate/validate.sh`);
