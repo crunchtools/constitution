@@ -377,9 +377,10 @@ jobs:
 
 
 # This repo's own Gatehouse caller as it stood before its triggers were justified:
-# the shipped guard job and two calls into Gatehouse.
+# the shipped guard job and two calls into Gatehouse. A fixture since the repo
+# moved onto the fleet ci.yml, which deleted .github/workflows/gatehouse.yml.
 OWN_CALLER = (
-    (Path(__file__).resolve().parents[1] / ".github" / "workflows" / "gatehouse.yml")
+    (Path(__file__).resolve().parent / "fixtures" / "gatehouse-caller.yml")
     .read_text()
     .replace(
         "  pull_request_target:  # zizmor: ignore[dangerous-triggers]\n", "  pull_request_target:\n"

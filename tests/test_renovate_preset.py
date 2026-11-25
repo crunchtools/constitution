@@ -1,6 +1,6 @@
 """renovate/default.json: the fleet's dependency policy (XV), held to its rules.
 
-ci.yml's renovate-config-validator proves the preset is valid Renovate config;
+tests/renovate/validate.sh's renovate-config-validator proves the preset is valid Renovate config;
 these prove it still says what XV says, so a later edit that quietly drops the
 age gate, the vulnerability exemption or the major hold fails here.
 """
