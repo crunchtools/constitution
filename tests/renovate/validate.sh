@@ -89,6 +89,7 @@ got = sorted(
 )
 want = sorted([
     ("sdlc.toml", "ghcr.io/astral-sh/uv", "0.13.7-python3.14-trixie-slim", "sha256:e80c05a31040"),
+    ("sdlc.toml", "ghcr.io/astral-sh/uv", "0.13.7-python3.12-trixie", "sha256:be23e58d8beb"),
     ("pyproject.toml", "ghcr.io/astral-sh/uv", "0.13.7-python3.11-trixie", ""),
     ("bin/sdlc-bootstrap", "ghcr.io/sigstore/cosign/cosign", "v2.6.5", "sha256:ad281047f85c"),
 ])
@@ -97,4 +98,8 @@ for row in got:
 if got != want:
     sys.exit(f"ERROR: expected exactly {want}")
 PY
+# What an update writes back, through Renovate's own autoReplace, and that the
+# cosign rule holds v3 back, through its own package rules and version filter.
+echo "=== customManagers rewrite the pins they find ==="
+RENOVATE_PKG="$pkg" RENOVATE_X_IGNORE_RE2=true node --test tests/renovate/digest-pins.test.mjs
 echo "PASS: Renovate configs"
