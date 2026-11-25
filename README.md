@@ -20,9 +20,6 @@ on in those tags and are gone from `main`.
 - `keys/`: the fleet cosign public key the signed releases verify against.
 - `scripts/provision-cosign-env.py` puts the fleet cosign key into each signer's
   `cosign-signing` environment, and rotates it.
-- `scripts/major_tag.py` (`major-tag.yml`) moves the major tag to each published release.
-- The reusable `container-release.yml` and `dependency-audit.yml`, with callers in
-  `examples/`.
 
 ## License
 
