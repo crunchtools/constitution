@@ -9,6 +9,14 @@ Entries through 1.14.0 are derived from the Ratification History table in
 
 ## [Unreleased]
 
+### Changed
+- This repo's own CI is the fleet `ci.yml`. The `validate` and `renovate` jobs
+  are `sdlc ci` checks (`tests/validate-fixtures.sh`, `tests/renovate/validate.sh`);
+  the Gourmand, Gatehouse, Constitution, Ashigaru and Dependabot workflows and
+  `.github/dependabot.yml` are gone. The reusable workflows the fleet still
+  calls, and the Renovate, fleet-bump, fleet-drift, major-tag, cascade and
+  canary workflows, stay.
+
 ## [2.0.0] - 2026-11-24
 
 ### Changed

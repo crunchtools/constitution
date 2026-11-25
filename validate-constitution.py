@@ -455,6 +455,23 @@ def _always_runs(block: dict) -> bool:
 # sdlc's fleet file (sdlc docs/marketplace-free-ci.md): one ci.yml whose
 # required `check` job runs `sdlc event` inside sdlc-bootstrap, by digest.
 FLEET_CHECK = re.compile(r"sdlc / check \(")
+# Since sdlc 0.15 the check runs on the runner's own podman instead of in a
+# `container:` job: one step, sdlc's examples/ci.yml byte for byte, starting
+# the bootstrap image by digest. Matched whole, so nothing can be added to it.
+FLEET_HOST_RUN = re.compile(
+    re.escape(
+        "sudo systemctl start podman.socket && sudo chmod 0711 /run/podman && "
+        'sudo chown "$(id -u)" /run/podman/podman.sock && '
+        "podman --remote --url unix:///run/podman/podman.sock run --rm --user 0 "
+        "--security-opt label=disable -v /run/podman/podman.sock:/var/run/docker.sock "
+        '-v "${RUNNER_WORKSPACE%/*}:${RUNNER_WORKSPACE%/*}" -w "$GITHUB_WORKSPACE" '
+        "--env 'GITHUB_*' --env 'RUNNER_*' --env 'ACTIONS_*' --env CI --env 'SDLC_*' "
+        "--env VERSION --env DIGEST --env 'QUAY_*' --env 'RHSM_*' "
+        "--env 'REGISTRY_REDHAT_IO_*' --env 'COSIGN_*' --env 'ASHIGARU_*' "
+        "--env 'RENOVATE_*' --env CLAUDE_CODE_OAUTH_TOKEN --env OPENROUTER_API_KEY "
+    )
+    + r"(quay\.io/crunchtools/sdlc-bootstrap@sha256:[0-9a-f]{64}) event"
+)
 FLEET_IMAGE = re.compile(r"quay\.io/crunchtools/sdlc-bootstrap@(sha256:[0-9a-f]{64})")
 # The check's `if:` routes events: a list of them, then optionally `|| ...`. An
 # `||` cannot unset a true first term, so a pull request always runs it.
@@ -486,6 +503,12 @@ def _fleet_check(job: dict, where: str, images: list[str]) -> tuple[bool, list[s
     image = str(container.get("image", "")) if isinstance(container, dict) else str(container or "")
     steps = [step for step in job.get("steps") or [] if isinstance(step, dict)]
     runs = [step for step in steps if str(step.get("run", "")).strip() == "sdlc event"]
+    if not runs and container is None:
+        hosted = [
+            (step, FLEET_HOST_RUN.fullmatch(str(step.get("run", "")).strip())) for step in steps
+        ]
+        runs = [step for step, m in hosted if m]
+        image = next((m.group(1) for _, m in hosted if m), "")
     if not runs:
         return False, []
     violations = []

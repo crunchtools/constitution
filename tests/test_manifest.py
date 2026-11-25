@@ -1205,8 +1205,13 @@ def test_only_the_docker_directory_is_read(repo):
 
 
 def test_the_dependabot_template_holds_back_the_python_base_minor(repo):
-    """The commented docker block in the canonical template passes the check."""
-    template = (ROOT / ".github/dependabot.yml").read_text()
+    """The commented docker block in the canonical template passes the check.
+
+    The template was this repo's own .github/dependabot.yml until the repo moved
+    onto the fleet ci.yml and Renovate; a repo that still carries one is judged
+    by it.
+    """
+    template = (ROOT / "tests/fixtures/dependabot-template.yml").read_text()
     block = template[template.index('  # - package-ecosystem: "docker"') :]
     docker = "\n".join(line.replace("  # ", "  ", 1) for line in block.splitlines())
     with_docker(repo, docker + "\n", "FROM quay.io/hummingbird/python:3.14\n")

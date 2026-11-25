@@ -63,3 +63,22 @@ skip = ["semgrep", "constitution"]
 
 [tool.sdlc]
 repo-kinds = ["governance"]
+
+# What ci.yml's own jobs ran beside `sdlc ci`, as scripts sdlc runs.
+[tool.sdlc.ci]
+checks = ["validate-fixtures", "renovate-config"]
+
+# The validator against fixture constitutions that must pass and ones that
+# must fail (was ci.yml's `validate` job). It imports PyYAML, which the gate
+# image does not carry, so it runs in the locked dev environment.
+[tool.sdlc.ci.validate-fixtures]
+kind = "command"
+argv = ["uv", "run", "--locked", "bash", "tests/validate-fixtures.sh"]
+env = { UV_PROJECT_ENVIRONMENT = "/tmp/venv", UV_PYTHON_DOWNLOADS = "never" }
+network = true
+
+# The Renovate preset and configs, judged by the Renovate sdlc's gate image
+# ships (was ci.yml's `renovate` job).
+[tool.sdlc.ci.renovate-config]
+kind = "command"
+argv = ["bash", "tests/renovate/validate.sh"]

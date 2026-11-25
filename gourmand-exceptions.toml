@@ -109,3 +109,9 @@ check = "CH008-summary_litter"
 path = "v1/constitution.md"
 justification = "The v1 constitution text, kept at this path so repositories still on v1 are judged by it until they convert to 2.0.0 (RT #1666). Removed when the fleet has moved."
 classification = "by_design"
+
+[[exceptions]]
+check = "CH001-absolute_paths"
+path = "pyproject.toml"
+justification = "UV_PROJECT_ENVIRONMENT names a path inside the sdlc command check container, on the tmpfs sdlc mounts as its only writable place; no host path"
+classification = "by_design"

@@ -68,22 +68,27 @@ def test_the_fleet_is_in_report_mode():
     assert V.load_requirements()["fleet"]["third_party_pins"] == "report"
 
 
-def unpinned_copy(tmp_path: Path) -> Path:
-    """This repo with one action moved back to a tag: its own workflows are pinned."""
+def unpinned_copy(tmp_path: Path) -> tuple[Path, str]:
+    """This repo with one action moved back to a tag, and the workflow it is in.
+
+    Its own workflows are pinned, and since constitution v2 it has no manifest,
+    so the copy gets a minimal Governance one from tests/fixtures.
+    """
     root = tmp_path / "constitution"
     shutil.copytree(ROOT, root, ignore=shutil.ignore_patterns(".git", ".venv", "__pycache__"))
     (root / ".git").mkdir()
-    ci = root / ".github/workflows/ci.yml"
-    ci.write_text(
-        re.sub(
-            r"actions/checkout@[0-9a-f]{40}[^\n]*", "actions/checkout@v7", ci.read_text(), count=1
-        )
-    )
-    return root
+    manifest = root / ".specify/memory/constitution.md"
+    manifest.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy(ROOT / "tests/fixtures/governance-constitution.md", manifest)
+    pinned = re.compile(r"actions/checkout@[0-9a-f]{40}[^\n]*")
+    flows = sorted((root / ".github/workflows").glob("*.yml"))
+    flow = next(f for f in flows if pinned.search(f.read_text()))
+    flow.write_text(pinned.sub("actions/checkout@v7", flow.read_text(), count=1))
+    return root, flow.name
 
 
 def test_report_mode_warns_and_still_passes(tmp_path):
-    root = unpinned_copy(tmp_path)
+    root, flow = unpinned_copy(tmp_path)
     done = subprocess.run(
         [
             sys.executable,
@@ -96,7 +101,7 @@ def test_report_mode_warns_and_still_passes(tmp_path):
     )
     assert done.returncode == 0, done.stdout
     assert "third-party ref(s) not pinned by SHA (report only" in done.stdout
-    assert "PINS: ci.yml uses actions/checkout@v7" in done.stdout
+    assert f"PINS: {flow} uses actions/checkout@v7" in done.stdout
 
 
 def test_enforce_mode_fails(tmp_path, monkeypatch):
@@ -114,7 +119,7 @@ def test_enforce_mode_fails(tmp_path, monkeypatch):
 
 
 def test_report_mode_annotates_in_ci(tmp_path):
-    root = unpinned_copy(tmp_path)
+    root, flow = unpinned_copy(tmp_path)
     env = {"GITHUB_ACTIONS": "true", "PATH": "/usr/bin:/bin"}
     done = subprocess.run(
         [
@@ -128,4 +133,4 @@ def test_report_mode_annotates_in_ci(tmp_path):
         env=env,
     )
     assert done.returncode == 0, done.stdout
-    assert "::warning title=Third-party pin::PINS: ci.yml uses actions/checkout@v7" in done.stdout
+    assert f"::warning title=Third-party pin::PINS: {flow} uses actions/checkout@v7" in done.stdout
