@@ -168,8 +168,8 @@
       "description": [
         "cosign in crunchtools/sdlc's launcher, bin/sdlc-bootstrap: `COSIGN=<repo>@sha256:...`",
         "under a `# cosign vX.Y.Z` comment that names the tag. Only the source file: a",
-        "repo's .sdlc/bin/sdlc must hash to a released bootstrap (validate-constitution.py,",
-        "sdlc_bootstrap_sha256), so it moves when sdlc releases, never by its own PR."
+        "repo's .sdlc/bin/sdlc must hash to a released bootstrap, so it moves when sdlc",
+        "releases, never by its own PR."
       ],
       "customType": "regex",
       "managerFilePatterns": [

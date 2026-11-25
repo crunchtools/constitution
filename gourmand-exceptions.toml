@@ -6,60 +6,6 @@ path = "constitution.md"
 justification = "The org-level constitution is this repo's product. Every crunchtools repo and the Gatehouse Constitution agent link to constitution.md at the repo root by that path."
 classification = "by_design"
 
-[[exceptions]]
-check = "CH008-summary_litter"
-path = "profiles/autonomous-agent.md"
-justification = "Profile document for the Autonomous Agent profile. The name is the profile's name, referenced from constitution.md, validate-constitution.py and per-repo constitutions; 'agent' is the subject, not an AI status file."
-classification = "by_design"
-
-[[exceptions]]
-check = "CH008-summary_litter"
-path = "profiles/claude-skill.md"
-justification = "Profile document for the Claude Skill profile. The name is the profile's name, referenced from constitution.md and the CI profile check; 'claude' is the subject, not an AI status file."
-classification = "by_design"
-
-[[exceptions]]
-check = "CH009-random_scripts"
-path = "validate-constitution.py"
-justification = "Published entry point, not a stray script: .pre-commit-hooks.yaml exposes it as the validate-constitution hook (language: script, entry by root path), ci.yml runs it by path, and fleet repos invoke it from a checkout of this repo."
-classification = "by_design"
-
-[[exceptions]]
-check = "CH009-random_scripts"
-path = "validate-cascade.py"
-justification = "Entry point of the Validate Cascade workflow (.github/workflows/validate-cascade.yml runs `python validate-cascade.py --verbose`). The repo has no package; its two validators are the root-level tools."
-classification = "by_design"
-
-[[exceptions]]
-check = "CH001-absolute_paths"
-path = "validate-constitution.py"
-justification = "The flagged host path is not a filesystem access: it is a regex the Web Application check searches for in constitution text (the documented host directory convention), plus the violation message naming it. The validator never reads that directory."
-classification = "by_design"
-
-[[exceptions]]
-check = "EV013-hidden_env_config"
-path = "validate-cascade.py"
-justification = "GH_TOKEN (falling back to GITHUB_TOKEN) is the GitHub API credential, not a behavior toggle. It is required, documented in the module docstring ('Reads GH_TOKEN from the environment'), exits 2 with an explicit error when unset, and is set by validate-cascade.yml from the CRUNCHTOOLS_DISPATCH_TOKEN secret."
-classification = "by_design"
-
-[[exceptions]]
-check = "EV013-hidden_env_config"
-path = "validate-constitution.py"
-justification = "GH_TOKEN (falling back to GITHUB_TOKEN) is the GitHub API credential for the optional freshness and Host Config visibility checks, not a behavior toggle. validate.yml sets it from the workflow token; without it the API calls run unauthenticated and the stderr note says why a check degraded."
-classification = "by_design"
-
-[[exceptions]]
-check = "CH012-copy_paste_detection"
-path = "scripts/fleet_common.py"
-justification = "load_validator (spec_from_file_location, module_from_spec, exec_module) and extract_inherits_version (header lookup, regex search, group) share only a three-statement assign-call-return shape. No logic is shared; there is nothing to extract."
-classification = "gourmand_bug"
-
-[[exceptions]]
-check = "CH012-copy_paste_detection"
-path = "validate-constitution.py"
-justification = "check_gate_workflows and check_repo_files are both 'collect violations from a requirements table' loops but read different sources (parsed workflow jobs and triggers vs. files, LICENSE, dependabot.yml) against different rules. Merging them would produce one function that branches on what it is checking."
-classification = "by_design"
-
 # Ruff is not missing; it moved. Gourmand's IF001 looks for a literal
 # `ruff-check` hook id, and under python-sdlc (constitution XII, v1.30.0) ruff
 # runs inside the `sdlc-commit` hook, configured by [tool.ruff] in
@@ -103,12 +49,6 @@ path = "scripts/container_release.py"
 item = "_object"
 justification = "GitHub._object has five callers (tree, parent, changed, tip, on_branch), not one; it is the one place a non-object API answer is refused."
 classification = "gourmand_bug"
-
-[[exceptions]]
-check = "CH008-summary_litter"
-path = "v1/constitution.md"
-justification = "The v1 constitution text, kept at this path so repositories still on v1 are judged by it until they convert to 2.0.0 (RT #1666). Removed when the fleet has moved."
-classification = "by_design"
 
 [[exceptions]]
 check = "CH001-absolute_paths"

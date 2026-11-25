@@ -9,6 +9,19 @@ Entries through 1.14.0 are derived from the Ratification History table in
 
 ## [Unreleased]
 
+### Removed
+- **The v1 apparatus** (a1496). No fleet repository carries a
+  `.specify/memory/constitution.md` any more, so nothing on `main` is judged by
+  v1: `v1/constitution.md`, `profiles/` (the prose and `requirements.toml`),
+  `validate-constitution.py`, `validate-cascade.py`, `.pre-commit-hooks.yaml`,
+  `examples/constitution.yml` and `examples/dependabot-automerge.yml`, their
+  tests and fixtures, and the `validate-fixtures` check. `scripts/fleet-drift.py`
+  and `scripts/fleet-bump.py` audited and bumped v1 manifests through the
+  validator and go with it, as does `scripts/fleet_common.py`. The lists still
+  in use (Renovate's locked cooldown keys and presets, the cosign signers and
+  the release App) move to `fleet.toml`. v1 tags stay, so anything pinned to
+  one keeps working.
+
 ### Added
 - **The Renovate preset updates the digest pins the fleet carries outside
   Containerfiles** (#223). Three regex `customManagers`: `image = "<repo>@sha256:..."  # <tag>`

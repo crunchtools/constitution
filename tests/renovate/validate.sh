@@ -34,7 +34,7 @@ node scripts/validate-renovate-inherited.mjs "$pkg" renovate/org-inherited-confi
 echo "=== Locked presets cover every built-in cooldown preset ==="
 read -r keys patterns < <(python3 -c '
 import tomllib
-fleet = tomllib.load(open("profiles/requirements.toml", "rb"))["fleet"]
+fleet = tomllib.load(open("fleet.toml", "rb"))["fleet"]
 print(",".join(fleet["renovate_locked"]), ",".join(fleet["renovate_locked_presets"]))')
 node scripts/renovate-cooldown-presets.mjs "$pkg" "$keys" "$patterns"
 

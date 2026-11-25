@@ -8,95 +8,20 @@ versions or workflow shapes: those are decisions, and they live in the sdlc imag
 enforces the constitution. A repository declares its kinds in its sdlc config and puts
 what makes it different in a README section titled "What's different here".
 
-Until every repository has converted, repositories that still carry a
-`.specify/memory/constitution.md` are judged by v1: `v1/constitution.md`, `profiles/`,
-`validate-constitution.py` and the `v1` major tag. Everything below describes v1.
+Repositories pinned to a v1 tag keep working: the v1 text, profiles and validator live
+on in those tags and are gone from `main`.
 
-# v1 (legacy)
+## What else is here
 
-## Architecture
-
-A **universal core** defines principles that apply to every project. **Subsystem profiles** add requirements specific to each project type.
-
-```
-v1/constitution.md           Universal core (all projects)
-profiles/
-  mcp-server.md              MCP server requirements
-  container-image.md         Container image requirements
-  claude-skill.md            Claude Code skill requirements
-```
-
-## Profiles
-
-| Profile | Applies to | Key requirements |
-|---------|-----------|-----------------|
-| **MCP Server** | `mcp-*-crunchtools` repos | 5-layer security, 5 quality gates, 3 distribution channels, gourmand |
-| **Container Image** | `ubi10-*` repos | UBI base images, RHSM secret mounts, weekly rebuild schedule |
-| **Claude Skill** | `~/.claude/skills/*` | YAML frontmatter, phased workflows, user confirmation gates |
-
-## Per-Repo Constitution Format
-
-Every repo declares which profile it follows:
-
-```markdown
-# my-project Constitution
-
-> **Version:** 1.0.0
-> **Ratified:** 2026-03-03
-> **Status:** Active
-> **Inherits:** [crunchtools/constitution](https://github.com/crunchtools/constitution) v1.0.0
-> **Profile:** MCP Server
-```
-
-Per-repo constitutions remain **complete, standalone documents**. The `Inherits` header declares alignment — it's a governance reference, not a runtime dependency.
-
-## Validator
-
-`validate-constitution.py` checks per-repo constitutions for structural compliance.
-
-```bash
-# Validate a constitution
-python validate-constitution.py path/to/constitution.md
-
-# Override the profile (useful for testing)
-python validate-constitution.py path/to/constitution.md --profile "MCP Server"
-
-# Verbose output
-python validate-constitution.py path/to/constitution.md --verbose
-```
-
-**Manifest repos** (`Inherits` v1.18.0 or later) are judged by their files, not their prose. The validator checks:
-- the header: `Inherits`, and `Profile` (comma-separated for several)
-- no section restating a numbered section of the constitution or a declared profile
-- the gates, on the right triggers: Gourmand, the `Gatehouse` workflow (guard, review, triage), retriage, constitution validation, and Dependabot auto-merge for a repo not yet on Renovate
-- refs: crunchtools workflows at their major tag (an exact release is accepted, a branch or commit is not), and from v1.45.0 crunchtools tool images in hooks and CI at their floating tag (XV rule 5)
-- files: CHANGELOG, LICENSE (AGPL-3.0 unless the profile says otherwise), both pre-commit hooks, no `language: system` hook that needs a host install (v1.20.0+), no Renovate config that overrides the fleet's release-age cooldown (Renovate itself runs from the org config; until v1.60.0, Dependabot coverage where a repo still has it), and each profile's files, per [`profiles/requirements.toml`](profiles/requirements.toml)
-
-Repos still inheriting an older version get the pre-manifest prose checks.
-
-A repo is judged by the rules of the version `Inherits` names; one newer than the validator fails. `--freshness` warns when `Inherits` is more than one minor release behind. `--pinned` is accepted from older callers and does nothing.
-
-Exit code `0` = pass, `1` = violations found, `2` = usage error.
-
-## Adding to CI
-
-Copy these into the repo (see constitution.md VII, XII and XV):
-
-| Example | Destination |
-|---|---|
-| [`examples/constitution.yml`](examples/constitution.yml) | `.github/workflows/constitution.yml`: validation at the major tag (`@v1`) |
-| gatehouse [`examples/`](https://github.com/crunchtools/gatehouse/tree/master/examples) | `gatehouse.yml`, `gatehouse-retriage.yml`, `gourmand.yml`, pre-commit hooks |
-
-Then turn on `allow_auto_merge` for the repo.
-
-## Fleet tools
-
-- `scripts/fleet-drift.py` audits every non-archived repo in the org and exits `1` if any is out of policy. It runs as the `Fleet Drift` workflow, triggered weekly by Hermes.
-- `.github/workflows/major-tag.yml` (`scripts/major_tag.py`) moves `v1` to each published release, which is what delivers it to the fleet.
-- `scripts/fleet-bump.py` runs after a release is tagged. It opens a PR in each manifest repo that moves `Inherits` and turns any exact crunchtools workflow pin into its major tag, and queues it for auto-merge.
-- `scripts/fleet-bump.py --zizmor-callers` is the one-off that justifies the dangerous triggers in each repo's Gatehouse and Ashigaru callers.
-- The Fleet Bump workflow (`fleet-bump.yml`, `workflow_dispatch`) runs either of them in the pipeline with the crunchtools-ci App's token; it dry-runs by default and puts the repo count in the job summary.
-- `validate-cascade.py` checks that image rebuilds cascade along the `FROM` graph.
+- `renovate/`: the Renovate preset and the org-inherited config every repository runs
+  under, checked by `tests/renovate/validate.sh`.
+- `fleet.toml`: the fleet lists the scripts here act on (Renovate's locked cooldown keys,
+  the cosign signers and the release App).
+- `scripts/provision-cosign-env.py` puts the fleet cosign key into each signer's
+  `cosign-signing` environment, and rotates it.
+- `scripts/major_tag.py` (`major-tag.yml`) moves the major tag to each published release.
+- The reusable `container-release.yml` and `dependency-audit.yml`, with callers in
+  `examples/`.
 
 ## License
 
