@@ -39,6 +39,11 @@ Entries through 1.14.0 are derived from the Ratification History table in
   `tests/renovate/digest-pins/` and what they skip.
 
 ### Changed
+- The self-hosted Renovate run is the `renovate` job in the fleet `ci.yml`
+  (a1099). `renovate.yml`, the App-permission probe, its manifest and its test
+  are gone. `tests/renovate/validate.sh` validates the preset and global config
+  with the Renovate sdlc's gate image ships (`RENOVATE_VERSION`, 44.221.0), the
+  same Renovate that job runs.
 - This repo's own CI is the fleet `ci.yml`. The `validate` and `renovate` jobs
   are `sdlc ci` checks (`tests/validate-fixtures.sh`, `tests/renovate/validate.sh`);
   the Gourmand, Gatehouse, Constitution, Ashigaru and Dependabot workflows and
