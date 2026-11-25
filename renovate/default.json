@@ -113,6 +113,72 @@
         "major"
       ],
       "enabled": false
+    },
+    {
+      "description": [
+        "cosign stays on v2: v3 keeps signatures where podman and bootc cannot read",
+        "them, and the fleet signs with v2 (sdlc's bin/sdlc-bootstrap)."
+      ],
+      "matchDatasources": [
+        "docker"
+      ],
+      "matchPackageNames": [
+        "ghcr.io/sigstore/cosign/cosign"
+      ],
+      "allowedVersions": "<3"
+    }
+  ],
+  "customManagers": [
+    {
+      "description": [
+        "Images the sdlc config names in [tool.sdlc.*] tables (sdlc.toml, pyproject.toml),",
+        "which no built-in manager reads (#223). A digest pin carries its tag in a trailing",
+        "comment, `image = \"<repo>@sha256:<digest>\"  # <tag>`: the comment is what the",
+        "digest follows, and both move together. A pin with no comment names no tag to",
+        "follow and is left alone. localhost/ images are built by the check itself."
+      ],
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/(^|/)sdlc\\.toml$/",
+        "/(^|/)pyproject\\.toml$/"
+      ],
+      "matchStrings": [
+        "image\\s*=\\s*\"(?<depName>(?!localhost/)[^\"@:\\s]+)@(?<currentDigest>sha256:[0-9a-f]{64})\"[ \\t]*#[ \\t]*(?<currentValue>[^\\s\"#]+)"
+      ],
+      "datasourceTemplate": "docker",
+      "autoReplaceStringTemplate": "image = \"{{{depName}}}@{{{newDigest}}}\"  # {{{newValue}}}"
+    },
+    {
+      "description": [
+        "The same tables' tag references, `image = \"<repo>:<tag>\"` with or without",
+        "`@sha256:<digest>`: the tag moves, and docker:pinDigests pins it."
+      ],
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/(^|/)sdlc\\.toml$/",
+        "/(^|/)pyproject\\.toml$/"
+      ],
+      "matchStrings": [
+        "image\\s*=\\s*\"(?<depName>(?!localhost/)[^\"@:\\s]+):(?<currentValue>[^\"@\\s]+)(?:@(?<currentDigest>sha256:[0-9a-f]{64}))?\""
+      ],
+      "datasourceTemplate": "docker",
+      "autoReplaceStringTemplate": "image = \"{{{depName}}}:{{{newValue}}}{{#if newDigest}}@{{{newDigest}}}{{/if}}\""
+    },
+    {
+      "description": [
+        "cosign in crunchtools/sdlc's launcher, bin/sdlc-bootstrap: `COSIGN=<repo>@sha256:...`",
+        "under a `# cosign vX.Y.Z` comment that names the tag. Only the source file: a",
+        "repo's .sdlc/bin/sdlc must hash to a released bootstrap (validate-constitution.py,",
+        "sdlc_bootstrap_sha256), so it moves when sdlc releases, never by its own PR."
+      ],
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^bin/sdlc-bootstrap$/"
+      ],
+      "matchStrings": [
+        "# cosign (?<currentValue>v\\d+\\.\\d+\\.\\d+)[^\\n]*\\n(?:#[^\\n]*\\n)*COSIGN=(?<depName>[^@\\s]+)@(?<currentDigest>sha256:[0-9a-f]{64})"
+      ],
+      "datasourceTemplate": "docker"
     }
   ]
 }

@@ -1,0 +1,7 @@
+[project]
+name = "fixture"
+version = "0.0.1"
+
+[tool.sdlc.ci.py311]
+kind = "command"
+image = "ghcr.io/astral-sh/uv:0.13.7-python3.11-trixie"

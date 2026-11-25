@@ -1,0 +1,20 @@
+# Fixture for tests/renovate/validate.sh: what the preset's customManagers
+# must extract from a repo's sdlc config, and what they must leave alone.
+[tool.sdlc.ci.pin-tests]
+kind = "command"
+image = "ghcr.io/astral-sh/uv@sha256:e80c05a310400cfc90af00b5b7271ef9ad24816e3265e1162af8a678e1aad099"  # 0.13.7-python3.14-trixie-slim
+
+# A tag and its digest (a synthetic one: nothing here is pulled).
+[tool.sdlc.ci.py312]
+kind = "command"
+image = "ghcr.io/astral-sh/uv:0.13.7-python3.12-trixie@sha256:be23e58d8beb8f6d1bd0d4c5f9e8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c3d2e1f0"
+
+# No comment, so no tag to follow: not extracted.
+[tool.sdlc.ci.untagged]
+kind = "command"
+image = "ghcr.io/astral-sh/uv@sha256:e80c05a310400cfc90af00b5b7271ef9ad24816e3265e1162af8a678e1aad099"
+
+# Built by an image-build check in the same tier: not extracted.
+[tool.sdlc.ci.boot]
+kind = "command"
+image = "localhost/hermes:test"
