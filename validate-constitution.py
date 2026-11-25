@@ -460,7 +460,7 @@ FLEET_CHECK = re.compile(r"sdlc / check \(")
 # the bootstrap image by digest. Matched whole, so nothing can be added to it.
 FLEET_HOST_RUN = re.compile(
     re.escape(
-        'sudo systemctl start podman.socket && sudo chmod 0711 /run/podman && '
+        "sudo systemctl start podman.socket && sudo chmod 0711 /run/podman && "
         'sudo chown "$(id -u)" /run/podman/podman.sock && '
         "podman --remote --url unix:///run/podman/podman.sock run --rm --user 0 "
         "--security-opt label=disable -v /run/podman/podman.sock:/var/run/docker.sock "
@@ -504,7 +504,9 @@ def _fleet_check(job: dict, where: str, images: list[str]) -> tuple[bool, list[s
     steps = [step for step in job.get("steps") or [] if isinstance(step, dict)]
     runs = [step for step in steps if str(step.get("run", "")).strip() == "sdlc event"]
     if not runs and container is None:
-        hosted = [(step, FLEET_HOST_RUN.fullmatch(str(step.get("run", "")).strip())) for step in steps]
+        hosted = [
+            (step, FLEET_HOST_RUN.fullmatch(str(step.get("run", "")).strip())) for step in steps
+        ]
         runs = [step for step, m in hosted if m]
         image = next((m.group(1) for _, m in hosted if m), "")
     if not runs:
