@@ -17,6 +17,7 @@ on in those tags and are gone from `main`.
   under, checked by `tests/renovate/validate.sh`.
 - `fleet.toml`: the fleet lists the scripts here act on (Renovate's locked cooldown keys,
   the cosign signers and the release App).
+- `keys/`: the fleet cosign public key the signed releases verify against.
 - `scripts/provision-cosign-env.py` puts the fleet cosign key into each signer's
   `cosign-signing` environment, and rotates it.
 - `scripts/major_tag.py` (`major-tag.yml`) moves the major tag to each published release.
