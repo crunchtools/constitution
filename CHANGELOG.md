@@ -10,6 +10,10 @@ Entries through 1.14.0 are derived from the Ratification History table in
 ## [Unreleased]
 
 ### Removed
+
+- The v1 delivery workflows: `container-release.yml` and its canary, `dependency-audit.yml` and `major-tag.yml`, with their scripts, tests, `examples/` and the `.gemini/` review guide. No repository calls them since the fleet runs sdlc's `ci.yml`; `container-release.yml` was the last constitution user of the crunchtools-ci App (RT#1669).
+
+### Removed
 - **The v1 apparatus** (a1496). No fleet repository carries a
   `.specify/memory/constitution.md` any more, so nothing on `main` is judged by
   v1: `v1/constitution.md`, `profiles/` (the prose and `requirements.toml`),
