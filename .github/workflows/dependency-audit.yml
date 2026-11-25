@@ -14,8 +14,8 @@
 # default branch scripts/audit_alert.py keeps one alert issue in step with the
 # scan: created or rewritten while anything is vulnerable, closed by the first
 # clean scan, so a fix closes it minutes after it merges. The script is checked
-# out at this file's release, written below as a literal (`ref:`) for the same
-# reason as validate.yml. Copy examples/security.yml.
+# out at this file's release, written below as a literal (`ref:`) because a
+# reusable workflow cannot name its own ref (#42). Copy examples/security.yml.
 
 name: Dependency audit
 
@@ -58,7 +58,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: crunchtools/constitution
-          ref: v1.61.0
+          ref: v2.0.0
           path: .constitution
           persist-credentials: false
       - name: Install uv
