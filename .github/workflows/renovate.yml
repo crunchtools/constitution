@@ -16,8 +16,7 @@ name: Renovate
 # read-only token from it and writes nothing; a real run is workflow_dispatch
 # from main with dry-run off.
 #
-# Triggered weekly by Hermes via workflow_dispatch, like fleet-drift and
-# validate-cascade. Deliberately no schedule: trigger. A pull request that
+# Triggered weekly by Hermes via workflow_dispatch. Deliberately no schedule: trigger. A pull request that
 # changes the Renovate setup runs it too, always as a dry run: the policy change
 # is seen against the real fleet before it merges. Repos inherit the config on
 # main, so a pull request's own org-inherited-config.json is not what they read.

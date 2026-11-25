@@ -1,0 +1,97 @@
+# Fleet data the scripts here still read. What the fleet must do is in
+# constitution.md; how sdlc checks it is in the sdlc image. This file holds only
+# lists a script in this repo acts on.
+[fleet]
+# The Renovate config every repo inherits may be overridden anywhere except the
+# release-age cooldown: these keys (stabilityDays is the old name Renovate
+# migrates to minimumReleaseAge, 0 to none at all) ...
+renovate_locked = [
+  "minimumReleaseAge",
+  "minimumReleaseAgeBehaviour",
+  "internalChecksFilter",
+  "stabilityDays",
+]
+# ... and these built-in presets (fnmatch), which set them themselves or extend
+# one that does: config:best-practices brings security:minimumReleaseAgeNpm, a
+# 3-day packageRule that beats the fleet's 7. tests/renovate/validate.sh
+# recomputes the set from the pinned Renovate and fails if a release adds one
+# this list does not match.
+renovate_locked_presets = [
+  "config:best-practices",
+  "security:minimumReleaseAge*",
+]
+
+# Every repo that publishes an image, since every image is signed (sdlc#88).
+# scripts/provision-cosign-env.py puts the fleet key in each one's
+# cosign-signing environment, and rotates it, from one operator-held copy. A
+# repo is added here before it signs; a new image repo is added when created.
+cosign_signers = [
+  "acquacotta",
+  "ashigaru",
+  "constitution",
+  "data-collector",
+  "deployer",
+  "developer",
+  "expressvpn",
+  "fhl.dc2.crunchtools.com",
+  "gatehouse",
+  "gha-runner",
+  "google-workspace-mcp",
+  "gourmand",
+  "grype",
+  "hermes",
+  "immich",
+  "mcp-atlassian",
+  "mcp-cloudflare",
+  "mcp-feed-reader",
+  "mcp-gemini",
+  "mcp-github",
+  "mcp-gitlab",
+  "mcp-google-search-console",
+  "mcp-mediawiki",
+  "mcp-metsuke",
+  "mcp-nagios",
+  "mcp-notebooklm",
+  "mcp-pcloud",
+  "mcp-podman",
+  "mcp-request-tracker",
+  "mcp-rhhi",
+  "mcp-slack",
+  "mcp-syslog",
+  "mcp-systemd",
+  "mcp-trove",
+  "mcp-wordpress",
+  "mcp-workboard",
+  "memory",
+  "nagios",
+  "nagios-agent",
+  "newsletter",
+  "openbao",
+  "openclaw",
+  "pbs",
+  "petit",
+  "postfix",
+  "postiz",
+  "proxy",
+  "rhel10-bootc-server",
+  "rhel10-bootc-workstation",
+  "rotv",
+  "rt",
+  "sdlc",
+  "shiva",
+  "spanish",
+  "syslog",
+  "tig",
+  "trentina",
+  "ubi10-core",
+  "ubi10-httpd",
+  "ubi10-httpd-perl",
+  "ubi10-httpd-perl-mariadb",
+  "ubi10-httpd-php",
+  "ubi10-httpd-php-mariadb",
+  "ubi10-httpd-php-postgres",
+]
+# The App that tags merged release pull requests (ashigaru release-tag.yml mints
+# its token from ASHIGARU_CLIENT_ID). The only actor that may create, move or
+# delete a signer's v*.*.* tags; organization admins may not.
+cosign_release_app = "ashigaru-crunchtools"

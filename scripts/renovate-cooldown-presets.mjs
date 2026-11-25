@@ -1,6 +1,6 @@
 // Every built-in Renovate preset that sets a release-age cooldown key, itself or
-// through `extends`, must match a pattern in requirements.toml's
-// renovate_locked_presets, or a repo could extend it past the validator. A
+// through `extends`, must match a pattern in fleet.toml's
+// renovate_locked_presets, or a repo could extend it past the cooldown. A
 // Renovate release that adds one fails this until the list covers it.
 //
 // Usage: node scripts/renovate-cooldown-presets.mjs <renovate package dir> <keys> <patterns>

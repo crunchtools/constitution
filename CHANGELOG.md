@@ -9,6 +9,21 @@ Entries through 1.14.0 are derived from the Ratification History table in
 
 ## [Unreleased]
 
+### Removed
+- **The v1 apparatus** (a1496). No fleet repository carries a
+  `.specify/memory/constitution.md` any more, so nothing on `main` is judged by
+  v1: `v1/constitution.md`, `profiles/` (the prose and `requirements.toml`),
+  `validate-constitution.py`, `validate-cascade.py`, `.pre-commit-hooks.yaml`,
+  `examples/constitution.yml` and `examples/dependabot-automerge.yml`, their
+  tests and fixtures, and the `validate-fixtures` check. `scripts/fleet-drift.py`
+  and `scripts/fleet-bump.py` audited and bumped v1 manifests through the
+  validator and go with it, as does `scripts/fleet_common.py`. The lists still
+  in use (Renovate's locked cooldown keys and presets, the cosign signers and
+  the release App) move to `fleet.toml`. The v1-only workflows go too:
+  `validate.yml`, `validate-cascade.yml`, `fleet-drift.yml`, `fleet-bump.yml`
+  and `dependabot-automerge.yml`. v1 tags stay, so anything pinned to one keeps
+  working.
+
 ### Added
 - **The Renovate preset updates the digest pins the fleet carries outside
   Containerfiles** (#223). Three regex `customManagers`: `image = "<repo>@sha256:..."  # <tag>`
@@ -25,8 +40,11 @@ Entries through 1.14.0 are derived from the Ratification History table in
   are `sdlc ci` checks (`tests/validate-fixtures.sh`, `tests/renovate/validate.sh`);
   the Gourmand, Gatehouse, Constitution, Ashigaru and Dependabot workflows and
   `.github/dependabot.yml` are gone. The reusable workflows the fleet still
-  calls, and the Renovate, fleet-bump, fleet-drift, major-tag, cascade and
-  canary workflows, stay.
+  calls, and the Renovate, major-tag and canary workflows, stay.
+- The tests of `container-release.yml` and `dependency-audit.yml` move to
+  `tests/test_release_workflows.py`. Their `ref:` literals now track the newest
+  release in this CHANGELOG, not constitution.md's version, so each release PR
+  moves them.
 
 ## [2.0.0] - 2026-11-24
 

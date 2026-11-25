@@ -2,7 +2,7 @@
 
 > **Version:** 2.0.0
 > **Ratified:** 2026-11-24
-> **Status:** Active. Repositories still carrying a `.specify/memory/constitution.md` are judged by v1 (`v1/constitution.md` and `profiles/`) until they convert.
+> **Status:** Active
 
 This constitution says what must be true of every Crunchtools repository, and why. It never says how: tools, versions, digests, file layouts, job names and thresholds are decisions, and decisions live in the sdlc image, which enforces this document. When a tool or a version changes, sdlc gets a release and this document stays put. When this document and sdlc disagree, this document wins and sdlc has a bug.
 

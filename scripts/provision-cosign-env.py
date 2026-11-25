@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """Provision the fleet cosign key into each signing repo's `cosign-signing` environment.
 
-Container Image IX: the key and its password live as secrets of each signing
+The key and its password live as secrets of each signing
 repo's `cosign-signing` environment, which deploys only from the default branch
 and `v*.*.*` release tags. They are never organization or repository secrets:
 those reach every job on every branch, and the environment is the only thing
 keeping a pull request branch away from the key. The repos are `cosign_signers`
-in profiles/requirements.toml; this script is how the one operator-held copy of
+in fleet.toml; this script is how the one operator-held copy of
 the key reaches all of them, and how it is rotated.
 
 The environment is only as tight as the refs it trusts, so the gate has three
@@ -57,8 +57,7 @@ from collections.abc import Callable
 from functools import partial
 from pathlib import Path
 
-from fleet_common import ORG
-
+ORG = "crunchtools"
 ENV = "cosign-signing"
 SECRETS = ("COSIGN_PRIVATE_KEY", "COSIGN_PASSWORD")
 TAG = "v*.*.*"
@@ -67,7 +66,7 @@ TAG_RULES = ("creation", "deletion", "update")
 BRANCH_RULES = ("deletion", "non_fast_forward", "pull_request")
 # TAG as GitHub matches it (fnmatch, `*` never crossing `/`).
 RELEASE_TAG = re.compile(r"^v[^/]*\.[^/]*\.[^/]*$")
-REQUIREMENTS = Path(__file__).resolve().parents[1] / "profiles" / "requirements.toml"
+FLEET = Path(__file__).resolve().parents[1] / "fleet.toml"
 PEM_END = re.compile(r"^-----END [A-Z0-9 ]*PRIVATE KEY-----$")
 
 # subprocess.run, or a test's stand-in with the same keywords.
@@ -80,7 +79,7 @@ class Refused(Exception):
 
 
 def fleet() -> dict:
-    return tomllib.loads(REQUIREMENTS.read_text())["fleet"]
+    return tomllib.loads(FLEET.read_text())["fleet"]
 
 
 def signers(only: str | None) -> list[str]:
@@ -91,7 +90,7 @@ def signers(only: str | None) -> list[str]:
     wanted = only.split(",")
     unknown = [name for name in wanted if name not in listed]
     if unknown:
-        raise Refused(f"not in cosign_signers (profiles/requirements.toml): {', '.join(unknown)}")
+        raise Refused(f"not in cosign_signers (fleet.toml): {', '.join(unknown)}")
     return wanted
 
 
